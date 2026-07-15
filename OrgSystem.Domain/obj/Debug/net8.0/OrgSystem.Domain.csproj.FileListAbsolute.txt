@@ -1,0 +1,11 @@
+F:\portalc\OrgSystem.Domain\bin\Debug\net8.0\OrgSystem.Domain.deps.json
+F:\portalc\OrgSystem.Domain\bin\Debug\net8.0\OrgSystem.Domain.dll
+F:\portalc\OrgSystem.Domain\bin\Debug\net8.0\OrgSystem.Domain.pdb
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.GeneratedMSBuildEditorConfig.editorconfig
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.AssemblyInfoInputs.cache
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.AssemblyInfo.cs
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.csproj.CoreCompileInputs.cache
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.dll
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\refint\OrgSystem.Domain.dll
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.pdb
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\ref\OrgSystem.Domain.dll

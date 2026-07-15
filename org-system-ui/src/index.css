@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Vazirmatn', Tahoma, sans-serif;
+  direction: rtl;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+:root {
+  --primary: #8B1A6B;
+  --primary-light: #B5226F;
+  --primary-dark: #5C0F47;
+  --primary-gradient: linear-gradient(135deg, #5C0F47 0%, #B5226F 50%, #E91E8C 100%);
+  --primary-bg: #8B1A6B11;
+  --primary-border: #8B1A6B33;
+}
+
+/* Sidebar */
+.ant-layout-sider {
+  background: linear-gradient(180deg, #3D0A2E 0%, #5C0F47 100%) !important;
+}
+
+/* دکمه‌های primary */
+.ant-btn-primary {
+  background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
+  border: none !important;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #7A1560, #A01E63) !important;
+}
+
+/* تب‌های active */
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #8B1A6B !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #8B1A6B !important;
+}
+
+/* منوی sidebar */
+.ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
+}
+
+:root {
+  --primary: #8B1A6B;
+  --primary-light: #B5226F;
+  --primary-dark: #5C0F47;
+  --primary-gradient: linear-gradient(135deg, #5C0F47 0%, #B5226F 50%, #E91E8C 100%);
+  --primary-bg: #8B1A6B11;
+  --primary-border: #8B1A6B33;
+}
+
+.ant-layout-sider {
+  background: linear-gradient(180deg, #3D0A2E 0%, #5C0F47 100%) !important;
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
+  border: none !important;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #7A1560, #A01E63) !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #8B1A6B !important;
+}
+
+.ant-tabs-ink-bar {
+  background: #8B1A6B !important;
+}
+
+.ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
+}

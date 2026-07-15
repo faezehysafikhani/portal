@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PortalC: Backend",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "OrgSystem.API"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": "$msCompile",
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "PortalC: Frontend (5174)",
+      "type": "process",
+      "command": "npm.cmd",
+      "args": ["run", "dev"],
+      "options": { "cwd": "${workspaceFolder}/org-system-ui" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "PortalC: Run All",
+      "dependsOn": ["PortalC: Backend", "PortalC: Frontend (5174)"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "PortalC: Database Update",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["ef", "database", "update", "--project", "OrgSystem.Infrastructure", "--startup-project", "OrgSystem.API"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

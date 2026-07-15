@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "dgSpecHash": "6ndvzmtm7RE=",
+  "success": true,
+  "projectFilePath": "F:\\portalc\\OrgSystem.Application\\OrgSystem.Application.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\PARSPMI\\.nuget\\packages\\fluentvalidation\\11.10.0\\fluentvalidation.11.10.0.nupkg.sha512",
+    "C:\\Users\\PARSPMI\\.nuget\\packages\\fluentvalidation.dependencyinjectionextensions\\11.10.0\\fluentvalidation.dependencyinjectionextensions.11.10.0.nupkg.sha512",
+    "C:\\Users\\PARSPMI\\.nuget\\packages\\mediatr\\12.4.0\\mediatr.12.4.0.nupkg.sha512",
+    "C:\\Users\\PARSPMI\\.nuget\\packages\\mediatr.contracts\\2.0.1\\mediatr.contracts.2.0.1.nupkg.sha512",
+    "C:\\Users\\PARSPMI\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\8.0.0\\microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1900",
+      "level": "Warning",
+      "message": "Error occurred while getting package vulnerability data: Unable to load the service index for source https://api.nuget.org/v3/index.json.",
+      "projectPath": "F:\\portalc\\OrgSystem.Application\\OrgSystem.Application.csproj",
+      "warningLevel": 1,
+      "filePath": "F:\\portalc\\OrgSystem.Application\\OrgSystem.Application.csproj",
+      "targetGraphs": []
+    }
+  ]
+}

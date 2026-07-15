@@ -1,0 +1,17 @@
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Application.deps.json
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Application.dll
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Application.pdb
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Domain.dll
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Shared.dll
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Domain.pdb
+F:\portalc\OrgSystem.Application\bin\Debug\net8.0\OrgSystem.Shared.pdb
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.csproj.AssemblyReference.cache
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.GeneratedMSBuildEditorConfig.editorconfig
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.AssemblyInfoInputs.cache
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.AssemblyInfo.cs
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.csproj.CoreCompileInputs.cache
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSyste.A3FD802F.Up2Date
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.dll
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\refint\OrgSystem.Application.dll
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.pdb
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\ref\OrgSystem.Application.dll
