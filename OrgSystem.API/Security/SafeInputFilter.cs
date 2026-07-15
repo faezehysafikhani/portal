@@ -42,6 +42,16 @@ public sealed partial class SafeInputFilter : IActionFilter
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance).Where(p => p.CanRead))
         {
             var propertyValue = property.GetValue(value);
+            if (property.Name == "ImageData" && propertyValue is string imageData)
+            {
+                if (imageData.Length > 750_000 || !ImageDataUrl().IsMatch(imageData)) return "تصویر ارسالی معتبر نیست یا حجم آن بیش از حد مجاز است";
+                continue;
+            }
+            if (property.Name == "AttachmentData" && propertyValue is string attachmentData)
+            {
+                if (attachmentData.Length > 280_000 || !Base64Payload().IsMatch(attachmentData)) return "فایل ارسالی معتبر نیست یا حجم آن بیش از ۲۰۰ کیلوبایت است";
+                continue;
+            }
             if (property.Name == "Body" && propertyValue is string richText)
             {
                 if (richText.Length > 100_000 || RichTextDangerous().IsMatch(richText)) return "متن نامه شامل کد یا اسکریپت غیرمجاز است";
@@ -56,4 +66,8 @@ public sealed partial class SafeInputFilter : IActionFilter
     private static partial Regex Dangerous();
     [GeneratedRegex(@"<\s*/?\s*(script|iframe|object|embed|style|link|meta)|javascript\s*:|on(error|load|click|mouse\w*)\s*=", RegexOptions.IgnoreCase)]
     private static partial Regex RichTextDangerous();
+    [GeneratedRegex(@"^data:image/(png|jpeg);base64,[A-Za-z0-9+/=\r\n]+$", RegexOptions.IgnoreCase)]
+    private static partial Regex ImageDataUrl();
+    [GeneratedRegex(@"^[A-Za-z0-9+/=\r\n]+$")]
+    private static partial Regex Base64Payload();
 }

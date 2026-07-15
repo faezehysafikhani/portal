@@ -9,3 +9,4 @@ F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.dll
 F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\refint\OrgSystem.Domain.dll
 F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.pdb
 F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\ref\OrgSystem.Domain.dll
+F:\portalc\OrgSystem.Domain\obj\Debug\net8.0\OrgSystem.Domain.sourcelink.json

@@ -9,3 +9,4 @@ F:\portalc\OrgSystem.Shared\obj\Debug\net8.0\OrgSystem.Shared.dll
 F:\portalc\OrgSystem.Shared\obj\Debug\net8.0\refint\OrgSystem.Shared.dll
 F:\portalc\OrgSystem.Shared\obj\Debug\net8.0\OrgSystem.Shared.pdb
 F:\portalc\OrgSystem.Shared\obj\Debug\net8.0\ref\OrgSystem.Shared.dll
+F:\portalc\OrgSystem.Shared\obj\Debug\net8.0\OrgSystem.Shared.sourcelink.json

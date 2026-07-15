@@ -19,3 +19,4 @@ F:\portalc\OrgSystem.Infrastructure\obj\Debug\net8.0\refint\OrgSystem.Infrastruc
 F:\portalc\OrgSystem.Infrastructure\obj\Debug\net8.0\OrgSystem.Infrastructure.pdb
 F:\portalc\OrgSystem.Infrastructure\obj\Debug\net8.0\OrgSystem.Infrastructure.genruntimeconfig.cache
 F:\portalc\OrgSystem.Infrastructure\obj\Debug\net8.0\ref\OrgSystem.Infrastructure.dll
+F:\portalc\OrgSystem.Infrastructure\obj\Debug\net8.0\OrgSystem.Infrastructure.sourcelink.json

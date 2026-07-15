@@ -160,3 +160,4 @@ F:\portalc\OrgSystem.API\obj\Debug\net8.0\refint\OrgSystem.API.dll
 F:\portalc\OrgSystem.API\obj\Debug\net8.0\OrgSystem.API.pdb
 F:\portalc\OrgSystem.API\obj\Debug\net8.0\OrgSystem.API.genruntimeconfig.cache
 F:\portalc\OrgSystem.API\obj\Debug\net8.0\ref\OrgSystem.API.dll
+F:\portalc\OrgSystem.API\obj\Debug\net8.0\OrgSystem.API.sourcelink.json

@@ -15,3 +15,4 @@ F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.dll
 F:\portalc\OrgSystem.Application\obj\Debug\net8.0\refint\OrgSystem.Application.dll
 F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.pdb
 F:\portalc\OrgSystem.Application\obj\Debug\net8.0\ref\OrgSystem.Application.dll
+F:\portalc\OrgSystem.Application\obj\Debug\net8.0\OrgSystem.Application.sourcelink.json
