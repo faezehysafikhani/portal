@@ -6,6 +6,8 @@ import {
   LockOutlined, CopyOutlined, KeyOutlined
 } from '@ant-design/icons'
 
+const PUBLIC_APP_URL = (import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, '')
+
 interface Contact {
   id: string
   firstName: string
@@ -372,13 +374,13 @@ export default function ContactsPage() {
                   <div style={{ marginBottom: 16, padding: '12px 16px', background: '#e6f4ff', borderRadius: 8, fontSize: 13 }}>
                     <span style={{ color: '#1677ff' }}>🔗 آدرس پورتال:</span>
                     <span style={{ margin: '0 8px', fontFamily: 'monospace' }}>
-                      http://localhost:5173/customer-login
+                      {PUBLIC_APP_URL}/customer-login
                     </span>
                     <Tooltip title={copied ? 'کپی شد!' : 'کپی'}>
                       <Button
                         size="small"
                         icon={<CopyOutlined />}
-                        onClick={() => copyToClipboard('http://localhost:5173/customer-login')}
+                        onClick={() => copyToClipboard(`${PUBLIC_APP_URL}/customer-login`)}
                       />
                     </Tooltip>
                   </div>
