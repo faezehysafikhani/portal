@@ -1,42 +1,45 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
-import TasksPage from './pages/TasksPage'
-import LettersPage from './pages/LettersPage'
-import TicketsPage from './pages/TicketsPage'
-import UsersPage from './pages/UsersPage'
-import SmsPage from './pages/SmsPage'
-import FormsPage from './pages/FormsPage'
-import ReportsPage from './pages/ReportsPage'
-import SettingsPage from './pages/SettingsPage'
-import CompanyPage from './pages/CompanyPage'
-import ContactsPage from './pages/ContactsPage'
-import AiPage from './pages/AiPage'
-import ProjectsPage from './pages/ProjectsPage'
-import ProfilePage from './pages/ProfilePage'
-import ChatPage from './pages/ChatPage'
-import CalendarPage from './pages/CalendarPage'
-import MainLayout from './layouts/MainLayout'
-import CustomerLoginPage from './pages/CustomerLoginPage'
-import CustomerPortalPage from './pages/CustomerPortalPage'
-import PTMSDashboardPage from './pages/ptms/PTMSDashboardPage'
-import PortfolioPage from './pages/ptms/PortfolioPage'
-import PTMSProjectsPage from './pages/ptms/PTMSProjectsPage'
-import ProjectDetailPage from './pages/ptms/ProjectDetailPage'
-import MyTasksPage from './pages/ptms/MyTasksPage'
-import TasksMainPage from './pages/ptms/TasksMainPage'
-import FinancialPage from './pages/ptms/FinancialPage'
-import RisksPage from './pages/ptms/RisksPage'
-import IssuesPage from './pages/ptms/IssuesPage'
-import ChangesPage from './pages/ptms/ChangesPage'
-import PTMSReportsPage from './pages/ptms/PTMSReportsPage'
-import PTMSDocumentsPage from './pages/ptms/PTMSDocumentsPage'
+
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const DashboardPage = lazy(() => import('./pages/DashboardPage'))
+const TasksPage = lazy(() => import('./pages/TasksPage'))
+const LettersPage = lazy(() => import('./pages/LettersPage'))
+const TicketsPage = lazy(() => import('./pages/TicketsPage'))
+const UsersPage = lazy(() => import('./pages/UsersPage'))
+const SmsPage = lazy(() => import('./pages/SmsPage'))
+const FormsPage = lazy(() => import('./pages/FormsPage'))
+const ReportsPage = lazy(() => import('./pages/ReportsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const CompanyPage = lazy(() => import('./pages/CompanyPage'))
+const ContactsPage = lazy(() => import('./pages/ContactsPage'))
+const AiPage = lazy(() => import('./pages/AiPage'))
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
+const ChatPage = lazy(() => import('./pages/ChatPage'))
+const CalendarPage = lazy(() => import('./pages/CalendarPage'))
+const MainLayout = lazy(() => import('./layouts/MainLayout'))
+const CustomerLoginPage = lazy(() => import('./pages/CustomerLoginPage'))
+const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage'))
+const PTMSDashboardPage = lazy(() => import('./pages/ptms/PTMSDashboardPage'))
+const PortfolioPage = lazy(() => import('./pages/ptms/PortfolioPage'))
+const PTMSProjectsPage = lazy(() => import('./pages/ptms/PTMSProjectsPage'))
+const ProjectDetailPage = lazy(() => import('./pages/ptms/ProjectDetailPage'))
+const MyTasksPage = lazy(() => import('./pages/ptms/MyTasksPage'))
+const TasksMainPage = lazy(() => import('./pages/ptms/TasksMainPage'))
+const FinancialPage = lazy(() => import('./pages/ptms/FinancialPage'))
+const RisksPage = lazy(() => import('./pages/ptms/RisksPage'))
+const IssuesPage = lazy(() => import('./pages/ptms/IssuesPage'))
+const ChangesPage = lazy(() => import('./pages/ptms/ChangesPage'))
+const PTMSReportsPage = lazy(() => import('./pages/ptms/PTMSReportsPage'))
+const PTMSDocumentsPage = lazy(() => import('./pages/ptms/PTMSDocumentsPage'))
 
 function App() {
   const token = localStorage.getItem('token')
 
   return (
-    <Routes>
+    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'sans-serif' }}>در حال بارگذاری...</div>}>
+      <Routes>
       {/* مسیرهای مشتری */}
       <Route path="/customer-login" element={<CustomerLoginPage />} />
       <Route path="/customer-portal" element={<CustomerPortalPage />} />
@@ -85,7 +88,8 @@ function App() {
       ) : (
         <Route path="*" element={<Navigate to="/login" replace />} />
       )}
-    </Routes>
+      </Routes>
+    </Suspense>
   )
 }
 
