@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, Select, Button, Modal, Form, Input, Space, Tag, Avatar, Drawer, Table, Badge } from 'antd'
+import { Card, Select, Button, Modal, Form, Input, Space, Tag, Avatar, Drawer, Table, Badge, message } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, TeamOutlined, ApartmentOutlined } from '@ant-design/icons'
 import { useOrgChartStore } from '../store/orgChartStore'
 import type { OrgPosition } from '../store/orgChartStore'
@@ -156,7 +156,10 @@ export default function OrgChartPage() {
           headers: authHeaders(),
           body: JSON.stringify({ title: values.title, parentId: values.parentId || null, color: values.color })
         })
-        if (!res.ok) throw new Error()
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}))
+          throw new Error(error.message || 'ویرایش سمت ناموفق بود')
+        }
         updatePosition(editingPosition.id, values)
       } else {
         const res = await fetch(`${API}/positions`, {
@@ -164,14 +167,19 @@ export default function OrgChartPage() {
           headers: authHeaders(),
           body: JSON.stringify({ title: values.title, parentId: values.parentId || null, color: values.color })
         })
-        if (!res.ok) throw new Error()
+        if (!res.ok) {
+          const error = await res.json().catch(() => ({}))
+          throw new Error(error.message || 'ثبت سمت ناموفق بود')
+        }
         const data = await res.json()
         addPosition({ id: data.id, orgId: '1', title: data.title, parentId: data.parentId, color: data.color })
       }
 
       await fetchPositions()
       setPositionModal(false)
-    } catch {
+      message.success(editingPosition ? 'سمت ویرایش شد' : 'سمت در دیتابیس ذخیره شد')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'ثبت سمت ناموفق بود')
     } finally {
       setSaveLoading(false)
     }

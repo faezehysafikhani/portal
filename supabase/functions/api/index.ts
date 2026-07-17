@@ -235,10 +235,16 @@ async function positions(request: Request, auth: AuthContext, path: string): Pro
     failOnDb(result.error)
     return json(request, asCamel(result.data))
   }
-  const input = request.method === 'DELETE' ? {} : pascalize(await body<JsonObject>(request), ['Title', 'Description', 'ParentId'])
+  const rawInput = request.method === 'DELETE' ? {} : await body<JsonObject>(request)
+  const input = pascalize(rawInput, ['Title', 'Description', 'ParentId', 'Color', 'OrgId'])
   if (request.method === 'POST' && !match) {
     requirePermission(auth, 'positions.create')
-    const result = await db.from('OrgPositions').insert({ ...baseInsert(auth), ...input }).select().single()
+    const title = String(input.Title ?? '').trim()
+    if (!title) throw new HttpError(400, 'عنوان سمت الزامی است')
+    const result = await db.from('OrgPositions').insert({
+      ...baseInsert(auth), ...input, Title: title,
+      Color: String(input.Color ?? '#1677ff'), OrgId: String(input.OrgId ?? '1'), IsSystem: false,
+    }).select().single()
     failOnDb(result.error); return json(request, asCamel(result.data), 201)
   }
   if (request.method === 'PUT' && match) {
@@ -396,13 +402,34 @@ async function letterTemplates(request: Request, auth: AuthContext, path: string
   if (request.method === 'PUT' && match) {
     requirePermission(auth, 'settings.edit')
     const input = await body<JsonObject>(request)
-    const existing = await db.from('LetterTemplates').select('Id').eq('TenantId', auth.tenantId).eq('TemplateKey', decodeURIComponent(match[1])).maybeSingle()
+    const templateKey = decodeURIComponent(match[1])
+    const name = String(input.name ?? '').trim()
+    const imageData = String(input.imageData ?? '')
+    if (!name || !imageData) throw new HttpError(400, 'نام و تصویر قالب الزامی است')
+    const existing = await db.from('LetterTemplates').select('Id').eq('TenantId', auth.tenantId).eq('TemplateKey', templateKey).maybeSingle()
     failOnDb(existing.error)
-    const values = { Title: input.title, Body: input.body, UpdatedAt: now() }
+    const values = {
+      Name: name,
+      PaperSize: String(input.paperSize ?? 'A4'),
+      HasHeader: Boolean(input.hasHeader),
+      HasFooter: Boolean(input.hasFooter),
+      ImageData: imageData,
+      FileName: input.fileName ? String(input.fileName) : null,
+      IsActive: true,
+      IsDeleted: false,
+      DeletedAt: null,
+      UpdatedAt: now(),
+    }
     const result = existing.data
       ? await db.from('LetterTemplates').update(values).eq('Id', existing.data.Id).eq('TenantId', auth.tenantId).select().single()
-      : await db.from('LetterTemplates').insert({ ...baseInsert(auth), TemplateKey: decodeURIComponent(match[1]), ...values }).select().single()
+      : await db.from('LetterTemplates').insert({ ...baseInsert(auth), TemplateKey: templateKey, ...values }).select().single()
     failOnDb(result.error); return json(request, asCamel(result.data))
+  }
+  if (request.method === 'DELETE' && match) {
+    requirePermission(auth, 'settings.edit')
+    const result = await db.from('LetterTemplates').update({ IsDeleted: true, DeletedAt: now(), UpdatedAt: now() })
+      .eq('TenantId', auth.tenantId).eq('TemplateKey', decodeURIComponent(match[1]))
+    failOnDb(result.error); return new Response(null, { status: 204, headers: corsHeaders(request) })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
