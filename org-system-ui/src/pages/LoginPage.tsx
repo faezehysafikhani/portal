@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Form, Input, Button, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { useNavigate } from 'react-router-dom'
 
 function PersianClock() {
   const [time, setTime] = useState(new Date())
@@ -22,7 +21,6 @@ function PersianClock() {
 }
 
 export default function LoginPage() {
-  const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -44,7 +42,7 @@ export default function LoginPage() {
       localStorage.setItem('token', data.accessToken)
       localStorage.setItem('user', JSON.stringify(data.user))
       localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
-      navigate('/dashboard')
+      window.location.assign('/dashboard')
     } catch {
       setError('خطا در اتصال به سرور')
     } finally {
