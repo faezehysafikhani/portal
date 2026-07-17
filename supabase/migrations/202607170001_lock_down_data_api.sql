@@ -10,6 +10,18 @@ alter default privileges in schema public revoke all on tables from anon, authen
 alter default privileges in schema public revoke all on sequences from anon, authenticated;
 alter default privileges in schema public revoke execute on functions from anon, authenticated;
 
+-- Tables created by EF Core are owned by the database user and do not
+-- automatically grant PostgREST's service role access. Edge Functions use
+-- this role for all trusted application reads and writes.
+grant usage on schema public to service_role;
+grant all privileges on all tables in schema public to service_role;
+grant all privileges on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;
+
+alter default privileges in schema public grant all privileges on tables to service_role;
+alter default privileges in schema public grant all privileges on sequences to service_role;
+alter default privileges in schema public grant execute on functions to service_role;
+
 do $$
 declare
   table_name text;
@@ -30,4 +42,3 @@ values
   ('chat-attachments', 'chat-attachments', false, 10485760),
   ('letter-attachments', 'letter-attachments', false, 20971520)
 on conflict (id) do update set public = excluded.public, file_size_limit = excluded.file_size_limit;
-
