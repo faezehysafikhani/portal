@@ -124,13 +124,14 @@ async function workflow(auth: AuthContext) {
 }
 
 async function leaveAccount(auth: AuthContext, userId=auth.userId) {
-  const ym=Number(jalaliYearMonth().replace('/','')),found=await db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle();check(found.error)
+  const ym=jalaliYearMonth(),found=await db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle();check(found.error)
   let account=found.data
   if(!account){
     const created=await db.from('LeaveAccounts').insert({...base(auth),UserId:userId,AccruedThroughYearMonth:ym,AccruedHours:20,UsedHours:0,ReservedHours:0,MonthlyAccrualHours:20,HoursPerDay:8}).select().single();check(created.error);account=created.data
   } else {
-    const previous=account.AccruedThroughYearMonth??ym,months=Math.max(0,monthIndex(ym)-monthIndex(previous))
-    if(months>0){const accrued=Number(account.AccruedHours??0)+months*Number(account.MonthlyAccrualHours??20);const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,AccruedThroughYearMonth:ym,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data}
+    const previous=account.AccruedThroughYearMonth??0,months=Math.max(0,monthIndex(ym)-monthIndex(previous))
+    const emptyCurrent=months===0&&Number(account.AccruedHours??0)===0&&Number(account.UsedHours??0)===0&&Number(account.ReservedHours??0)===0
+    if(!Number(previous)||emptyCurrent||months>0){const accrued=emptyCurrent||!Number(previous)?20:Number(account.AccruedHours??0)+months*Number(account.MonthlyAccrualHours??20);const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,AccruedThroughYearMonth:ym,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data}
   }
   const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
   return {...account,availableHours:Math.max(0,accrued-used-reserved),days:Math.max(0,(accrued-used-reserved)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}

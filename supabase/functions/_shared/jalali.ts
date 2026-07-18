@@ -7,5 +7,4 @@ function d2g(jdn:number){let j=4*jdn+139361631;j+=div(div(4*jdn+183187720,146097
 function d2j(jdn:number){const gy=d2g(jdn).gy;let jy=gy-621;const r=jalCal(jy),jdn1f=g2d(gy,3,r.march);let k=jdn-jdn1f;if(k>=0){if(k<=185)return{jy,jm:1+div(k,31),jd:mod(k,31)+1};k-=186}else{jy--;k+=179;if(r.leap===1)k++}return{jy,jm:7+div(k,30),jd:mod(k,30)+1}}
 export function dateToJalali(date:Date){return d2j(g2d(date.getFullYear(),date.getMonth()+1,date.getDate()))}
 export function jalaliDateString(value:string|Date){const d=value instanceof Date?value:new Date(value);const j=dateToJalali(d);return`${j.jy}/${String(j.jm).padStart(2,'0')}/${String(j.jd).padStart(2,'0')}`}
-export function jalaliYearMonth(value: string | Date = new Date()) { const d=value instanceof Date?value:new Date(value); const j=dateToJalali(d); return `${j.jy}/${String(j.jm).padStart(2,'0')}` }
-export function jalaliYearMonth(date=new Date()){const j=dateToJalali(date);return j.jy*100+j.jm}
+export function jalaliYearMonth(date=new Date()){const tehran=new Date(date.getTime()+3.5*60*60*1000);const j=dateToJalali(tehran);return j.jy*100+j.jm}
