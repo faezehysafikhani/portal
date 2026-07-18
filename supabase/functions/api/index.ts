@@ -411,7 +411,17 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
   const userMatch = path.match(/^\/users\/([0-9a-f-]+)$/i)
   if (request.method === 'GET' && !userMatch) {
     const result = await db.from('Users').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FirstName')
-    failOnDb(result.error); return json(request, (result.data ?? []).map((user) => profileDto(user)))
+    failOnDb(result.error)
+    const links = await db.from('UserPermissions').select('UserId').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    failOnDb(links.error)
+    const permissionCounts = new Map<string, number>()
+    for (const link of links.data ?? []) {
+      permissionCounts.set(link.UserId, (permissionCounts.get(link.UserId) ?? 0) + 1)
+    }
+    return json(request, (result.data ?? []).map((user) => ({
+      ...profileDto(user),
+      permissionCount: String(user.Username).toLowerCase() === 'admin' ? null : (permissionCounts.get(user.Id) ?? 0),
+    })))
   }
   if (request.method === 'GET' && userMatch) {
     const result = await db.from('Users').select('*').eq('TenantId', auth.tenantId).eq('Id', userMatch[1]).eq('IsDeleted', false).maybeSingle()
