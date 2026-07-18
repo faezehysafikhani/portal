@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox } from 'antd'
-import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined } from '@ant-design/icons'
+import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox, Popconfirm } from 'antd'
+import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined, DeleteOutlined, SyncOutlined } from '@ant-design/icons'
 import LetterComposePage from './LetterComposePage'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
@@ -76,7 +76,7 @@ const sanitizeRichHtml=(html:string)=>{
   return doc.body.innerHTML
 }
 
-function SavedLetterPage({detail}:{detail:any}){
+function SavedLetterPage({detail,compact=false}:{detail:any;compact?:boolean}){
   const paper=detail.paperSize==='A5'?'A5':'A4'
   const image=detail.template?.imageData
   const metrics=paper==='A5'
@@ -84,7 +84,7 @@ function SavedLetterPage({detail}:{detail:any}){
     : {width:'210mm',height:'297mm',x:'20mm',receiver:image?'52mm':'20mm',meta:image?'66mm':'27mm',subject:image?'78mm':'38mm',content:image?'85mm':'45mm',bottom:'35mm',signature:'38mm',font:13}
   const primary=detail.recipients?.find((x:any)=>x.recipientType!=='Referral') || detail.recipients?.[0]
   const receiver=primary?.userName||primary?.externalName||detail.toExternalName||'—'
-  return <div id="saved-letter-print" style={{width:metrics.width,minHeight:metrics.height,position:'relative',boxSizing:'border-box',margin:'0 auto',direction:'rtl',backgroundColor:'#fff',backgroundImage:image?`url(${image})`:undefined,backgroundSize:'100% 100%',backgroundRepeat:'no-repeat',padding:`${metrics.content} ${metrics.x} ${metrics.bottom}`,boxShadow:'0 2px 18px #0002',fontFamily:'Vazirmatn,Tahoma'}}>
+  return <div id="saved-letter-print" style={{width:metrics.width,minHeight:metrics.height,position:'relative',boxSizing:'border-box',margin:'0 auto',direction:'rtl',backgroundColor:'#fff',backgroundImage:image?`url(${image})`:undefined,backgroundSize:'100% 100%',backgroundRepeat:'no-repeat',padding:`${metrics.content} ${metrics.x} ${metrics.bottom}`,boxShadow:'0 2px 18px #0002',fontFamily:'Vazirmatn,Tahoma',zoom:compact?.72:1}}>
     <div style={{position:'absolute',top:metrics.receiver,right:metrics.x,fontSize:paper==='A5'?10:12}}><strong>گیرنده:</strong> {receiver}</div>
     <div style={{position:'absolute',top:metrics.meta,left:metrics.x,textAlign:'left',fontSize:paper==='A5'?10:12}}>
       <div><strong>تاریخ:</strong> {detail.letterDate?new Intl.DateTimeFormat('fa-IR-u-nu-latn').format(new Date(detail.letterDate)):'—'}</div>
@@ -286,29 +286,33 @@ export default function LettersPage() {
   const [referForm] = Form.useForm()
   const [searchFilters, setSearchFilters] = useState<SearchFilters>(EMPTY_FILTERS)
   const [editingDraft, setEditingDraft] = useState<any>(null)
+  const [printSettingsOpen,setPrintSettingsOpen]=useState(false)
+  const [printSettings,setPrintSettings]=useState<{paperSize:'auto'|'A4'|'A5';orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true}}})
 
   const isRegistry = location.pathname === '/letters/registry'
   const isReferrals=location.pathname==='/letters/referrals'
+  const isDrafts=location.pathname==='/letters/drafts'
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
 
   useEffect(() => {
     if (location.pathname === '/letters/new') setComposing(true)
-    else {setComposing(false);if(location.pathname==='/letters/referrals')setActiveTab('all')}
+    else {setComposing(false);if(location.pathname==='/letters/referrals')setActiveTab('all');else if(location.pathname==='/letters/drafts')setActiveTab('draft');else if(location.pathname==='/letters/registry')setActiveTab('all')}
   }, [location.pathname])
 
-  const fetchLetters = async () => {
+  const fetchLetters = async (silent=false) => {
     try {
-      setLoading(true)
+      if(!silent)setLoading(true)
       const scope=isRegistry?'registry':isReferrals?'referrals':'mailbox'
-      const res = await apiFetch(`${API}/letters?scope=${scope}`, { headers: authHeaders() })
+      const status=isDrafts?'&status=Draft':''
+      const res = await apiFetch(`${API}/letters?scope=${scope}${status}`, { headers: authHeaders(),cache:'no-store' })
       if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(e.message||`خطای ${res.status}`) }
       setLetters(await res.json())
     } catch (e) {
-      notification.error({ message: 'خطا در دریافت نامه‌ها',description:e instanceof Error?e.message:undefined })
+      if(!silent)notification.error({ message: 'خطا در دریافت نامه‌ها',description:e instanceof Error?e.message:undefined })
     } finally {
-      setLoading(false)
+      if(!silent)setLoading(false)
     }
   }
 
@@ -325,7 +329,12 @@ export default function LettersPage() {
   useEffect(() => {
     fetchLetters()
     fetchDirectory()
-  }, [isRegistry,isReferrals])
+    const refresh=()=>void fetchLetters(true)
+    const timer=window.setInterval(refresh,8000)
+    const onVisibility=()=>{if(document.visibilityState==='visible')refresh()}
+    window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisibility)
+    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisibility)}
+  }, [isRegistry,isReferrals,isDrafts])
 
   const handleViewLetter = async (letter: Letter) => {
     setSelectedLetter(letter)
@@ -402,6 +411,12 @@ export default function LettersPage() {
     }
   }
 
+  const handleDeleteLetter=async(id:string)=>{
+    const response=await apiFetch(`${API}/letters/${id}`,{method:'DELETE',headers:authHeaders()})
+    if(!response.ok){const error=await response.json().catch(()=>({}));notification.error({message:error.message||'حذف نامه انجام نشد'});return}
+    notification.success({message:'نامه حذف شد'});setViewModal(false);setLetterDetail(null);await fetchLetters(true)
+  }
+
   const handlePrintLetter=(includeTemplate=true)=>{
     const letterElement=document.getElementById('saved-letter-print')
     const referralElement=document.getElementById('referral-print')
@@ -409,12 +424,14 @@ export default function LettersPage() {
     const clone=letterElement.cloneNode(true) as HTMLElement
     if(!includeTemplate)clone.style.backgroundImage='none'
     clone.style.boxShadow='none'
+    clone.style.zoom='1'
     const popup=window.open('','_blank')
     if(!popup){notification.error({message:'مرورگر پنجره چاپ را مسدود کرده است'});return}
-    const paper=letterDetail.paperSize==='A5'?'A5':'A4'
-    popup.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>چاپ نامه</title><style>@page{size:${paper};margin:0}*{box-sizing:border-box}body{margin:0;font-family:Tahoma}.referrals{page-break-before:always;padding:15mm}.no-print-shadow{box-shadow:none!important}</style></head><body>${clone.outerHTML}${referralElement?`<div class="referrals">${referralElement.outerHTML}</div>`:''}</body></html>`)
-    popup.document.close();popup.focus()
-    setTimeout(()=>{popup.print();popup.close()},600)
+    const paper=printSettings.paperSize==='auto'?(letterDetail.paperSize==='A5'?'A5':'A4'):printSettings.paperSize
+    const referrals=printSettings.includeReferrals&&referralElement?`<div class="referrals">${referralElement.outerHTML}</div>`:''
+    popup.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>${letterDetail.letterNumber||'نامه'} - چاپ</title><style>@page{size:${paper} ${printSettings.orientation};margin:${printSettings.margin}mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}.referrals{page-break-before:always;padding:15mm}.no-print-shadow{box-shadow:none!important}@media print{button{display:none!important}}</style></head><body>${clone.outerHTML}${referrals}</body></html>`)
+    popup.document.close();popup.focus();popup.onafterprint=()=>popup.close()
+    setTimeout(()=>popup.print(),800)
   }
 
   const handleSaveLetter = async (data: Record<string, any>) => {
@@ -489,14 +506,20 @@ export default function LettersPage() {
     })
   }
 
-  const tabFilteredLetters = letters.filter(l =>
+  const tabFilteredLetters = letters.filter(l => isRegistry ? (
+    activeTab === 'all' ||
+    (activeTab === 'incoming' && l.type === 'Incoming') ||
+    (activeTab === 'outgoing' && l.type === 'Outgoing') ||
+    (activeTab === 'draft' && l.status === 'Draft') ||
+    (activeTab === 'archived' && l.status === 'Archived')
+  ) : (
     activeTab === 'all' ||
     (activeTab === 'inbox' && l.isInbox && l.status !== 'Draft') ||
     (activeTab === 'incoming' && l.isInbox && l.status !== 'Draft' && l.type === 'Incoming') ||
     (activeTab === 'outgoing' && l.isSender && l.status !== 'Draft') ||
     (activeTab === 'draft' && l.isSender && l.status === 'Draft') ||
     (activeTab === 'archived' && l.status === 'Archived')
-  )
+  ))
 
   const filteredLetters = applyFilters(tabFilteredLetters, searchFilters)
   const unreadCount = letters.filter(l => !l.isRead && (isReferrals ? l.referralDirection === 'incoming' : l.isInbox && l.status !== 'Draft')).length
@@ -541,6 +564,7 @@ export default function LettersPage() {
           {allowed('letters.edit') && r.status === 'Draft' && r.isSender && <Tooltip title="ادامه ویرایش پیش‌نویس"><Button size="small" type="primary" icon={<EditOutlined />} onClick={async()=>{const res=await apiFetch(`${API}/letters/${r.id}`,{headers:authHeaders()});if(res.ok){setEditingDraft(await res.json());setComposing(true);setViewModal(false)}}}/></Tooltip>}
           {allowed('letters.archive') && r.status !== 'Archived' && <Tooltip title="بایگانی"><Button size="small" icon={<FolderOutlined />} onClick={() => handleArchive(r.id)} /></Tooltip>}
           {allowed('letters.sign') && r.isSender && r.status === 'Sent' && <Tooltip title="امضا"><Button size="small" icon={<FileTextOutlined />} style={{ color: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleSign(r.id)} /></Tooltip>}
+          {allowed('letters.delete') && <Popconfirm title="این نامه حذف شود؟" okText="حذف" cancelText="انصراف" onConfirm={()=>handleDeleteLetter(r.id)}><Tooltip title="حذف"><Button size="small" danger icon={<DeleteOutlined/>}/></Tooltip></Popconfirm>}
         </Space>
       )
     },
@@ -557,8 +581,6 @@ export default function LettersPage() {
     { title: 'مشاهده', key: 'view', width: 80, render: (_: unknown, row: Letter) => <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewLetter(row)} /> },
   ]
 
-  if (isRegistry) return <RegistryPage letters={letters} />
-
   if (composing) {
     return <LetterComposePage initialData={editingDraft} onSave={handleSaveLetter} onCancel={() => { setComposing(false); setEditingDraft(null); navigate('/letters') }} />
   }
@@ -566,20 +588,26 @@ export default function LettersPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>{isReferrals?'↩️ ارجاعات من':'📬 نامه‌نگاری'}</span>
-        {allowed('letters.create') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setComposing(true); navigate('/letters/new') }} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>نامه جدید</Button>}
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?'📚 دبیرخانه — همه نامه‌های سازمان':isReferrals?'↩️ ارجاعات من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
+        <Space><Button icon={<SyncOutlined/>} onClick={()=>fetchLetters()} loading={loading}>به‌روزرسانی</Button>{allowed('letters.create') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setComposing(true); navigate('/letters/new') }} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>نامه جدید</Button>}</Space>
       </div>
 
       <AdvancedSearch onSearch={f => setSearchFilters(f)} onReset={() => setSearchFilters(EMPTY_FILTERS)} />
 
-      {!isReferrals && <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+      {!isReferrals && <Tabs activeKey={activeTab} onChange={setActiveTab} items={(isRegistry?[
+        { key: 'all', label: <span><MailOutlined /> همه نامه‌ها <Badge count={letters.length} style={{ background: '#8B1A6B' }} /></span> },
+        { key: 'incoming', label: <span>📥 وارده</span> },
+        { key: 'outgoing', label: <span><SendOutlined /> صادره</span> },
+        { key: 'draft', label: <span><FileTextOutlined /> پیش‌نویس‌ها</span> },
+        { key: 'archived', label: <span><FolderOutlined /> بایگانی</span> },
+      ]:[
         { key: 'all', label: <span><MailOutlined /> همه <Badge count={letters.length} style={{ background: '#8B1A6B' }} /></span> },
         { key: 'inbox', label: <span><InboxOutlined /> کارتابل <Badge count={unreadCount} style={{ background: '#f5222d' }} /></span> },
         { key: 'incoming', label: <span>📥 وارده</span> },
         { key: 'outgoing', label: <span><SendOutlined /> صادره</span> },
         { key: 'draft', label: <span><FileTextOutlined /> پیش‌نویس</span> },
         { key: 'archived', label: <span><FolderOutlined /> بایگانی</span> },
-      ]} />}
+      ])} />}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
         <span style={{ fontSize: 12, color: '#8c8c8c' }}>{filteredLetters.length} نامه</span>
@@ -619,21 +647,24 @@ export default function LettersPage() {
             )}
             {allowed('letters.print') && <Button icon={<PrinterOutlined />} onClick={()=>handlePrintLetter(true)}>چاپ کامل</Button>}
             {allowed('letters.print') && <Button icon={<PrinterOutlined />} onClick={()=>handlePrintLetter(false)}>چاپ روی سربرگ فیزیکی</Button>}
+            {allowed('letters.print') && <Button icon={<SettingOutlined/>} onClick={()=>setPrintSettingsOpen(true)}>تنظیمات چاپ</Button>}
+            {allowed('letters.delete') && <Popconfirm title="این نامه حذف شود؟" okText="حذف" cancelText="انصراف" onConfirm={()=>handleDeleteLetter(letterDetail.id)}><Button danger icon={<DeleteOutlined/>}>حذف</Button></Popconfirm>}
             <Button onClick={() => setViewModal(false)}>بستن</Button>
           </Space>
         ) : null}
-        width={1180}
+        width={980}
+        styles={{body:{maxHeight:'76vh',overflowY:'auto'}}}
       >
         {detailLoading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#8c8c8c' }}>در حال بارگذاری...</div>
         ) : letterDetail && (
           <div>
-            <div style={{display:'grid',gridTemplateColumns:'300px minmax(0,1fr)',gap:18,alignItems:'start',direction:'ltr'}}>
+            <div style={{display:'grid',gridTemplateColumns:'230px minmax(0,1fr)',gap:12,alignItems:'start',direction:'ltr'}}>
               <aside style={{direction:'rtl',position:'sticky',top:0,maxHeight:'75vh',overflowY:'auto',padding:12,background:'#fafafa',border:'1px solid #eee',borderRadius:10}}>
                 <ReferralMessages detail={letterDetail}/>
               </aside>
               <main style={{direction:'rtl',overflowX:'auto',padding:6,background:'#f5f5f5',borderRadius:10}}>
-                <SavedLetterPage detail={letterDetail}/>
+                <SavedLetterPage detail={letterDetail} compact/>
               </main>
             </div>
 
@@ -662,6 +693,16 @@ export default function LettersPage() {
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal title={<Space><PrinterOutlined/><span>تنظیمات چاپ</span></Space>} open={printSettingsOpen} onCancel={()=>setPrintSettingsOpen(false)} onOk={()=>{localStorage.setItem('letter-print-settings',JSON.stringify(printSettings));setPrintSettingsOpen(false);notification.success({message:'تنظیمات چاپ ذخیره شد'})}} okText="ذخیره تنظیمات" cancelText="انصراف" width={480}>
+        <Form layout="vertical">
+          <Form.Item label="اندازه کاغذ"><Select value={printSettings.paperSize} onChange={paperSize=>setPrintSettings(current=>({...current,paperSize}))} options={[{value:'auto',label:'مطابق قالب نامه'},{value:'A4',label:'A4'},{value:'A5',label:'A5'}]}/></Form.Item>
+          <Form.Item label="جهت چاپ"><Select value={printSettings.orientation} onChange={orientation=>setPrintSettings(current=>({...current,orientation}))} options={[{value:'portrait',label:'عمودی'},{value:'landscape',label:'افقی'}]}/></Form.Item>
+          <Form.Item label="حاشیه چاپ"><Select value={printSettings.margin} onChange={margin=>setPrintSettings(current=>({...current,margin}))} options={[{value:0,label:'بدون حاشیه'},{value:5,label:'۵ میلی‌متر'},{value:10,label:'۱۰ میلی‌متر'},{value:15,label:'۱۵ میلی‌متر'}]}/></Form.Item>
+          <Checkbox checked={printSettings.includeReferrals} onChange={event=>setPrintSettings(current=>({...current,includeReferrals:event.target.checked}))}>پیام‌های ارجاع نیز چاپ شوند</Checkbox>
+          <div style={{marginTop:14,padding:10,borderRadius:8,background:'#f6ffed',color:'#3f6600',fontSize:11}}>پس از زدن دکمه چاپ، پنجره استاندارد چاپ سیستم باز می‌شود و می‌توانید هر پرینتر نصب‌شده، شبکه‌ای یا اشتراکی شرکت را انتخاب کنید.</div>
+        </Form>
       </Modal>
 
       {/* Modal ارجاع */}

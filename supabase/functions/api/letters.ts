@@ -1,6 +1,7 @@
 import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
+import { jalaliDateString } from '../_shared/jalali.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -44,7 +45,7 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
     const scope=url.searchParams.get('scope')||'mailbox';const registry=scope==='registry';const referrals=scope==='referrals';if(registry?!canRegistry:!canInbox)throw new HttpError(403,'دسترسی غیرمجاز')
     let query = db.from('Letters').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     const type = url.searchParams.get('type'); const status = url.searchParams.get('status'); if (type) query = query.eq('Type', enumIn(type, types)); if (status) query = query.eq('Status', enumIn(status, statuses))
-    const [result,rec]=await Promise.all([query.order('CreatedAt',{ascending:false}),db.from('LetterRecipients').select('*').eq('TenantId',auth.tenantId).eq('IsDeleted',false)]);check(result.error);check(rec.error);const output:Obj[]=[]
+    const [result,rec]=await Promise.all([query.order('CreatedAt',{ascending:false}).limit(500),db.from('LetterRecipients').select('*').eq('TenantId',auth.tenantId).eq('IsDeleted',false).limit(3000)]);check(result.error);check(rec.error);const output:Obj[]=[]
     const byLetter=new Map<string,Obj[]>();for(const row of rec.data??[]){const rows=byLetter.get(row.LetterId)??[];rows.push(row);byLetter.set(row.LetterId,rows)}
     for(const letter of result.data??[]){
       const rows=byLetter.get(letter.Id)??[]
@@ -52,9 +53,11 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
       const referralRows=rows.filter(x=>Number(x.RecipientType)===2)
       const myPrimary=primaryRows.filter(x=>x.UserId===auth.userId)
       const myReferrals=referralRows.filter(x=>x.UserId===auth.userId||x.ReferredByUserId===auth.userId)
-      const baseLetter={id:letter.Id,subject:letter.Subject,letterNumber:letter.LetterNumber,letterDate:letter.LetterDate,type:enumOut(letter.Type,types),status:enumOut(letter.Status,statuses),priority:enumOut(letter.Priority,priorities),classification:letter.Classification,fromUserName:letter.FromUserName,fromUserId:letter.FromUserId,hasAttachment:letter.HasAttachment,toExternalName:letter.ToExternalName,toExternalOrg:letter.ToExternalOrg,incomingFromOrg:letter.IncomingFromOrg,createdAt:letter.CreatedAt,sentAt:letter.SentAt,recipientCount:primaryRows.length,isRead:myPrimary.length>0&&myPrimary.every(x=>x.IsRead),isSender:letter.FromUserId===auth.userId,isInbox:myPrimary.length>0,recipients:primaryRows.map(x=>({name:x.UserName||x.ExternalName||x.ExternalOrg||'—',recipientType:enumOut(x.RecipientType,recipientTypes)})),referrals:referralRows.map(x=>({id:x.Id,referralType:x.ReferralType,referralText:x.ReferralText,referredByName:x.ReferredByName||'—',referredToName:x.UserName||x.ExternalName||'—',isRead:x.IsRead,createdAt:x.CreatedAt}))}
+      const myIncomingReferrals=myReferrals.filter(x=>x.UserId===auth.userId)
+      const myInboxRows=[...myPrimary,...myIncomingReferrals]
+      const baseLetter={id:letter.Id,subject:letter.Subject,letterNumber:letter.LetterNumber,letterDate:letter.LetterDate,type:enumOut(letter.Type,types),status:enumOut(letter.Status,statuses),priority:enumOut(letter.Priority,priorities),classification:letter.Classification,fromUserName:letter.FromUserName,fromUserId:letter.FromUserId,hasAttachment:letter.HasAttachment,toExternalName:letter.ToExternalName,toExternalOrg:letter.ToExternalOrg,incomingFromOrg:letter.IncomingFromOrg,createdAt:letter.CreatedAt,sentAt:letter.SentAt,recipientCount:primaryRows.length,isRead:myInboxRows.length===0||myInboxRows.every(x=>x.IsRead),isSender:letter.FromUserId===auth.userId,isInbox:myInboxRows.length>0,hasMyReferral:myReferrals.length>0,recipients:primaryRows.map(x=>({name:x.UserName||x.ExternalName||x.ExternalOrg||'—',recipientType:enumOut(x.RecipientType,recipientTypes)})),referrals:referralRows.map(x=>({id:x.Id,referralType:x.ReferralType,referralText:x.ReferralText,referredByName:x.ReferredByName||'—',referredToName:x.UserName||x.ExternalName||'—',isRead:x.IsRead,createdAt:x.CreatedAt}))}
       if(referrals){for(const referral of myReferrals)output.push({...baseLetter,isRead:Boolean(referral.IsRead),isReferral:true,referralId:referral.Id,referralType:referral.ReferralType,referralText:referral.ReferralText,referredByName:referral.ReferredByName||'—',referredToName:referral.UserName||referral.ExternalName||'—',referralDirection:referral.UserId===auth.userId?'incoming':'outgoing',referralCreatedAt:referral.CreatedAt});continue}
-      const visible=registry||letter.FromUserId===auth.userId||(Number(letter.Status)!==0&&myPrimary.length>0)
+      const visible=registry||letter.FromUserId===auth.userId||(Number(letter.Status)!==0&&(myPrimary.length>0||myReferrals.length>0))
       if(visible)output.push(baseLetter)
     }
     return json(request, output)
@@ -71,7 +74,12 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
     const recipients = Array.isArray(input.recipients) ? input.recipients : []
     if (status !== 0 && recipients.length === 0 && !input.toExternalName) throw new HttpError(400, 'برای ارسال نامه انتخاب گیرنده الزامی است')
     if (status === 1) requirePermission(auth, 'letters.send'); if (status === 4) requirePermission(auth, 'letters.sign')
-    const count = await db.from('Letters').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('Type', type); check(count.error); const prefix = type === 0 ? 'د' : type === 1 ? 'و' : 'ص'; const letterNumber = `${prefix}/${new Date().getFullYear()}/${String((count.count ?? 0) + 1).padStart(4, '0')}`
+    const prefix = type === 0 ? 'د' : type === 1 ? 'و' : 'ص'
+    const tehranNow = new Date(Date.now() + 3.5 * 60 * 60 * 1000)
+    const jalaliDate = jalaliDateString(tehranNow)
+    const numberBase = `${prefix}/${jalaliDate}`
+    const count = await db.from('Letters').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).like('LetterNumber', `${numberBase}/%`); check(count.error)
+    const letterNumber = `${numberBase}/${String((count.count ?? 0) + 1).padStart(3, '0')}`
     const letter = { ...base(auth), ClientRequestId:requestId||null, Subject: String(input.subject ?? '').trim(), Body: input.body ?? '', Type: type, Status: status, Priority: enumIn(input.priority ?? 'Normal', priorities), Classification: input.classification ?? 'normal', LetterNumber: letterNumber, LetterCounter: (count.count ?? 0) + 1, RegistryId: null, LetterDate: input.letterDate ?? now(), SentAt: status === 1 ? now() : null, ReferenceNumber: input.referenceNumber ?? null, ReferenceDate: input.referenceDate ?? null, ReferenceType: input.referenceType ?? null, FolderName: input.folderName ?? null, HasAttachment: false, LetterTemplateId: input.letterTemplateId ?? null, TemplateKey: input.templateKey ?? null, PaperSize: input.paperSize === 'A5' ? 'A5' : 'A4', TemplateHasHeader: input.templateHasHeader !== false, TemplateHasFooter: input.templateHasFooter !== false, FromUserId: auth.userId, FromUserName: await fullName(auth), ToExternalName: input.toExternalName ?? null, ToExternalOrg: input.toExternalOrg ?? null, IncomingNumber: input.incomingNumber ?? null, IncomingDate: input.incomingDate ?? null, IncomingFromOrg: input.incomingFromOrg ?? null }
     if (!letter.Subject) throw new HttpError(400, 'موضوع نامه الزامی است'); const created = await db.from('Letters').insert(letter).select().single(); check(created.error)
     if (recipients.length) { const rows = recipients.map((r: Obj) => ({ ...base(auth), LetterId: letter.Id, UserId: r.userId ?? null, ContactId: r.contactId ?? null, UserName: r.userName ?? null, ExternalName: r.externalName ?? null, ExternalOrg: r.externalOrg ?? null, RecipientType: enumIn(r.recipientType, recipientTypes), ReferralType: r.referralType ?? 'اصل', ReferralText: r.referralText ?? null, IsRead: false, ReadAt: null, PhoneNumber: r.phoneNumber ?? null, SmsRequested: Boolean(r.sendSms), SmsStatus: r.sendSms ? 'pending' : null, ReferredByUserId: null, ReferredByName: null, ReferredByPosition: null, RecipientPosition: null })); const added = await db.from('LetterRecipients').insert(rows); check(added.error) }

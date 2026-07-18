@@ -73,6 +73,7 @@ function App() {
           <Route path="/letters/new" element={<LettersPage />} />
           <Route path="/letters/registry" element={<LettersPage />} />
           <Route path="/letters/referrals" element={<LettersPage />} />
+          <Route path="/letters/drafts" element={<LettersPage />} />
           <Route path="/tickets" element={<TicketsPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/sms" element={<SmsPage />} />

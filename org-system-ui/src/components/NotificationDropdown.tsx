@@ -15,6 +15,7 @@ const TYPE_CONFIG: Record<NotificationType, { icon: React.ReactNode; color: stri
   calendar: { icon: <CalendarOutlined />, color: '#722ed1', label: 'تقویم' },
   project: { icon: <ProjectOutlined />, color: '#2f54eb', label: 'پروژه' },
   risk: { icon: <WarningOutlined />, color: '#f5222d', label: 'ریسک' },
+  sms: { icon: <MessageOutlined />, color: '#eb2f96', label: 'پیامک' },
   chat: { icon: <MessageOutlined />, color: '#13c2c2', label: 'چت' },
   warning: { icon: <WarningOutlined />, color: '#fa8c16', label: 'هشدار' },
 }
@@ -28,6 +29,7 @@ const NOTIFICATION_SETTINGS = [
   { key: 'calendar', label: 'یادآوری رویدادها', icon: '📅' },
   { key: 'project', label: 'پروژه‌ها و تغییرات پروژه', icon: '📊' },
   { key: 'risk', label: 'ریسک‌های بحرانی', icon: '⚠️' },
+  { key: 'sms', label: 'پیامک‌ها و وضعیت ارسال', icon: '📱' },
   { key: 'chat', label: 'پیام‌های چت', icon: '💬' },
   { key: 'warning', label: 'هشدارهای سیستم', icon: '🔔' },
 ]
@@ -86,7 +88,7 @@ export default function NotificationDropdown() {
   const unreadCount = notifications.filter(n => !n.isRead).length
   const headers = { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
   const loadNotifications = async () => { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl}}))} }
-  useEffect(()=>{loadNotifications();const timer=setInterval(loadNotifications,10000);return()=>clearInterval(timer)},[])
+  useEffect(()=>{const refresh=()=>void loadNotifications();refresh();const timer=setInterval(refresh,5000);const onVisible=()=>{if(document.visibilityState==='visible')refresh()};let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{}window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisible)}},[])
   const readOne=(id:string)=>{markAsRead(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers})}
   const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers})}
   const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}

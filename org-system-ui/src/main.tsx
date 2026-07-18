@@ -36,3 +36,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>
 )
+
+const currentEntry=document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src
+if(currentEntry){
+  window.setInterval(async()=>{
+    if(document.visibilityState!=='visible')return
+    try{
+      const html=await fetch(`/?__build_check=${Date.now()}`,{cache:'no-store'}).then(response=>response.text())
+      const nextEntry=html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/)?.[1]
+      if(nextEntry&&new URL(nextEntry,location.origin).href!==currentEntry)location.reload()
+    }catch{}
+  },60_000)
+}

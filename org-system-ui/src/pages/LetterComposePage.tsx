@@ -300,9 +300,9 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     if (!el) return
     const w = window.open('', '_blank')
     if (!w) return
-    w.document.write(`<html dir="rtl"><head><title>چاپ</title><style>body{margin:0;font-family:Tahoma}@page{size:${paperSize};margin:0}</style></head><body>${el.outerHTML}</body></html>`)
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>چاپ نامه</title><style>*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}@page{size:${paperSize} portrait;margin:0}</style></head><body>${el.outerHTML}</body></html>`)
     w.document.close()
-    setTimeout(() => { w.print(); w.close() }, 500)
+    w.focus();w.onafterprint=()=>w.close();setTimeout(() => w.print(), 800)
   }
 
   const recipientColumns = [
