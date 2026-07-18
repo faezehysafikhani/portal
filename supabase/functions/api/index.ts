@@ -15,6 +15,28 @@ const db = adminClient()
 const tenantDefault = '00000000-0000-0000-0000-000000000001'
 const now = () => new Date().toISOString()
 
+function requireAdmin(auth: AuthContext): void {
+  if (!auth.isAdmin) {
+    throw new HttpError(403, 'فقط مدیر سیستم مجاز به مدیریت دسترسی‌های کاربران است')
+  }
+}
+
+const permissionDependencies: Record<string, string[]> = {
+  'users.view': ['users.create', 'users.edit', 'users.delete', 'users.password.reset'],
+  'letters.inbox.view': ['letters.create', 'letters.edit', 'letters.sign', 'letters.send', 'letters.refer', 'letters.archive', 'letters.delete', 'letters.print'],
+  'tickets.view': ['tickets.create', 'tickets.edit', 'tickets.comment', 'tickets.delete'],
+  'contacts.view': ['contacts.create', 'contacts.edit', 'contacts.delete'],
+  'calendar.view': ['calendar.create', 'calendar.edit', 'calendar.delete', 'calendar.respond'],
+  'tasks.view': ['tasks.create', 'tasks.edit', 'tasks.assign'],
+  'forms.view': ['forms.create', 'forms.approve', 'forms.access'],
+  'sms.view': ['sms.settings'],
+  'settings.view': ['settings.edit', 'positions.view', 'positions.create', 'positions.edit', 'positions.delete'],
+  'positions.view': ['positions.create', 'positions.edit', 'positions.delete'],
+  'reports.view': ['reports.export'],
+  'company.view': ['company.edit'],
+  'ai.view': ['ai.use', 'ai.settings'],
+}
+
 function routePath(url: URL): string {
   const marker = '/api/v1'
   const index = url.pathname.indexOf(marker)
@@ -322,22 +344,48 @@ async function profile(request: Request, auth: AuthContext, path: string): Promi
 async function users(request: Request, auth: AuthContext, path: string): Promise<Response> {
   requirePermission(auth, 'users.view')
   if (path === '/users/permissions' && request.method === 'GET') {
+    requireAdmin(auth)
     const result = await db.from('Permissions').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('Module').order('Code')
     failOnDb(result.error); return json(request, asCamel(result.data))
   }
   const permissionMatch = path.match(/^\/users\/([0-9a-f-]+)\/permissions$/i)
   if (permissionMatch && request.method === 'GET') {
-    requirePermission(auth, 'users.permissions.assign')
+    requireAdmin(auth)
     const result = await db.from('UserPermissions').select('PermissionId').eq('TenantId', auth.tenantId).eq('UserId', permissionMatch[1]).eq('IsDeleted', false)
     failOnDb(result.error); return json(request, (result.data ?? []).map((item) => item.PermissionId))
   }
   if (permissionMatch && request.method === 'PUT') {
-    requirePermission(auth, 'users.permissions.assign')
+    requireAdmin(auth)
     const input = await body<{ permissionIds?: string[] }>(request)
+    const target = await db.from('Users').select('Id, Username').eq('TenantId', auth.tenantId).eq('Id', permissionMatch[1]).eq('IsDeleted', false).maybeSingle()
+    failOnDb(target.error)
+    if (!target.data) throw new HttpError(404, 'کاربر یافت نشد')
+    if (String(target.data.Username).toLowerCase() === 'admin') throw new HttpError(400, 'دسترسی مدیر سیستم قابل محدود کردن نیست')
+
+    const requestedIds = [...new Set(input.permissionIds ?? [])]
+    let selectedPermissions: { Id: string; Code: string }[] = []
+    if (requestedIds.length) {
+      const selected = await db.from('Permissions').select('Id, Code').eq('TenantId', auth.tenantId).eq('IsDeleted', false).in('Id', requestedIds)
+      failOnDb(selected.error)
+      if ((selected.data ?? []).length !== requestedIds.length) throw new HttpError(400, 'یک یا چند دسترسی نامعتبر است')
+      selectedPermissions = selected.data ?? []
+    }
+
+    const selectedCodes = new Set(selectedPermissions.map((permission) => permission.Code))
+    const requiredCodes = Object.entries(permissionDependencies)
+      .filter(([, actions]) => actions.some((action) => selectedCodes.has(action)))
+      .map(([viewCode]) => viewCode)
+      .filter((code) => !selectedCodes.has(code))
+    if (requiredCodes.length) {
+      const required = await db.from('Permissions').select('Id, Code').eq('TenantId', auth.tenantId).eq('IsDeleted', false).in('Code', requiredCodes)
+      failOnDb(required.error)
+      selectedPermissions.push(...(required.data ?? []))
+    }
+
     const existing = await db.from('UserPermissions').delete().eq('TenantId', auth.tenantId).eq('UserId', permissionMatch[1])
     failOnDb(existing.error)
-    const rows = [...new Set(input.permissionIds ?? [])].map((permissionId) => ({
-      ...baseInsert(auth), UserId: permissionMatch[1], PermissionId: permissionId,
+    const rows = [...new Set(selectedPermissions.map((permission) => permission.Id))].map((permissionId) => ({
+      ...baseInsert(auth), UserId: target.data.Id, PermissionId: permissionId,
     }))
     if (rows.length) { const added = await db.from('UserPermissions').insert(rows); failOnDb(added.error) }
     return json(request, { message: 'دسترسی‌های کاربر ذخیره شد؛ کاربر باید دوباره وارد سامانه شود' })

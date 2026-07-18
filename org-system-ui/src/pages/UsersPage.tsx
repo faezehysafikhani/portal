@@ -50,18 +50,19 @@ export default function UsersPage() {
   const [saveLoading, setSaveLoading] = useState(false)
   const [form] = Form.useForm()
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
+  const isAdmin=Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin')
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
-  const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
+  const allowed=(code:string)=>isAdmin||grantedPermissions.includes(code)
 
   const fetchUsers = async () => {
     try {
       setLoading(true)
-      const [res,permissionRes,positionRes] = await Promise.all([fetch(`${API}/users`, { headers: authHeaders() }),fetch(`${API}/users/permissions`,{headers:authHeaders()}),fetch(`${API}/positions`,{headers:authHeaders()})])
+      const [res,permissionRes,positionRes] = await Promise.all([fetch(`${API}/users`, { headers: authHeaders() }),isAdmin?fetch(`${API}/users/permissions`,{headers:authHeaders()}):Promise.resolve(null),fetch(`${API}/positions`,{headers:authHeaders()})])
       if (!res.ok) throw new Error()
       const data = await res.json()
       setUsers(data)
-      if(permissionRes.ok)setAvailablePermissions(await permissionRes.json())
-      else notification.error({message:'لیست دسترسی‌ها دریافت نشد',description:`خطای ${permissionRes.status} — یک‌بار خارج و دوباره وارد شوید`})
+      if(permissionRes?.ok)setAvailablePermissions(await permissionRes.json())
+      else if(isAdmin) notification.error({message:'لیست دسترسی‌ها دریافت نشد',description:`خطای ${permissionRes?.status ?? 'شبکه'} — یک‌بار خارج و دوباره وارد شوید`})
       if(positionRes.ok)setOrgPositions(await positionRes.json())
       else notification.error({message:'لیست سمت‌های سازمانی دریافت نشد',description:`خطای ${positionRes.status}`})
     } catch {
@@ -279,7 +280,7 @@ export default function UsersPage() {
           {allowed('users.edit') && <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>
             {record.username === 'admin' ? 'تغییر رمز' : 'ویرایش'}
           </Button>}
-          {allowed('users.permissions.assign') && record.username !== 'admin' && (
+          {isAdmin && record.username !== 'admin' && (
             <Button size="small" icon={<LockOutlined />} onClick={() => openPermModal(record)}>دسترسی</Button>
           )}
           {allowed('users.delete') && record.username !== 'admin' && <Button size="small" danger icon={<DeleteOutlined />} onClick={()=>handleDeleteUser(record)}>حذف</Button>}
@@ -440,7 +441,7 @@ export default function UsersPage() {
           ).map(([module,permissions])=>{
             const selectedCount=permissions.filter(permission=>selectedPermissionIds.includes(permission.id)).length
             const allSelected=selectedCount===permissions.length
-            const moduleLabels:Record<string,string>={letters:'نامه‌نگاری و دبیرخانه',calendar:'تقویم و جلسات',users:'مدیریت کاربران',tickets:'تیکت‌ها',contacts:'مخاطبین',tasks:'وظایف و پروژه',forms:'فرم‌های سازمانی',sms:'پیامک',settings:'تنظیمات',reports:'گزارش‌ها',company:'اطلاعات شرکت',chat:'چت داخلی'}
+            const moduleLabels:Record<string,string>={letters:'نامه‌نگاری و دبیرخانه',calendar:'تقویم و جلسات',users:'مدیریت کاربران',tickets:'تیکت‌ها',contacts:'مخاطبین',tasks:'وظایف و پروژه',forms:'فرم‌های سازمانی',sms:'پیامک',settings:'تنظیمات',reports:'گزارش‌ها',company:'اطلاعات شرکت',chat:'چت داخلی',ai:'هوش مصنوعی'}
             return {
               key:module,
               label:<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>{moduleLabels[module]||module}</strong><Badge count={`${selectedCount}/${permissions.length}`} style={{background:selectedCount?'#8B1A6B':'#bfbfbf'}}/></div>,
