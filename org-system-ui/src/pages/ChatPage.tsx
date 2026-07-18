@@ -7,7 +7,7 @@ const API='http://localhost:5043/api/v1'
 const MAX_FILE_SIZE=200*1024
 const codePattern=/<[^>]*>|javascript\s*:|--|\/\*|\*\/|;\s*(select|insert|update|delete|drop|alter|exec)|\bunion\s+select/i
 const allowedExtensions=['pdf','png','jpg','jpeg','txt','docx','xlsx']
-interface ChatUser { id:string; fullName:string; position?:string; department?:string; avatarUrl?:string; isOnline:boolean; lastMessage?:string; lastMessageAt?:string; unread:number }
+interface ChatUser { id:string; personId:string; personType:'user'|'contact'; fullName:string; position?:string; department?:string; avatarUrl?:string; isOnline:boolean; lastMessage?:string; lastMessageAt?:string; unread:number }
 interface ChatMessage { id:string; senderUserId:string; recipientUserId:string; content:string; kind:'Text'|'File'|'Voice'|string; attachmentName?:string; attachmentContentType?:string; attachmentSize?:number; voiceDurationSeconds?:number; hasAttachment?:boolean; isRead:boolean; createdAt:string; isMe:boolean }
 
 const bytesLabel=(size?:number)=>size?`${Math.ceil(size/1024).toLocaleString('fa-IR')} KB`:''
@@ -61,7 +61,7 @@ export default function ChatPage(){
   const postMessage=async(payload:Record<string,unknown>)=>{
     if(!selectedId||sending)return false
     setSending(true)
-    const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientUserId:selectedId,...payload})})
+    const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientType:selected?.personType,recipientId:selected?.personId,...payload})})
     const result=await response.json().catch(()=>({}));setSending(false)
     if(!response.ok){message.error(result.message||'ارسال پیام انجام نشد');return false}
     setMessages(prev=>[...prev,result]);
@@ -74,7 +74,7 @@ export default function ChatPage(){
     if(selectedFile){
       if(selectedFile.size>MAX_FILE_SIZE){message.error('حداکثر حجم فایل ۲۰۰ کیلوبایت است');return}
       const attachmentData=await fileToBase64(selectedFile).catch(()=>null);if(!attachmentData){message.error('خواندن فایل انجام نشد');return}
-      if(await postMessage({content,kind:'file',attachmentName:selectedFile.name,attachmentData})){setText('');setSelectedFile(undefined)}
+      if(await postMessage({content,kind:'file',attachmentName:selectedFile.name,attachmentData,attachmentContentType:selectedFile.type||'application/octet-stream',attachmentSize:selectedFile.size})){setText('');setSelectedFile(undefined)}
     }else if(await postMessage({content,kind:'text'}))setText('')
   }
   const chooseFile=(file?:File)=>{
@@ -102,7 +102,7 @@ export default function ChatPage(){
         if(blob.size>MAX_FILE_SIZE){message.error('حجم ویس بیشتر از ۲۰۰ کیلوبایت شد؛ ویس کوتاه‌تری ضبط کنید');return}
         const extension=type.includes('ogg')?'ogg':type.includes('mp4')?'m4a':'webm';const attachmentData=await fileToBase64(blob).catch(()=>null)
         if(!attachmentData){message.error('آماده‌سازی پیام صوتی انجام نشد');return}
-        await postMessage({content:'',kind:'voice',attachmentName:`voice-${Date.now()}.${extension}`,attachmentData,voiceDurationSeconds:duration})
+        await postMessage({content:'',kind:'voice',attachmentName:`voice-${Date.now()}.${extension}`,attachmentData,attachmentContentType:type,attachmentSize:blob.size,voiceDurationSeconds:duration})
       }
       recorder.start(1000);setRecording(true);const started=Date.now()
       recordTimerRef.current=window.setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);recordSecondsRef.current=seconds;setRecordSeconds(seconds);if(seconds>=60)stopRecording()},500)
@@ -123,12 +123,12 @@ export default function ChatPage(){
       <div style={{overflowY:'auto',flex:1}}>{filtered.length===0?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="کاربری یافت نشد"/>:filtered.map(user=><div key={user.id} onClick={()=>choose(user.id)} style={{padding:'12px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:selectedId===user.id?'#f7eaf3':'#fff',borderRight:selectedId===user.id?'4px solid #8b1a6b':'4px solid transparent'}}>
         <div style={{display:'flex',gap:10,alignItems:'center'}}><Badge dot color={user.isOnline?'#52c41a':'#bfbfbf'} offset={[-4,35]}><Avatar size={42} src={user.avatarUrl} icon={<UserOutlined/>} style={{background:'#8b1a6b'}}/></Badge>
           <div style={{flex:1,minWidth:0}}><div style={{display:'flex',justifyContent:'space-between'}}><b style={{fontSize:13}}>{user.fullName}</b><small style={{color:'#999'}}>{faTime(user.lastMessageAt)}</small></div>
-            <div style={{fontSize:11,color:'#888'}}>{user.position||user.department||'کاربر داخلی'}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:11,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:195}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
+            <div style={{fontSize:11,color:'#888'}}>{user.position||user.department||(user.personType==='contact'?'مخاطب خارجی':'کاربر داخلی')}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:11,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:195}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
         </div></div>)}</div>
     </Card>
     <Card style={{flex:1,borderRadius:14,overflow:'hidden'}} styles={{body:{height:'100%',padding:0,display:'flex',flexDirection:'column'}}}>
       {!selected?<Empty style={{margin:'auto'}} description="یک همکار را انتخاب کنید"/>:<>
-        <div style={{padding:'12px 18px',borderBottom:'1px solid #eee',display:'flex',alignItems:'center',gap:10}}><Badge dot color={selected.isOnline?'#52c41a':'#bfbfbf'}><Avatar src={selected.avatarUrl} icon={<UserOutlined/>}/></Badge><div><b>{selected.fullName}</b><div style={{fontSize:11,color:'#888'}}>{selected.position||selected.department}</div></div><Tag color={selected.isOnline?'green':'default'} style={{marginRight:'auto'}}>{selected.isOnline?'آنلاین':'آفلاین'}</Tag></div>
+        <div style={{padding:'12px 18px',borderBottom:'1px solid #eee',display:'flex',alignItems:'center',gap:10}}><Badge dot={selected.personType==='user'} color={selected.isOnline?'#52c41a':'#bfbfbf'}><Avatar src={selected.avatarUrl} icon={<UserOutlined/>}/></Badge><div><b>{selected.fullName}</b><div style={{fontSize:11,color:'#888'}}>{selected.position||selected.department}</div></div><Tag color={selected.personType==='contact'?'purple':selected.isOnline?'green':'default'} style={{marginRight:'auto'}}>{selected.personType==='contact'?'مخاطب':selected.isOnline?'آنلاین':'آفلاین'}</Tag></div>
         <div style={{flex:1,overflowY:'auto',padding:20,background:'linear-gradient(145deg,#fafafa,#f7f0f5)'}}>{messages.length===0?<Empty description="هنوز پیامی ندارید"/>:messages.map(item=>{const kind=String(item.kind||'Text').toLowerCase();return <div key={item.id} style={{display:'flex',justifyContent:item.isMe?'flex-start':'flex-end',marginBottom:12}}><div style={{maxWidth:'72%'}}><div style={{background:item.isMe?'#8b1a6b':'white',color:item.isMe?'white':'#333',padding:'9px 14px',borderRadius:item.isMe?'14px 14px 4px 14px':'14px 14px 14px 4px',boxShadow:'0 2px 8px #0000000c',whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>
           {kind==='voice'?<div><div style={{display:'flex',gap:6,alignItems:'center',marginBottom:5}}><AudioOutlined/><span style={{fontSize:12}}>پیام صوتی {item.voiceDurationSeconds?`• ${item.voiceDurationSeconds.toLocaleString('fa-IR')} ثانیه`:''}</span></div><VoicePlayer id={item.id}/></div>:kind==='file'?<div><Button type="text" onClick={()=>downloadFile(item)} style={{color:item.isMe?'white':'#8b1a6b',height:'auto',padding:0}} icon={<FileOutlined/>}><span style={{maxWidth:280,display:'inline-block',overflow:'hidden',textOverflow:'ellipsis'}}>{item.attachmentName}</span></Button><div style={{fontSize:10,opacity:.75}}>{bytesLabel(item.attachmentSize)} <DownloadOutlined/></div>{item.content&&<div style={{marginTop:7}}>{item.content}</div>}</div>:item.content}
           </div><div style={{fontSize:10,color:'#999',marginTop:3}}>{faTime(item.createdAt)} {item.isMe&&(item.isRead?'✓✓':'✓')}</div></div></div>})}<div ref={endRef}/></div>

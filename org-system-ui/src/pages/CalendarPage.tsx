@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, DatePicker, Empty, Form, Input, List, Modal, Select, Space, Tag, message } from 'antd'
+import { Alert, Button, Card, Empty, Form, Input, List, Modal, Select, Space, Tag, TimePicker, message } from 'antd'
 import { CalendarOutlined, EnvironmentOutlined, PlusOutlined, TeamOutlined } from '@ant-design/icons'
 import type { Dayjs } from 'dayjs'
+import PersianDatePicker from '../components/PersianDatePicker'
+import { jalaliToDate } from '../utils/jalali'
 
 const API = 'http://localhost:5043/api/v1'
 const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') || ''}` })
@@ -15,7 +17,7 @@ interface CalendarEvent {
 }
 
 interface EventForm {
-  title: string; description?: string; range: [Dayjs, Dayjs]; eventType: string
+  title: string; description?: string; date:string; startTime:Dayjs; endTime:Dayjs; eventType: string
   location?: string; onlineMeetingUrl?: string; attendeeUserIds?: string[]
 }
 
@@ -33,11 +35,11 @@ export default function CalendarPage() {
     try {
       const [eventsRes, usersRes] = await Promise.all([
         fetch(`${API}/calendar`, { headers: authHeaders() }),
-        fetch(`${API}/users`, { headers: authHeaders() })
+        fetch(`${API}/directory`, { headers: authHeaders() })
       ])
       if (!eventsRes.ok) throw new Error((await eventsRes.json()).message || 'خطا در دریافت تقویم')
       setEvents(await eventsRes.json())
-      if (usersRes.ok) setUsers(await usersRes.json())
+      if (usersRes.ok) setUsers((await usersRes.json()).users||[])
     } catch (e) { setError(e instanceof Error ? e.message : 'ارتباط با backend برقرار نشد') }
     finally { setLoading(false) }
   }
@@ -46,12 +48,16 @@ export default function CalendarPage() {
 
   const create = async () => {
     const values = await form.validateFields()
+    const start=jalaliToDate(values.date),end=jalaliToDate(values.date)
+    start.setHours(values.startTime.hour(),values.startTime.minute(),0,0)
+    end.setHours(values.endTime.hour(),values.endTime.minute(),0,0)
+    if(end<=start){message.error('ساعت پایان باید بعد از ساعت شروع باشد');return}
     setSaving(true)
     try {
       const res = await fetch(`${API}/calendar`, {
         method: 'POST', headers: authHeaders(), body: JSON.stringify({
           title: values.title, description: values.description,
-          startAt: values.range[0].toISOString(), endAt: values.range[1].toISOString(),
+          startAt: start.toISOString(), endAt: end.toISOString(),
           isAllDay: false, timeZone: 'Asia/Tehran', eventType: values.eventType,
           location: values.location, onlineMeetingUrl: values.onlineMeetingUrl,
           organizer: null,
@@ -90,9 +96,8 @@ export default function CalendarPage() {
       onOk={() => void create()} confirmLoading={saving} okText="ثبت رویداد" cancelText="انصراف" width={620}>
       <Form form={form} layout="vertical" initialValues={{ eventType: 'meeting' }}>
         <Form.Item name="title" label="عنوان" rules={[{ required: true, message: 'عنوان الزامی است' }]}><Input /></Form.Item>
-        <Form.Item name="range" label="زمان شروع و پایان" rules={[{ required: true, message: 'زمان را انتخاب کنید' }]}>
-          <DatePicker.RangePicker showTime format="YYYY/MM/DD HH:mm" style={{ width: '100%' }} />
-        </Form.Item>
+        <Form.Item name="date" label="تاریخ شمسی" rules={[{ required: true, message: 'تاریخ را انتخاب کنید' }]}><PersianDatePicker /></Form.Item>
+        <Space style={{width:'100%'}}><Form.Item name="startTime" label="ساعت شروع" rules={[{required:true}]}><TimePicker format="HH:mm"/></Form.Item><Form.Item name="endTime" label="ساعت پایان" rules={[{required:true}]}><TimePicker format="HH:mm"/></Form.Item></Space>
         <Form.Item name="eventType" label="نوع"><Select options={[{ value: 'meeting', label: 'جلسه' }, { value: 'event', label: 'رویداد' }, { value: 'reminder', label: 'یادآوری' }]} /></Form.Item>
         <Form.Item name="attendeeUserIds" label="شرکت‌کنندگان داخلی"><Select mode="multiple" showSearch optionFilterProp="label"
           options={users.map(u => ({ value: u.id, label: u.fullName || u.username }))} /></Form.Item>

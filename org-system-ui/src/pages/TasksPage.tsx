@@ -22,6 +22,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useLocation } from 'react-router-dom'
+import { currentJalali, isLeapJalali, jalaliToDate } from '../utils/jalali'
 
 
 interface Task {
@@ -114,11 +115,13 @@ const PERSIAN_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'ت�
 const PERSIAN_DAYS = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج']
 
 function PersianCalendar({ tasks }: { tasks: Task[] }) {
-  const [currentMonth, setCurrentMonth] = useState(3) // خرداد
-  const [currentYear] = useState(1403)
+  const today = currentJalali()
+  const [viewDate,setViewDate]=useState({year:today.year,month:today.month})
+  const currentMonth=viewDate.month,currentYear=viewDate.year
 
-  const daysInMonth = currentMonth <= 6 ? 31 : currentMonth <= 11 ? 30 : 29
-  const firstDayOffset = 2 // شروع از دوشنبه (قابل تنظیم)
+  const daysInMonth = currentMonth <= 6 ? 31 : currentMonth <= 11 ? 30 : isLeapJalali(currentYear)?30:29
+  const firstDayOffset = (jalaliToDate(`${currentYear}/${currentMonth}/1`).getDay()+1)%7
+  const moveMonth=(delta:number)=>setViewDate(current=>{let month=current.month+delta,year=current.year;if(month<1){month=12;year--}if(month>12){month=1;year++}return{year,month}})
 
   const tasksByDay: Record<number, Task[]> = {}
   tasks.forEach(t => {
@@ -132,9 +135,9 @@ function PersianCalendar({ tasks }: { tasks: Task[] }) {
   return (
     <Card>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Button onClick={() => setCurrentMonth(m => m > 1 ? m - 1 : 12)}>{'>'}</Button>
+        <Button onClick={() => moveMonth(-1)}>{'>'}</Button>
         <h3 style={{ margin: 0 }}>{PERSIAN_MONTHS[currentMonth - 1]} {currentYear}</h3>
-        <Button onClick={() => setCurrentMonth(m => m < 12 ? m + 1 : 1)}>{'<'}</Button>
+        <Button onClick={() => moveMonth(1)}>{'<'}</Button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
         {PERSIAN_DAYS.map(d => (
@@ -144,7 +147,7 @@ function PersianCalendar({ tasks }: { tasks: Task[] }) {
         {Array(daysInMonth).fill(null).map((_, i) => {
           const day = i + 1
           const dayTasks = tasksByDay[day] || []
-          const isToday = day === 14 && currentMonth === 3
+          const isToday = day===today.day&&currentMonth===today.month&&currentYear===today.year
           return (
             <div key={day} style={{
               minHeight: 60, border: '1px solid #f0f0f0', borderRadius: 6, padding: 4,

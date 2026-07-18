@@ -42,6 +42,23 @@ function j2d(jy: number, jm: number, jd: number) {
   return g2d(r.gy, 3, r.march) + (jm - 1) * 31 - div(jm, 7) * (jm - 7) + jd - 1
 }
 
+function d2j(jdn: number) {
+  const gy = d2g(jdn).gy
+  let jy = gy - 621
+  const r = jalCal(jy)
+  const jdn1f = g2d(gy, 3, r.march)
+  let k = jdn - jdn1f
+  if (k >= 0) {
+    if (k <= 185) return { jy, jm: 1 + div(k, 31), jd: mod(k, 31) + 1 }
+    k -= 186
+  } else {
+    jy -= 1
+    k += 179
+    if (r.leap === 1) k += 1
+  }
+  return { jy, jm: 7 + div(k, 30), jd: mod(k, 30) + 1 }
+}
+
 export function jalaliToDate(value: string) {
   const [jy, jm, jd] = value.split('/').map(Number)
   if (!jy || !jm || !jd) throw new Error('تاریخ شمسی نامعتبر است')
@@ -50,9 +67,18 @@ export function jalaliToDate(value: string) {
 }
 
 export function currentJalali() {
-  const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', { year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(new Date())
-  const get = (type: string) => Number(parts.find(x => x.type === type)?.value || 1)
-  return { year: get('year'), month: get('month'), day: get('day') }
+  const value = dateToJalali(new Date())
+  return { year: value.jy, month: value.jm, day: value.jd }
 }
 
 export function isLeapJalali(year: number) { return jalCal(year).leap === 0 }
+
+export function dateToJalali(date: Date) { return d2j(g2d(date.getFullYear(), date.getMonth() + 1, date.getDate())) }
+
+export function formatJalaliDate(date: Date, includeWeekday = false) {
+  const { jy, jm, jd } = dateToJalali(date)
+  const months = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند']
+  const weekdays = ['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنج‌شنبه','جمعه','شنبه']
+  const value = `${jd} ${months[jm - 1]} ${jy}`
+  return includeWeekday ? `${weekdays[date.getDay()]} ${value}` : value
+}

@@ -159,12 +159,14 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
 
   useEffect(() => {
     Promise.all([
-      apiFetch(`${API}/users`, { headers: authHeaders() }),
-      apiFetch(`${API}/contacts`,{headers:authHeaders()}),
+      apiFetch(`${API}/directory`, { headers: authHeaders() }),
       apiFetch(`${API}/letter-templates`,{headers:authHeaders()})
-    ]).then(async([u,c,t])=>{
-      setUsers(u.ok?await u.json():[])
-      setContacts(c.ok?await c.json():[])
+    ]).then(async([directoryResponse,t])=>{
+      const directory=directoryResponse.ok?await directoryResponse.json():{users:[],contacts:[]}
+      setUsers(directory.users||[])
+      setContacts(directory.contacts||[])
+      const me=(directory.users||[]).find((user:ApiUser&{id:string})=>user.id===currentUser.id)
+      if(!initialData)form.setFieldValue('fromUser',me?.fullName||currentUser.fullName||currentUser.username)
       const stored=t.ok?await t.json():[]
       const merged=TEMPLATES.map(base=>{
         const db=stored.find((x:any)=>x.templateKey===base.id)
@@ -202,13 +204,18 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     form.setFieldsValue({ toUser: undefined, toExternal: undefined, toExternalOrg: undefined })
   }
 
-  const handleAction = (status: string) => {
-    form.validateFields().then(values => {
+  const handleAction = async (status: string) => {
+    try {
+      const values = status === 'draft' ? form.getFieldsValue() : await form.validateFields()
+      if(status!=='draft' && letterType==='internal' && !values.toUser) throw new Error('انتخاب گیرنده داخلی الزامی است')
+      if(status!=='draft' && letterType!=='internal' && !values.toExternal) throw new Error('انتخاب مخاطب گیرنده الزامی است')
       const primary: Recipient[]=[]
       if(letterType==='internal'&&values.toUser){const u=users.find(x=>x.id===values.toUser);if(u)primary.push({id:`primary-${u.id}`,personId:u.id,name:u.fullName,type:'internal',referralType:'اصل',phoneNumber:u.phoneNumber,sendSms:!!values.sendPrimarySms})}
       if(letterType!=='internal'&&values.toExternal){const c=contacts.find(x=>x.id===values.toExternal);if(c)primary.push({id:`primary-${c.id}`,personId:c.id,name:c.fullName,organization:c.companyName,type:'external',referralType:'اصل',phoneNumber:c.mobile||c.phone,sendSms:!!values.sendPrimarySms})}
       onSave({ ...values, toExternal:contacts.find(x=>x.id===values.toExternal)?.fullName||values.toExternal, toExternalOrg:contacts.find(x=>x.id===values.toExternal)?.companyName||values.toExternalOrg, status, paperSize, hasHeader, hasFooter, hasSignature, classification, priority, body: bodyHtml, attachments, recipients:[...primary,...recipients.filter(r=>!primary.some(p=>p.personId===r.personId))], letterType, letterNumber, letterTemplateId:selectedTemplate?.databaseId||null, templateKey:selectedTemplate?.templateKey||selectedTemplate?.id })
-    })
+    } catch(error) {
+      Modal.warning({title:'اطلاعات نامه کامل نیست',content:error instanceof Error?error.message:'فیلدهای الزامی را کامل کنید'})
+    }
   }
 
   const getFileIcon = (name: string) => {
@@ -405,9 +412,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Col xs={24} md={5}>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>فرستنده نامه</div>
               <Form.Item name="fromUser" style={{ margin: 0 }} rules={[{ required: true, message: 'الزامی' }]}>
-                <Select size="small" style={{ width: '100%' }} placeholder="انتخاب فرستنده" showSearch>
-                  {users.map(u => <Select.Option key={u.id} value={u.fullName}>{u.fullName}</Select.Option>)}
-                </Select>
+                <Input size="small" readOnly value={currentUser.fullName||currentUser.username} />
               </Form.Item>
             </Col>
             <Col md={1} style={{ textAlign: 'center' }}>
@@ -652,7 +657,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
           <Form.Item name="toUser" label="ارجاع به" rules={[{ required: true, message: 'انتخاب گیرنده الزامی است' }]}>
             <Select showSearch placeholder="انتخاب شخص" size="large">
               {users.map(u => (
-                <Select.Option key={u.id} value={u.fullName}>
+                <Select.Option key={u.id} value={u.id}>
                   <Space>
                     <Avatar size={22} icon={<UserOutlined />} style={{ background: '#1677ff' }} />
                     {u.fullName}

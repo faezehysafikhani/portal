@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Layout, Menu, Avatar, Dropdown, Badge } from 'antd'
+import { Layout, Menu, Avatar, Dropdown, Badge, notification } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   DashboardOutlined, MailOutlined, TeamOutlined, CheckSquareOutlined,
@@ -23,6 +23,7 @@ export default function MainLayout() {
   const [company,setCompany]=useState<{name?:string;logoUrl?:string|null}>(()=>{try{return JSON.parse(localStorage.getItem('company')||'{}')}catch{return {}}})
   useEffect(()=>{const sync=()=>setUser(JSON.parse(localStorage.getItem('user')||'{}'));window.addEventListener('profile-updated',sync);return()=>window.removeEventListener('profile-updated',sync)},[])
   useEffect(()=>{const sync=(event:Event)=>setCompany((event as CustomEvent).detail||{});window.addEventListener('company-updated',sync);return()=>window.removeEventListener('company-updated',sync)},[])
+  useEffect(()=>{const name=sessionStorage.getItem('welcome-user');if(name){sessionStorage.removeItem('welcome-user');notification.success({message:`کاربر ${name}، خوش آمدید`,description:'ورود شما به سامانه با موفقیت انجام شد.',placement:'topLeft'})}},[])
   const { hasPermission } = usePermissionStore()
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')

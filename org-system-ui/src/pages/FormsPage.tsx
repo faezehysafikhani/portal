@@ -4,6 +4,7 @@ import { PlusOutlined, EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, 
 import { useRolesStore } from '../store/rolesStore'
 import { apiFetch } from '../utils/api'
 import PersianDatePicker from '../components/PersianDatePicker'
+import { jalaliToDate, formatJalaliDate } from '../utils/jalali'
 
 const API='http://localhost:5043/api/v1'
 const headers=()=>({'Content-Type':'application/json'})
@@ -109,7 +110,7 @@ export default function FormsPage() {
   const [actionNote, setActionNote] = useState('')
   const [form] = Form.useForm()
 
-  const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:new Intl.DateTimeFormat('fa-IR').format(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName,hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),history:(x.history||[]).map((h:any)=>({date:new Intl.DateTimeFormat('fa-IR').format(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
+  const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:formatJalaliDate(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName,hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),history:(x.history||[]).map((h:any)=>({date:formatJalaliDate(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
   const load=async()=>{const [m,a,u,b]=await Promise.all([apiFetch(`${API}/forms`),apiFetch(`${API}/forms?scope=approvals`),apiFetch(`${API}/forms/approvers`),apiFetch(`${API}/forms/balance`)]);if(m.ok)setForms((await m.json()).map(mapApiForm));if(a.ok)setApprovalForms((await a.json()).map(mapApiForm));if(u.ok){const w=await u.json();setWorkflow(w);setUsers(w.users||[])}if(b.ok)setLeaveBalance(await b.json())}
   useEffect(()=>{load()},[])
   const managerOptions=workflow.manager?[{value:workflow.manager.id,label:`${workflow.manager.fullName}${workflow.manager.position?' — '+workflow.manager.position:''}`}]:[]
@@ -141,13 +142,22 @@ export default function FormsPage() {
     form.validateFields().then(async values => {
       const data={...values,fromTime:values.fromTime?.format?.('HH:mm')??values.fromTime,toTime:values.toTime?.format?.('HH:mm')??values.toTime}
       if(Object.values(data).some(v=>typeof v==='string'&&codePattern.test(v))){notification.error({message:'ورود کد HTML، JavaScript یا SQL مجاز نیست'});return}
+      let requestedHours=0
+      if(newFormType==='leave_daily'){
+        const from=jalaliToDate(values.fromDate),to=jalaliToDate(values.toDate)
+        const days=Math.floor((to.getTime()-from.getTime())/86400000)+1
+        if(days<=0){notification.error({message:'تاریخ پایان باید بعد از تاریخ شروع باشد'});return}
+        requestedHours=days*8
+        if(!checkLeaveBalance(newFormType,days))return
+      }
       if(newFormType==='leave_hourly'&&values.fromTime&&values.toTime){
         const hours=values.toTime.diff(values.fromTime,'minute')/60
         if(hours<=0){notification.error({message:'ساعت پایان باید بعد از ساعت شروع باشد'});return}
         if(!checkLeaveBalance(newFormType,undefined,hours))return
+        requestedHours=hours
       }
 
-      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,managerUserId:values.manager,hrUserId:values.hrManager,amount:0,data})})
+      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data})})
       const result=await res.json().catch(()=>({}));if(!res.ok){notification.error({message:result.message||'خطا در ارسال فرم'});return}
       setNewFormModal(false)
       form.resetFields()

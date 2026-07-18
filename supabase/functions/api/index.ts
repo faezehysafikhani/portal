@@ -333,6 +333,26 @@ async function contacts(request: Request, auth: AuthContext, path: string, url: 
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
 
+async function directory(request: Request, auth: AuthContext): Promise<Response> {
+  const [users, contacts] = await Promise.all([
+    db.from('Users').select('Id,Username,FirstName,LastName,AvatarUrl,Department,Position,PhoneNumber,SignatureDataUrl,SignatureText')
+      .eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).order('FirstName'),
+    db.from('Contacts').select('Id,FullName,CompanyName,JobTitle,Mobile,Phone,Email,LinkedUserId')
+      .eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FullName'),
+  ])
+  failOnDb(users.error); failOnDb(contacts.error)
+  return json(request, {
+    users: (users.data ?? []).map((user) => ({
+      id: user.Id, username: user.Username,
+      fullName: `${user.FirstName ?? ''} ${user.LastName ?? ''}`.trim() || user.Username,
+      avatarUrl: user.AvatarUrl, department: user.Department, position: user.Position,
+      phoneNumber: user.PhoneNumber, signatureDataUrl: user.SignatureDataUrl, signatureText: user.SignatureText,
+      isCurrentUser: user.Id === auth.userId,
+    })),
+    contacts: asCamel(contacts.data),
+  })
+}
+
 const taskStatus = ['Todo', 'InProgress', 'InReview', 'Done', 'Cancelled']
 const taskPriority = ['Low', 'Medium', 'High', 'Critical']
 function taskDto(item: JsonObject): JsonObject {
@@ -674,6 +694,7 @@ async function dispatch(request: Request): Promise<Response> {
   if (path === '/auth/logout' && request.method === 'POST') return json(request, { message: 'خروج موفق' })
   if (path === '/auth/change-password' && request.method === 'POST') return await changePassword(request, auth)
   if (path.startsWith('/contacts')) return await contacts(request, auth, path, url)
+  if (path === '/directory' && request.method === 'GET') return await directory(request, auth)
   if (path.startsWith('/tasks')) return await tasks(request, auth, path, url)
   if (path.startsWith('/positions')) return await positions(request, auth, path)
   if (path.startsWith('/notifications')) return await notifications(request, auth, path)

@@ -1,6 +1,7 @@
 import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
+import { jalaliDateString, jalaliYearMonth } from '../_shared/jalali.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -19,7 +20,7 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
       db.from('EventLetterLinks').select('LetterId').eq('TenantId', auth.tenantId).eq('EventId', event.Id).eq('IsDeleted', false),
       db.from('EventTaskLinks').select('TaskId').eq('TenantId', auth.tenantId).eq('EventId', event.Id).eq('IsDeleted', false),
     ]); [attendees, participants, letters, tasks].forEach((x) => check(x.error))
-    return { ...(camelize(event) as Obj), attendees: camelize(attendees.data), participants: camelize(participants.data), relatedLetterIds: (letters.data ?? []).map((x) => x.LetterId), relatedTaskIds: (tasks.data ?? []).map((x) => x.TaskId) }
+    return { ...(camelize(event) as Obj), persianStartDate:jalaliDateString(event.StartAt), gregorianStartDate:new Date(event.StartAt).toISOString().slice(0,10), attendees: camelize(attendees.data), participants: camelize(participants.data), relatedLetterIds: (letters.data ?? []).map((x) => x.LetterId), relatedTaskIds: (tasks.data ?? []).map((x) => x.TaskId) }
   }
   if (request.method === 'GET') {
     let query = db.from('CalendarEvents').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
@@ -70,44 +71,98 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
 
 async function chat(request: Request, auth: AuthContext, path: string): Promise<Response> {
   requirePermission(auth, 'chat.view')
+  const kindName=(value:unknown)=>['Text','File','Voice'][Number(value)]??String(value??'Text')
   if (request.method === 'GET' && path === '/chat/users') {
-    const users = await db.from('Users').select('Id,Username,FirstName,LastName,AvatarUrl,Department,Position').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).neq('Id', auth.userId).order('FirstName'); check(users.error)
-    return json(request, (users.data ?? []).map((u) => ({ id: u.Id, username: u.Username, fullName: `${u.FirstName} ${u.LastName}`.trim(), avatarUrl: u.AvatarUrl, department: u.Department, position: u.Position })))
+    const [users,contacts] = await Promise.all([
+      db.from('Users').select('Id,Username,FirstName,LastName,AvatarUrl,Department,Position').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).neq('Id', auth.userId).order('FirstName'),
+      db.from('Contacts').select('Id,FullName,CompanyName,JobTitle,LinkedUserId').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FullName'),
+    ]); check(users.error); check(contacts.error)
+    return json(request, [
+      ...(users.data ?? []).map((u) => ({ id: `user:${u.Id}`, personId:u.Id, personType:'user', username: u.Username, fullName: `${u.FirstName} ${u.LastName}`.trim(), avatarUrl: u.AvatarUrl, department: u.Department, position: u.Position, isOnline:false, unread:0 })),
+      ...(contacts.data ?? []).map((c) => ({ id:`contact:${c.Id}`, personId:c.Id, personType:'contact', fullName:c.FullName, department:c.CompanyName, position:c.JobTitle, isOnline:false, unread:0 })),
+    ])
   }
-  const messages = path.match(/^\/chat\/messages\/([0-9a-f-]+)$/i)
+  const messages = path.match(/^\/chat\/messages\/(user|contact):([0-9a-f-]+)$/i)
   if (request.method === 'GET' && messages) {
-    const result = await db.from('InternalChatMessages').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
-      .or(`and(SenderUserId.eq.${auth.userId},RecipientUserId.eq.${messages[1]}),and(SenderUserId.eq.${messages[1]},RecipientUserId.eq.${auth.userId})`).order('CreatedAt'); check(result.error)
-    await db.from('InternalChatMessages').update({ IsRead: true, ReadAt: now() }).eq('TenantId', auth.tenantId).eq('SenderUserId', messages[1]).eq('RecipientUserId', auth.userId).eq('IsRead', false)
-    return json(request, camelize(result.data))
+    const personType=messages[1].toLowerCase(),personId=messages[2]
+    let query=db.from('InternalChatMessages').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    query=personType==='user'?query.or(`and(SenderUserId.eq.${auth.userId},RecipientUserId.eq.${personId}),and(SenderUserId.eq.${personId},RecipientUserId.eq.${auth.userId})`):query.eq('SenderUserId',auth.userId).eq('RecipientContactId',personId)
+    const result=await query.order('CreatedAt');check(result.error)
+    if(personType==='user')await db.from('InternalChatMessages').update({ IsRead: true, ReadAt: now() }).eq('TenantId', auth.tenantId).eq('SenderUserId', personId).eq('RecipientUserId', auth.userId).eq('IsRead', false)
+    return json(request,(result.data??[]).map(item=>({...camelize(item) as Obj,kind:kindName(item.Kind),isMe:item.SenderUserId===auth.userId})))
+  }
+  const attachment=path.match(/^\/chat\/messages\/([0-9a-f-]+)\/attachment$/i)
+  if(request.method==='GET'&&attachment){
+    const result=await db.from('InternalChatMessages').select('SenderUserId,RecipientUserId,AttachmentData,AttachmentName,AttachmentContentType').eq('TenantId',auth.tenantId).eq('Id',attachment[1]).eq('IsDeleted',false).maybeSingle();check(result.error)
+    if(!result.data||(result.data.SenderUserId!==auth.userId&&result.data.RecipientUserId!==auth.userId))throw new HttpError(404,'فایل پیام یافت نشد')
+    const binary=Uint8Array.from(atob(String(result.data.AttachmentData??'')),c=>c.charCodeAt(0))
+    return new Response(binary,{headers:{...corsHeaders(request),'Content-Type':result.data.AttachmentContentType||'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(result.data.AttachmentName||'attachment')}`}})
   }
   if (request.method === 'POST' && path === '/chat/messages') {
     const input = await body<Obj>(request); const content = String(input.content ?? '').trim()
-    if (!input.recipientUserId || (!content && !input.attachmentData)) throw new HttpError(400, 'گیرنده و متن یا فایل الزامی است')
-    const row = { ...base(auth), SenderUserId: auth.userId, RecipientUserId: input.recipientUserId, Content: content, Kind: input.kind ?? 0, AttachmentData: input.attachmentData ?? null, AttachmentName: input.attachmentName ?? null, AttachmentContentType: input.attachmentContentType ?? null, AttachmentSize: input.attachmentSize ?? null, VoiceDurationSeconds: input.voiceDurationSeconds ?? null, IsRead: false, ReadAt: null }
-    const result = await db.from('InternalChatMessages').insert(row).select().single(); check(result.error); return json(request, camelize(result.data), 201)
+    const recipientType=String(input.recipientType??'user'),recipientId=String(input.recipientId??'')
+    if (!recipientId || (!content && !input.attachmentData)) throw new HttpError(400, 'گیرنده و متن یا فایل الزامی است')
+    const kind=({text:0,file:1,voice:2} as Obj)[String(input.kind??'text').toLowerCase()]??0
+    const row = { ...base(auth), SenderUserId: auth.userId, RecipientUserId: recipientType==='user'?recipientId:null, RecipientContactId:recipientType==='contact'?recipientId:null, Content: content, Kind: kind, AttachmentData: input.attachmentData ?? null, AttachmentName: input.attachmentName ?? null, AttachmentContentType: input.attachmentContentType ?? null, AttachmentSize: input.attachmentSize ?? null, VoiceDurationSeconds: input.voiceDurationSeconds ?? null, IsRead: false, ReadAt: null }
+    const result = await db.from('InternalChatMessages').insert(row).select().single(); check(result.error); return json(request, {...camelize(result.data) as Obj,kind:kindName(result.data.Kind),isMe:true}, 201)
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
 
-async function forms(request: Request, auth: AuthContext, path: string): Promise<Response> {
+const person = (u: Obj) => ({ id:u.Id, username:u.Username, fullName:`${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim() || u.Username, position:u.Position, department:u.Department })
+const monthIndex = (value:string|number) => { const raw=String(value); const year=Number(raw.includes('/')?raw.split('/')[0]:raw.slice(0,4)),month=Number(raw.includes('/')?raw.split('/')[1]:raw.slice(4,6)); return year*12+month-1 }
+
+async function workflow(auth: AuthContext) {
+  const [current,all] = await Promise.all([
+    db.from('Users').select('Id,Username,FirstName,LastName,Position,Department,DirectManager,HrManager').eq('TenantId',auth.tenantId).eq('Id',auth.userId).eq('IsDeleted',false).single(),
+    db.from('Users').select('Id,Username,FirstName,LastName,Position,Department').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('IsActive',true).order('FirstName'),
+  ]); check(current.error); check(all.error)
+  const users=(all.data??[]).map(person)
+  const resolve=(reference:unknown)=>{const key=String(reference??'').trim().toLowerCase();return users.find((u:any)=>u.id.toLowerCase()===key||String(u.username??'').toLowerCase()===key||u.fullName.toLowerCase()===key)}
+  const manager=resolve(current.data.DirectManager),hrManager=resolve(current.data.HrManager)
+  return { submitter:person(current.data), manager, hrManager, isConfigured:Boolean(manager&&hrManager), message:manager&&hrManager?undefined:'مدیر مستقیم یا مسئول منابع انسانی در پروفایل کاربر تنظیم نشده است.', users }
+}
+
+async function leaveAccount(auth: AuthContext, userId=auth.userId) {
+  const ym=Number(jalaliYearMonth().replace('/','')),found=await db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle();check(found.error)
+  let account=found.data
+  if(!account){
+    const created=await db.from('LeaveAccounts').insert({...base(auth),UserId:userId,AccruedThroughYearMonth:ym,AccruedHours:20,UsedHours:0,ReservedHours:0,MonthlyAccrualHours:20,HoursPerDay:8}).select().single();check(created.error);account=created.data
+  } else {
+    const previous=account.AccruedThroughYearMonth??ym,months=Math.max(0,monthIndex(ym)-monthIndex(previous))
+    if(months>0){const accrued=Number(account.AccruedHours??0)+months*Number(account.MonthlyAccrualHours??20);const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,AccruedThroughYearMonth:ym,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data}
+  }
+  const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
+  return {...account,availableHours:Math.max(0,accrued-used-reserved),days:Math.max(0,(accrued-used-reserved)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}
+}
+
+async function forms(request: Request, auth: AuthContext, path: string, url:URL): Promise<Response> {
   if (path === '/forms/balance' && request.method === 'GET') {
-    requirePermission(auth, 'forms.view'); const result = await db.from('LeaveAccounts').select('*').eq('TenantId', auth.tenantId).eq('UserId', auth.userId).eq('IsDeleted', false).maybeSingle(); check(result.error)
-    return json(request, camelize(result.data ?? { accruedHours: 0, usedHours: 0 }))
+    requirePermission(auth, 'forms.view'); return json(request,camelize(await leaveAccount(auth)))
   }
   if (path === '/forms/approvers' && request.method === 'GET') {
-    requirePermission(auth, 'forms.create'); const result = await db.from('Users').select('Id,FirstName,LastName,Position,Department').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).neq('Id', auth.userId).order('FirstName'); check(result.error)
-    return json(request, (result.data ?? []).map((u) => ({ id: u.Id, fullName: `${u.FirstName} ${u.LastName}`.trim(), position: u.Position, department: u.Department })))
+    requirePermission(auth, 'forms.create'); return json(request,await workflow(auth))
   }
   if (path === '/forms' && request.method === 'GET') {
-    requirePermission(auth, 'forms.view'); const result = await db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
-      .or(`SubmitterUserId.eq.${auth.userId},ManagerUserId.eq.${auth.userId},HrUserId.eq.${auth.userId}`).order('CreatedAt', { ascending: false }); check(result.error); return json(request, camelize(result.data))
+    requirePermission(auth, 'forms.view'); let query=db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    if(url.searchParams.get('scope')==='approvals')query=query.or(`and(ManagerUserId.eq.${auth.userId},Status.eq.manager_pending),and(HrUserId.eq.${auth.userId},Status.eq.hr_pending)`)
+    else query=query.eq('SubmitterUserId',auth.userId)
+    const result=await query.order('CreatedAt',{ascending:false});check(result.error)
+    const enriched=await Promise.all((result.data??[]).map(async(form:Obj)=>{const history=await db.from('FormWorkflowHistories').select('*').eq('TenantId',auth.tenantId).eq('FormId',form.Id).eq('IsDeleted',false).order('CreatedAt');check(history.error);return{...camelize(form) as Obj,history:camelize(history.data)}}))
+    return json(request,enriched)
   }
   if (path === '/forms' && request.method === 'POST') {
     requirePermission(auth, 'forms.create'); const input = await body<Obj>(request)
-    const user = await db.from('Users').select('FirstName,LastName').eq('TenantId', auth.tenantId).eq('Id', auth.userId).single(); check(user.error)
-    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: `${user.data.FirstName} ${user.data.LastName}`.trim(), ManagerUserId: input.managerUserId, HrUserId: input.hrUserId, Status: 'manager_pending', RequestedHours: input.amount ?? 0, Amount: input.amount ?? 0, DataJson: JSON.stringify(input.data ?? {}), ManagerNote: null, HrNote: null }
-    const result = await db.from('OrganizationalForms').insert(row).select().single(); check(result.error); return json(request, camelize(result.data), 201)
+    const route=await workflow(auth);if(!route.isConfigured)throw new HttpError(400,route.message)
+    const requestedHours=['leave_daily','leave_hourly'].includes(String(input.formType))?Number(input.amount??0):0
+    if(['leave_daily','leave_hourly'].includes(String(input.formType))&&requestedHours<=0)throw new HttpError(400,'مدت مرخصی معتبر نیست.')
+    let account:Obj|null=null
+    if(requestedHours>0){account=await leaveAccount(auth);if(requestedHours>account.availableHours)throw new HttpError(400,`مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)}
+    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager.id, ManagerName:route.manager.fullName, HrUserId: route.hrManager.id, HrName:route.hrManager.fullName, Status: 'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}) }
+    const result = await db.from('OrganizationalForms').insert(row).select().single(); check(result.error)
+    const history=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:result.data.Id,ActorUserId:auth.userId,ActorName:route.submitter.fullName,Action:'submitted',Note:null});check(history.error)
+    if(account&&requestedHours>0){const reserved=await db.from('LeaveAccounts').update({ReservedHours:Number(account.ReservedHours??0)+requestedHours,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(reserved.error)}
+    return json(request, {...camelize(result.data) as Obj,message:'فرم ثبت شد و برای مدیر مستقیم شما ارسال گردید.'}, 201)
   }
   const action = path.match(/^\/forms\/([0-9a-f-]+)\/action$/i)
   if (action && request.method === 'POST') {
@@ -117,8 +172,17 @@ async function forms(request: Request, auth: AuthContext, path: string): Promise
     if (!isManager && !isHr && !auth.isAdmin) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
     let status = form.Status
     if (input.action === 'approve') status = isManager ? 'hr_pending' : 'approved'; else if (input.action === 'return') status = 'returned'; else if (input.action === 'reject') status = 'rejected'; else throw new HttpError(400, 'عملیات نامعتبر است')
-    const update: Obj = { Status: status, UpdatedAt: now() }; if (isManager) update.ManagerNote = input.note ?? null; else update.HrNote = input.note ?? null
-    const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', action[1]).select().single(); check(result.error); return json(request, { status: result.data.Status })
+    const update: Obj = { Status: status, UpdatedAt: now() }
+    const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', action[1]).select().single(); check(result.error)
+    const actor=await db.from('Users').select('Username,FirstName,LastName').eq('TenantId',auth.tenantId).eq('Id',auth.userId).single();check(actor.error)
+    const actionHistory=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:form.Id,ActorUserId:auth.userId,ActorName:person(actor.data).fullName,Action:input.action,Note:input.note??null});check(actionHistory.error)
+    const requested=Number(form.RequestedHours??0)
+    if(requested>0&&((input.action==='approve'&&status==='approved')||input.action==='reject'||input.action==='return')){
+      const account=await leaveAccount(auth,form.SubmitterUserId),reserved=Math.max(0,Number(account.ReservedHours??0)-requested)
+      const accountUpdate:Obj={ReservedHours:reserved,UpdatedAt:now()};if(input.action==='approve'&&status==='approved')accountUpdate.UsedHours=Number(account.UsedHours??0)+requested
+      const saved=await db.from('LeaveAccounts').update(accountUpdate).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(saved.error)
+    }
+    return json(request, { status: result.data.Status })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
@@ -126,7 +190,6 @@ async function forms(request: Request, auth: AuthContext, path: string): Promise
 export async function handleCollaboration(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
   if (path.startsWith('/calendar')) return calendar(request, auth, path, url)
   if (path.startsWith('/chat')) return chat(request, auth, path)
-  if (path.startsWith('/forms')) return forms(request, auth, path)
+  if (path.startsWith('/forms')) return forms(request, auth, path, url)
   return null
 }
-

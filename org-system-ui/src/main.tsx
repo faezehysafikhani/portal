@@ -24,7 +24,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           token: {
             colorPrimary: '#8B1A6B',
             borderRadius: 8,
-            fontFamily: "'Vazirmatn', Tahoma, sans-serif",
+            fontFamily: "'IRANSans', Tahoma, sans-serif",
+            fontSize: 10,
           },
         }}
       >

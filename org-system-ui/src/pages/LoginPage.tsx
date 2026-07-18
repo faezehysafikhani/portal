@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Form, Input, Button, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
+import { formatJalaliDate } from '../utils/jalali'
 
 function PersianClock() {
   const [time, setTime] = useState(new Date())
@@ -8,7 +9,7 @@ function PersianClock() {
     const t = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
-  const persianDate = new Intl.DateTimeFormat('fa-IR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).format(time)
+  const persianDate = formatJalaliDate(time, true)
   const persianTime = time.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const gregorianDate = time.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   return (
@@ -51,6 +52,7 @@ export default function LoginPage() {
       localStorage.setItem('user', JSON.stringify(data.user))
       localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
       if (data.company) localStorage.setItem('company', JSON.stringify(data.company))
+      sessionStorage.setItem('welcome-user', data.user?.fullName || `${data.user?.firstName || ''} ${data.user?.lastName || ''}`.trim() || data.user?.username || values.username)
       window.location.assign('/dashboard')
     } catch {
       setError('خطا در اتصال به سرور')

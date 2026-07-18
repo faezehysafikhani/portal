@@ -299,19 +299,19 @@ export default function LettersPage() {
     }
   }
 
-  const fetchUsers = async () => {
+  const fetchDirectory = async () => {
     try {
-      const res = await apiFetch(`${API}/users`, { headers: authHeaders() })
+      const res = await apiFetch(`${API}/directory`, { headers: authHeaders() })
       if (!res.ok) throw new Error()
-      setUsers(await res.json())
+      const data=await res.json()
+      setUsers(data.users||[])
+      setContacts(data.contacts||[])
     } catch {}
   }
-  const fetchContacts=async()=>{try{const r=await apiFetch(`${API}/contacts`,{headers:authHeaders()});if(r.ok)setContacts(await r.json())}catch{}}
 
   useEffect(() => {
     fetchLetters()
-    fetchUsers()
-    fetchContacts()
+    fetchDirectory()
   }, [isRegistry])
 
   const handleViewLetter = async (letter: Letter) => {
