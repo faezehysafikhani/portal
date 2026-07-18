@@ -350,6 +350,7 @@ export default function DashboardPage() {
   const [selectedDayEvents, setSelectedDayEvents] = useState<CalEvent[]>([])
   const [eventForm] = Form.useForm()
   const [peopleOptions,setPeopleOptions]=useState<PersonOption[]>([]),[letterOptions,setLetterOptions]=useState<LetterOption[]>([]),[taskOptions,setTaskOptions]=useState<TaskOption[]>([])
+  const [eventOptionsLoaded,setEventOptionsLoaded]=useState(false)
   const [relatedPeople,setRelatedPeople]=useState<string[]>([]),[relatedLetters,setRelatedLetters]=useState<string[]>([]),[relatedTasks,setRelatedTasks]=useState<string[]>([])
   const [persianEventDate,setPersianEventDate]=useState('')
   const [calendarError,setCalendarError]=useState(''),[savingEvent,setSavingEvent]=useState(false)
@@ -358,7 +359,8 @@ export default function DashboardPage() {
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
 
-  const loadCalendar=async()=>{setCalendarError('');try{const [er,dr,lr,tr]=await Promise.all([fetch(`${API}/calendar`,{headers:authHeaders()}),fetch(`${API}/directory`,{headers:authHeaders()}),fetch(`${API}/letters`,{headers:authHeaders()}),fetch(`${API}/tasks`,{headers:authHeaders()})]);if(!er.ok)throw new Error('تقویم از backend دریافت نشد');const ev=await er.json();setEvents(ev.map((e:any)=>({id:e.id,title:e.title,date:e.persianStartDate.replace(/\/0/g,'/'),time:new Date(e.startAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),type:e.eventType,color:EVENT_COLORS[e.eventType as keyof typeof EVENT_COLORS]||'#1677ff'})));const directory=dr.ok?await dr.json():{users:[],contacts:[]};setPeopleOptions([...(directory.users||[]).map((u:any)=>({key:`user:${u.id}`,type:'user',id:u.id,name:u.fullName||u.username,detail:u.department||'کاربر داخلی'})),...(directory.contacts||[]).map((c:any)=>({key:`contact:${c.id}`,type:'contact',id:c.id,name:c.fullName,detail:c.companyName||'مخاطب'}))]);setLetterOptions(lr.ok?await lr.json():[]);setTaskOptions(tr.ok?await tr.json():[])}catch(e){setCalendarError(e instanceof Error?e.message:'خطای اتصال')}}
+  const loadCalendar=async()=>{setCalendarError('');try{const response=await fetch(`${API}/calendar`,{headers:authHeaders()});if(!response.ok)throw new Error('تقویم از backend دریافت نشد');const ev=await response.json();setEvents(ev.map((e:any)=>({id:e.id,title:e.title,date:e.persianStartDate.replace(/\/0/g,'/'),time:new Date(e.startAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),type:e.eventType,color:EVENT_COLORS[e.eventType as keyof typeof EVENT_COLORS]||'#1677ff'})))}catch(e){setCalendarError(e instanceof Error?e.message:'خطای اتصال')}}
+  const loadEventOptions=async()=>{if(eventOptionsLoaded)return;const [dr,lr,tr]=await Promise.all([fetch(`${API}/directory`,{headers:authHeaders()}),fetch(`${API}/letters?scope=mailbox`,{headers:authHeaders()}),fetch(`${API}/tasks`,{headers:authHeaders()})]);const directory=dr.ok?await dr.json():{users:[],contacts:[]};setPeopleOptions([...(directory.users||[]).map((u:any)=>({key:`user:${u.id}`,type:'user',id:u.id,name:u.fullName||u.username,detail:u.department||'کاربر داخلی'})),...(directory.contacts||[]).map((c:any)=>({key:`contact:${c.id}`,type:'contact',id:c.id,name:c.fullName,detail:c.companyName||'مخاطب'}))]);setLetterOptions(lr.ok?await lr.json():[]);setTaskOptions(tr.ok?await tr.json():[]);setEventOptionsLoaded(true)}
   useEffect(()=>{void loadCalendar();fetch(`${API}/dashboard/summary`,{headers:authHeaders()}).then(r=>r.ok?r.json():Promise.reject()).then(setSummary).catch(()=>setCalendarError('آمار داشبورد دریافت نشد'))},[])
 
   const daysInMonth = getDaysInMonth(currentMonth, currentYear)
@@ -370,12 +372,13 @@ export default function DashboardPage() {
   const isToday = (day: number) => day===today.day&&currentMonth===today.month&&currentYear===today.year
   const nextMonth=()=>{if(currentMonth===12){setCurrentMonth(1);setCurrentYear(year=>year+1)}else setCurrentMonth(month=>month+1)}
   const previousMonth=()=>{if(currentMonth===1){setCurrentMonth(12);setCurrentYear(year=>year-1)}else setCurrentMonth(month=>month-1)}
+  const openNewEvent=(date:string)=>{setSelectedDate(date);setPersianEventDate(date);eventForm.resetFields();setEventModal(true);void loadEventOptions()}
 
   const handleDayClick = (day: number) => {
     const date = `${currentYear}/${currentMonth}/${day}`
     const dayEvents = getEventsForDay(day)
     if (dayEvents.length > 0) { setSelectedDayEvents(dayEvents); setSelectedDate(date); setDayEventsModal(true) }
-    else if (allowed('calendar.create')) { setSelectedDate(date); eventForm.resetFields(); setEventModal(true) }
+    else if (allowed('calendar.create')) openNewEvent(date)
   }
 
   const handleAddEvent=async()=>{const v=await eventForm.validateFields() as {title:string;type:string;startTime:Dayjs;endTime:Dayjs;location?:string;organizer?:string;description?:string;sendSms?:boolean};if(!persianEventDate){message.error('تاریخ شمسی را انتخاب کنید');return}const start=jalaliToDate(persianEventDate),end=jalaliToDate(persianEventDate);start.setHours(v.startTime.hour(),v.startTime.minute(),0,0);end.setHours(v.endTime.hour(),v.endTime.minute(),0,0);if(end<=start){message.error('ساعت پایان باید بعد از شروع باشد');return}const person=(k:string,r:string)=>{const p=peopleOptions.find(x=>x.key===k);return p?{personType:p.type,personId:p.id,displayName:p.name,role:r}:null};setSavingEvent(true);try{const res=await fetch(`${API}/calendar`,{method:'POST',headers:authHeaders(),body:JSON.stringify({title:v.title,description:v.description,startAt:start.toISOString(),endAt:end.toISOString(),isAllDay:false,timeZone:'Asia/Tehran',eventType:v.type,location:v.location,onlineMeetingUrl:null,organizer:v.organizer?person(v.organizer,'organizer'):null,participants:relatedPeople.map(k=>person(k,'attendee')).filter(Boolean),relatedLetterIds:relatedLetters,relatedTaskIds:relatedTasks,sendSms:!!v.sendSms})});if(!res.ok)throw new Error((await res.json()).message||'ثبت ناموفق بود');message.success('رویداد ثبت شد');setEventModal(false);setPersianEventDate('');await loadCalendar()}catch(e){message.error(e instanceof Error?e.message:'خطا')}finally{setSavingEvent(false)}}
@@ -454,7 +457,7 @@ export default function DashboardPage() {
             }
             extra={allowed('calendar.create') ?
               <Button type="primary" size="small" icon={<PlusOutlined />} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}
-                onClick={() => { setSelectedDate(`${currentYear}/${currentMonth}/1`); eventForm.resetFields(); setEventModal(true) }}>
+                onClick={() => openNewEvent(`${currentYear}/${currentMonth}/1`)}>
                 رویداد جدید
               </Button> : null
             }
@@ -606,7 +609,7 @@ export default function DashboardPage() {
         open={dayEventsModal} onCancel={() => setDayEventsModal(false)}
         footer={[
           allowed('calendar.create') ? <Button key="add" type="primary" icon={<PlusOutlined />} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}
-            onClick={() => { setDayEventsModal(false); eventForm.resetFields(); setEventModal(true) }}>رویداد جدید</Button> : null,
+            onClick={() => { setDayEventsModal(false); openNewEvent(selectedDate) }}>رویداد جدید</Button> : null,
           <Button key="close" onClick={() => setDayEventsModal(false)}>بستن</Button>
         ].filter(Boolean)}
         width={420}

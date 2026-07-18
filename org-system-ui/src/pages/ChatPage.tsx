@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Avatar, Badge, Button, Card, Empty, Input, message, Space, Spin, Tag, Tooltip } from 'antd'
-import { AudioOutlined, CloseOutlined, DownloadOutlined, FileOutlined, PaperClipOutlined, SearchOutlined, SendOutlined, StopOutlined, UserOutlined } from '@ant-design/icons'
+import { Avatar, Badge, Button, Card, Empty, Input, message, Popover, Space, Spin, Tag, Tooltip } from 'antd'
+import { AudioOutlined, CloseOutlined, DownloadOutlined, FileOutlined, PaperClipOutlined, SearchOutlined, SendOutlined, SmileOutlined, StopOutlined, UserOutlined } from '@ant-design/icons'
 import { apiFetch } from '../utils/api'
 
 const API='http://localhost:5043/api/v1'
 const MAX_FILE_SIZE=200*1024
 const codePattern=/<[^>]*>|javascript\s*:|--|\/\*|\*\/|;\s*(select|insert|update|delete|drop|alter|exec)|\bunion\s+select/i
 const allowedExtensions=['pdf','png','jpg','jpeg','txt','docx','xlsx']
+const CHAT_EMOJIS=[...new Set(['👍','😂','😭','👏','🤞','🙏','🙂','🥰','😳','🙌','🙃','😊','🥳','🤪','💀','😱','🎉','😎','😴','✌️','😁','👌','🤭','😐','🤷','😋','💰','🥴','🥺','😢','🙋','💩','😜','🤗','💯','🤢','😉','🌹','🤫','🤐','🤥','🎂','🎈','😵‍💫','🤒','😷','🤔','😡','🤬','🤧','🤕','🥱','🤮','🤯','🥵','🥶','🤠','🧐','👻','🙈','🙉','🙊','🫰🏻','☝🏻','🤝🏼','🤦🏻‍♀️','🧑‍💻','🏃'])]
 interface ChatUser { id:string; personId:string; personType:'user'|'contact'; fullName:string; position?:string; department?:string; avatarUrl?:string; isOnline:boolean; lastMessage?:string; lastMessageAt?:string; unread:number }
 interface ChatMessage { id:string; senderUserId:string; recipientUserId:string; content:string; kind:'Text'|'File'|'Voice'|string; attachmentName?:string; attachmentContentType?:string; attachmentSize?:number; voiceDurationSeconds?:number; hasAttachment?:boolean; isRead:boolean; createdAt:string; isMe:boolean }
 
@@ -32,6 +33,7 @@ export default function ChatPage(){
   const [selectedFile,setSelectedFile]=useState<File>()
   const [recording,setRecording]=useState(false)
   const [recordSeconds,setRecordSeconds]=useState(0)
+  const [emojiOpen,setEmojiOpen]=useState(false)
   const endRef=useRef<HTMLDivElement>(null)
   const fileInputRef=useRef<HTMLInputElement>(null)
   const recorderRef=useRef<MediaRecorder|null>(null)
@@ -115,6 +117,8 @@ export default function ChatPage(){
   const filtered=useMemo(()=>users.filter(x=>`${x.fullName} ${x.position||''} ${x.department||''}`.includes(search.trim())),[users,search])
   const choose=(id:string)=>{if(recording)stopRecording();setSelectedFile(undefined);setSelectedId(id);history.replaceState(null,'',`/chat?user=${id}`)}
   const faTime=(value?:string)=>value?new Date(value).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''
+  const addEmoji=(emoji:string)=>{setText(current=>`${current}${emoji}`.slice(0,2000));setEmojiOpen(false)}
+  const emojiPicker=<div style={{width:280,display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:4,direction:'ltr'}}>{CHAT_EMOJIS.map(emoji=><Button key={emoji} type="text" onClick={()=>addEmoji(emoji)} style={{fontSize:21,padding:2,height:34}}>{emoji}</Button>)}</div>
 
   if(loading)return <div style={{display:'grid',placeItems:'center',height:400}}><Spin size="large"/></div>
   return <div style={{height:'calc(100vh - 125px)',display:'flex',gap:14,minHeight:520}}>
@@ -137,6 +141,7 @@ export default function ChatPage(){
           <input ref={fileInputRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.txt,.docx,.xlsx" onChange={e=>{chooseFile(e.target.files?.[0]);e.currentTarget.value=''}}/>
           <Tooltip title="پیوست فایل تا ۲۰۰KB"><Button icon={<PaperClipOutlined/>} onClick={()=>fileInputRef.current?.click()} disabled={recording||sending}/></Tooltip>
           <Tooltip title={recording?'توقف و ارسال ویس':'ضبط پیام صوتی تا ۶۰ ثانیه'}><Button danger={recording} type={recording?'primary':'default'} icon={recording?<StopOutlined/>:<AudioOutlined/>} onClick={recording?stopRecording:startRecording} disabled={sending}>{recording?`${recordSeconds.toLocaleString('fa-IR')} ثانیه`:''}</Button></Tooltip>
+          <Popover content={emojiPicker} title="انتخاب ایموجی" trigger="click" open={emojiOpen} onOpenChange={setEmojiOpen} placement="top"><Tooltip title="ایموجی"><Button icon={<SmileOutlined/>} disabled={recording||sending}/></Tooltip></Popover>
           <Input.TextArea autoSize={{minRows:1,maxRows:4}} value={text} maxLength={2000} showCount disabled={recording} onChange={e=>setText(e.target.value)} onPressEnter={e=>{if(!e.shiftKey){e.preventDefault();send()}}} placeholder={recording?'در حال ضبط پیام صوتی...':`پیام به ${selected.fullName}...`}/>
           <Button type="primary" loading={sending} icon={<SendOutlined/>} onClick={send} disabled={recording||(!text.trim()&&!selectedFile)} style={{background:'#8b1a6b'}}>ارسال</Button>
         </div>

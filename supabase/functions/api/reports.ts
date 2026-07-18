@@ -12,11 +12,11 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
   if (request.method !== 'GET') throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
   requirePermission(auth, 'reports.view')
   const [lettersR,tasksR,ticketsR,formsR,smsR,usersR,customersR,letterCountR,activeTasksR,openTicketsR,pendingFormsR] = await Promise.all([
-    db.from('Letters').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(1000),
-    db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(1000),
-    db.from('Tickets').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(1000),
-    db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(1000),
-    db.from('SmsMessages').select('Status').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
+    db.from('Letters').select('Id,LetterNumber,IncomingNumber,Type,Subject,FromUserName,IncomingFromOrg,LetterDate,CreatedAt,Status').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
+    db.from('Tasks').select('Id,Title,Status,Priority,Progress,DueDate,AssignedToUserId,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
+    db.from('Tickets').select('Id,Code,Title,CustomerId,Category,AssignedToUserId,Status,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
+    db.from('OrganizationalForms').select('Id,FormType,Title,SubmitterName,ManagerName,HrName,Status,RequestedHours,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
+    db.from('SmsMessages').select('Status').eq('TenantId', auth.tenantId).eq('IsDeleted', false).limit(1000),
     db.from('Users').select('Id,FirstName,LastName,IsActive').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
     db.from('Customers').select('Id,FullName').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
     db.from('Letters').select('*',{count:'exact',head:true}).eq('TenantId',auth.tenantId).eq('IsDeleted',false),

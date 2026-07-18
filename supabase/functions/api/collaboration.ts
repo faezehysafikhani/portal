@@ -159,6 +159,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
   }
   if (path === '/forms' && request.method === 'POST') {
     requirePermission(auth, 'forms.create'); const input = await body<Obj>(request)
+    const formType=String(input.formType??'');const assignedTypes=auth.permissions.filter(code=>code.startsWith('forms.type.'));if(!auth.isAdmin&&!auth.permissions.includes('forms.access')&&assignedTypes.length>0&&!assignedTypes.includes(`forms.type.${formType}`))throw new HttpError(403,'دسترسی ثبت این نوع فرم برای شما فعال نشده است')
     const route=await workflow(auth);if(!route.isConfigured)throw new HttpError(400,route.message)
     const requestedHours=['leave_daily','leave_hourly'].includes(String(input.formType))?Number(input.amount??0):0
     if(['leave_daily','leave_hourly'].includes(String(input.formType))&&requestedHours<=0)throw new HttpError(400,'مدت مرخصی معتبر نیست.')

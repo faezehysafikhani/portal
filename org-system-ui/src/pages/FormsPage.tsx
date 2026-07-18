@@ -95,6 +95,11 @@ export { INITIAL_ACCESS }
 
 export default function FormsPage() {
   const { roles } = useRolesStore()
+  const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
+  const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
+  const isAdmin=Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin')
+  const assignedFormTypes=grantedPermissions.filter(code=>code.startsWith('forms.type.'))
+  const canUseFormType=(type:string)=>isAdmin||grantedPermissions.includes('forms.access')||assignedFormTypes.length===0||assignedFormTypes.includes(`forms.type.${type}`)
   const [forms, setForms] = useState<FormSubmission[]>([])
   const [approvalForms, setApprovalForms] = useState<FormSubmission[]>([])
   const [users, setUsers] = useState<InternalUser[]>([])
@@ -381,7 +386,7 @@ export default function FormsPage() {
                   <Tag color="blue">افزایش ماهانه: {leaveBalance.monthlyAccrualHours} ساعت</Tag>
                 </Space>
                 <Select placeholder="➕ فرم جدید" style={{ width: 200 }} onChange={v => { if (v) openForm(v) }} value={undefined}>
-                  {Object.entries(FORM_TYPES).map(([key, val]) => (
+                  {Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key, val]) => (
                     <Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>
                   ))}
                 </Select>
