@@ -24,6 +24,15 @@ interface Letter {
   recipientCount: number
   isRead: boolean
   isSender: boolean
+  isInbox?: boolean
+  isReferral?: boolean
+  referralType?: string
+  referralText?: string
+  referredByName?: string
+  referredToName?: string
+  referralDirection?: 'incoming' | 'outgoing'
+  referralCreatedAt?: string
+  referrals?: Array<{ id: string; referralType?: string; referralText?: string; referredByName?: string; referredToName?: string; createdAt?: string }>
   createdAt: string
 }
 
@@ -237,6 +246,7 @@ function RegistryPage({ letters }: { letters: Letter[] }) {
         { title: 'نوع', dataIndex: 'type', key: 'type', width: 80, render: (t: string) => <Tag color={TYPE_LABELS[t]?.color}>{TYPE_LABELS[t]?.label}</Tag> },
         { title: 'وضعیت', dataIndex: 'status', key: 'status', width: 110, render: (s: string) => <Tag color={STATUS_LABELS[s]?.color}>{STATUS_LABELS[s]?.label}</Tag> },
         { title: 'فرستنده', dataIndex: 'fromUserName', key: 'from', width: 120 },
+        { title: 'ارجاعات', key: 'referrals', width: 260, render: (_: unknown, letter: Letter) => letter.referrals?.length ? <Space direction="vertical" size={2}>{letter.referrals.map(referral => <div key={referral.id} style={{ fontSize: 11 }}><Tag color="purple">{referral.referralType || 'ارجاع'}</Tag>{referral.referredByName || '—'} ← {referral.referredToName || '—'}</div>)}</Space> : <span style={{ color: '#aaa' }}>بدون ارجاع</span> },
         { title: 'تاریخ', dataIndex: 'createdAt', key: 'date', width: 110, render: (d: string) => <span style={{ fontSize: 11, color: '#8c8c8c' }}>{d ? new Intl.DateTimeFormat('fa-IR').format(new Date(d)) : '—'}</span> },
         { title:'بازکردن',key:'open',width:80,render:(_:unknown,record:Letter)=><Button size="small" icon={<EyeOutlined/>} onClick={event=>{event.stopPropagation();void openLetter(record)}}/> },
       ]} pagination={{ pageSize: 10 }} />
@@ -291,7 +301,8 @@ export default function LettersPage() {
   const fetchLetters = async () => {
     try {
       setLoading(true)
-      const res = await apiFetch(`${API}/letters${isRegistry?'?scope=registry':isReferrals?'?scope=referrals':''}`, { headers: authHeaders() })
+      const scope=isRegistry?'registry':isReferrals?'referrals':'mailbox'
+      const res = await apiFetch(`${API}/letters?scope=${scope}`, { headers: authHeaders() })
       if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(e.message||`خطای ${res.status}`) }
       setLetters(await res.json())
     } catch (e) {
@@ -480,15 +491,15 @@ export default function LettersPage() {
 
   const tabFilteredLetters = letters.filter(l =>
     activeTab === 'all' ||
-    (activeTab === 'inbox' && !l.isSender) ||
-    (activeTab === 'incoming' && l.type === 'Incoming') ||
-    (activeTab === 'outgoing' && l.isSender) ||
-    (activeTab === 'draft' && l.status === 'Draft') ||
+    (activeTab === 'inbox' && l.isInbox) ||
+    (activeTab === 'incoming' && l.isInbox && l.type === 'Incoming') ||
+    (activeTab === 'outgoing' && l.isSender && l.status !== 'Draft') ||
+    (activeTab === 'draft' && l.isSender && l.status === 'Draft') ||
     (activeTab === 'archived' && l.status === 'Archived')
   )
 
   const filteredLetters = applyFilters(tabFilteredLetters, searchFilters)
-  const unreadCount = letters.filter(l => !l.isRead && !l.isSender).length
+  const unreadCount = letters.filter(l => !l.isRead && (isReferrals ? l.referralDirection === 'incoming' : l.isInbox)).length
 
   const columns = [
     {
@@ -535,6 +546,17 @@ export default function LettersPage() {
     },
   ]
 
+  const referralColumns = [
+    { title: 'موضوع نامه', dataIndex: 'subject', key: 'subject', render: (subject: string, row: Letter) => <div><strong>{subject}</strong><div style={{ fontSize: 11, color: '#888' }}>{row.letterNumber || 'بدون شماره'}</div></div> },
+    { title: 'نوع ارجاع', dataIndex: 'referralType', key: 'referralType', width: 130, render: (value: string) => <Tag color="purple">{value || 'ارجاع'}</Tag> },
+    { title: 'فرستنده ارجاع', dataIndex: 'referredByName', key: 'referredByName', width: 150 },
+    { title: 'گیرنده ارجاع', dataIndex: 'referredToName', key: 'referredToName', width: 150 },
+    { title: 'جهت', dataIndex: 'referralDirection', key: 'referralDirection', width: 90, render: (value: string) => <Tag color={value === 'incoming' ? 'green' : 'blue'}>{value === 'incoming' ? 'دریافتی' : 'ارسالی'}</Tag> },
+    { title: 'متن ارجاع', dataIndex: 'referralText', key: 'referralText', ellipsis: true },
+    { title: 'تاریخ', dataIndex: 'referralCreatedAt', key: 'referralCreatedAt', width: 110, render: (value: string) => value ? new Intl.DateTimeFormat('fa-IR').format(new Date(value)) : '—' },
+    { title: 'مشاهده', key: 'view', width: 80, render: (_: unknown, row: Letter) => <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewLetter(row)} /> },
+  ]
+
   if (isRegistry) return <RegistryPage letters={letters} />
 
   if (composing) {
@@ -550,20 +572,20 @@ export default function LettersPage() {
 
       <AdvancedSearch onSearch={f => setSearchFilters(f)} onReset={() => setSearchFilters(EMPTY_FILTERS)} />
 
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+      {!isReferrals && <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
         { key: 'all', label: <span><MailOutlined /> همه <Badge count={letters.length} style={{ background: '#8B1A6B' }} /></span> },
         { key: 'inbox', label: <span><InboxOutlined /> کارتابل <Badge count={unreadCount} style={{ background: '#f5222d' }} /></span> },
         { key: 'incoming', label: <span>📥 وارده</span> },
         { key: 'outgoing', label: <span><SendOutlined /> صادره</span> },
         { key: 'draft', label: <span><FileTextOutlined /> پیش‌نویس</span> },
         { key: 'archived', label: <span><FolderOutlined /> بایگانی</span> },
-      ]} />
+      ]} />}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
         <span style={{ fontSize: 12, color: '#8c8c8c' }}>{filteredLetters.length} نامه</span>
       </div>
 
-      <Table columns={columns} dataSource={filteredLetters} rowKey="id" loading={loading} size="small" scroll={{ x: 1000 }}
+      <Table columns={isReferrals ? referralColumns : columns} dataSource={filteredLetters} rowKey={row => isReferrals ? `${row.id}-${row.referralCreatedAt}-${row.referredToName}` : row.id} loading={loading} size="small" scroll={{ x: isReferrals ? 1200 : 1000 }}
         onRow={r => ({ onClick: () => handleViewLetter(r), style: { cursor: 'pointer' } })} />
 
       {/* Modal مشاهده نامه */}

@@ -41,18 +41,28 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
   const refer = path.match(/^\/letters\/([0-9a-f-]+)\/refer$/i); const archive = path.match(/^\/letters\/([0-9a-f-]+)\/archive$/i); const sign = path.match(/^\/letters\/([0-9a-f-]+)\/sign$/i); const match = path.match(/^\/letters\/([0-9a-f-]+)$/i)
   const canRegistry = auth.isAdmin || auth.permissions.includes('letters.registry.view'); const canInbox = auth.isAdmin || auth.permissions.includes('letters.inbox.view')
   if (request.method === 'GET' && path === '/letters') {
-    const scope=url.searchParams.get('scope');const registry=scope==='registry';const referrals=scope==='referrals';if(registry?!canRegistry:!canInbox)throw new HttpError(403,'دسترسی غیرمجاز')
+    const scope=url.searchParams.get('scope')||'mailbox';const registry=scope==='registry';const referrals=scope==='referrals';if(registry?!canRegistry:!canInbox)throw new HttpError(403,'دسترسی غیرمجاز')
     let query = db.from('Letters').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     const type = url.searchParams.get('type'); const status = url.searchParams.get('status'); if (type) query = query.eq('Type', enumIn(type, types)); if (status) query = query.eq('Status', enumIn(status, statuses))
     const [result,rec]=await Promise.all([query.order('CreatedAt',{ascending:false}),db.from('LetterRecipients').select('*').eq('TenantId',auth.tenantId).eq('IsDeleted',false)]);check(result.error);check(rec.error);const output:Obj[]=[]
     const byLetter=new Map<string,Obj[]>();for(const row of rec.data??[]){const rows=byLetter.get(row.LetterId)??[];rows.push(row);byLetter.set(row.LetterId,rows)}
-    for(const letter of result.data??[]){const rows=byLetter.get(letter.Id)??[],mine=rows.filter(x=>x.UserId===auth.userId),myReferral=mine.find(x=>Number(x.RecipientType)===2);const visible=referrals?Boolean(myReferral):registry||canRegistry||letter.FromUserId===auth.userId||mine.length>0;if(!visible)continue;output.push({id:letter.Id,subject:letter.Subject,letterNumber:letter.LetterNumber,letterDate:letter.LetterDate,type:enumOut(letter.Type,types),status:enumOut(letter.Status,statuses),priority:enumOut(letter.Priority,priorities),classification:letter.Classification,fromUserName:letter.FromUserName,hasAttachment:letter.HasAttachment,toExternalName:letter.ToExternalName,toExternalOrg:letter.ToExternalOrg,incomingFromOrg:letter.IncomingFromOrg,createdAt:letter.CreatedAt,sentAt:letter.SentAt,recipientCount:rows.length,isRead:mine.length>0&&mine.every(x=>x.IsRead),isSender:letter.FromUserId===auth.userId,isReferral:Boolean(myReferral),referralType:myReferral?.ReferralType,referralText:myReferral?.ReferralText,referredByName:myReferral?.ReferredByName})}
+    for(const letter of result.data??[]){
+      const rows=byLetter.get(letter.Id)??[]
+      const primaryRows=rows.filter(x=>Number(x.RecipientType)!==2)
+      const referralRows=rows.filter(x=>Number(x.RecipientType)===2)
+      const myPrimary=primaryRows.filter(x=>x.UserId===auth.userId)
+      const myReferrals=referralRows.filter(x=>x.UserId===auth.userId||x.ReferredByUserId===auth.userId)
+      const baseLetter={id:letter.Id,subject:letter.Subject,letterNumber:letter.LetterNumber,letterDate:letter.LetterDate,type:enumOut(letter.Type,types),status:enumOut(letter.Status,statuses),priority:enumOut(letter.Priority,priorities),classification:letter.Classification,fromUserName:letter.FromUserName,fromUserId:letter.FromUserId,hasAttachment:letter.HasAttachment,toExternalName:letter.ToExternalName,toExternalOrg:letter.ToExternalOrg,incomingFromOrg:letter.IncomingFromOrg,createdAt:letter.CreatedAt,sentAt:letter.SentAt,recipientCount:primaryRows.length,isRead:myPrimary.length>0&&myPrimary.every(x=>x.IsRead),isSender:letter.FromUserId===auth.userId,isInbox:myPrimary.length>0,recipients:primaryRows.map(x=>({name:x.UserName||x.ExternalName||x.ExternalOrg||'—',recipientType:enumOut(x.RecipientType,recipientTypes)})),referrals:referralRows.map(x=>({id:x.Id,referralType:x.ReferralType,referralText:x.ReferralText,referredByName:x.ReferredByName||'—',referredToName:x.UserName||x.ExternalName||'—',isRead:x.IsRead,createdAt:x.CreatedAt}))}
+      if(referrals){for(const referral of myReferrals)output.push({...baseLetter,isRead:Boolean(referral.IsRead),isReferral:true,referralId:referral.Id,referralType:referral.ReferralType,referralText:referral.ReferralText,referredByName:referral.ReferredByName||'—',referredToName:referral.UserName||referral.ExternalName||'—',referralDirection:referral.UserId===auth.userId?'incoming':'outgoing',referralCreatedAt:referral.CreatedAt});continue}
+      const visible=registry||letter.FromUserId===auth.userId||myPrimary.length>0
+      if(visible)output.push(baseLetter)
+    }
     return json(request, output)
   }
   if (request.method === 'GET' && match) {
     if (!canInbox && !canRegistry) throw new HttpError(403, 'دسترسی غیرمجاز'); const result = await db.from('Letters').select('*').eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).maybeSingle(); check(result.error); if (!result.data) throw new HttpError(404, 'نامه یافت نشد')
-    const recipient = await db.from('LetterRecipients').select('Id').eq('TenantId', auth.tenantId).eq('LetterId', match[1]).eq('UserId', auth.userId).eq('IsDeleted', false).maybeSingle(); check(recipient.error)
-    if (!canRegistry && result.data.FromUserId !== auth.userId && !recipient.data) throw new HttpError(403, 'دسترسی غیرمجاز'); if (recipient.data) await db.from('LetterRecipients').update({ IsRead: true, ReadAt: now() }).eq('Id', recipient.data.Id)
+    const recipient = await db.from('LetterRecipients').select('Id').eq('TenantId', auth.tenantId).eq('LetterId', match[1]).eq('UserId', auth.userId).eq('IsDeleted', false); check(recipient.error)
+    if (!canRegistry && result.data.FromUserId !== auth.userId && !(recipient.data?.length)) throw new HttpError(403, 'دسترسی غیرمجاز'); if (recipient.data?.length) await Promise.all([db.from('LetterRecipients').update({ IsRead: true, ReadAt: now() }).eq('TenantId',auth.tenantId).eq('LetterId',match[1]).eq('UserId',auth.userId).eq('IsDeleted',false),db.from('Notifications').update({IsRead:true,ReadAt:now()}).eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('Type',0).eq('RelatedEntityId',match[1]).eq('IsRead',false)])
     return json(request, await details(auth, result.data))
   }
   if (request.method === 'POST' && path === '/letters') {

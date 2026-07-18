@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Progress, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox } from 'antd'
 import type { Dayjs } from 'dayjs'
 import PersianDatePicker from '../components/PersianDatePicker'
-import { isLeapJalali, jalaliToDate } from '../utils/jalali'
+import { currentJalali, isLeapJalali, jalaliToDate } from '../utils/jalali'
 import { getIranHoliday } from '../utils/iranHolidays'
+import { useNavigate } from 'react-router-dom'
+import { useNotificationStore } from '../store/notificationStore'
 import {
   MailOutlined, CheckSquareOutlined, CustomerServiceOutlined,
   PlusOutlined, BellOutlined, ClockCircleOutlined,
@@ -35,9 +37,8 @@ function getDaysInMonth(month: number, year: number): number {
 }
 
 function getFirstDayOfMonth(month: number, year: number): number {
-  const totalDays = (year - 1400) * 365 + Math.floor((year - 1400) / 4) +
-    [0, 31, 62, 93, 124, 155, 186, 216, 246, 276, 306, 336][month - 1]
-  return ((totalDays + 6) % 7)
+  const jsWeekday = jalaliToDate(`${year}/${month}/1`).getDay()
+  return (jsWeekday + 1) % 7
 }
 
 const INITIAL_EVENTS: CalEvent[] = [
@@ -54,7 +55,7 @@ const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: 
 interface PersonOption { key: string; type: 'user' | 'contact'; id: string; name: string; detail: string }
 interface LetterOption { id: string; subject: string; letterNumber?: string }
 interface TaskOption { id: string; title: string }
-function currentPersian() { const p=new Intl.DateTimeFormat('en-US-u-ca-persian',{year:'numeric',month:'numeric',day:'numeric'}).formatToParts(new Date()); const n=(t:string)=>Number(p.find(x=>x.type===t)?.value||1); return {year:n('year'),month:n('month'),day:n('day')} }
+function currentPersian() { return currentJalali() }
 
 function EnhancedEventModal(props: any) {
   const { open,onCancel,onSave,saving,form,error,people,letters,tasks,persianDate,setPersianDate,relatedPeople,setRelatedPeople,relatedLetters,setRelatedLetters,relatedTasks,setRelatedTasks }=props
@@ -337,9 +338,11 @@ function EventTasksTab() {
 
 // ── Main Dashboard ────────────────────────────────────
 export default function DashboardPage() {
+  const navigate=useNavigate()
+  const {notifications:storedNotifications,markAsRead}=useNotificationStore()
   const today=currentPersian()
   const [currentMonth, setCurrentMonth] = useState(today.month)
-  const [currentYear] = useState(today.year)
+  const [currentYear, setCurrentYear] = useState(today.year)
   const [events, setEvents] = useState<CalEvent[]>([])
   const [eventModal, setEventModal] = useState(false)
   const [selectedDate, setSelectedDate] = useState('')
@@ -365,6 +368,8 @@ export default function DashboardPage() {
   const isHoliday = (day: number) => !!getIranHoliday(currentYear, currentMonth, day)
   const isFriday = (day: number) => ((firstDay + day - 1) % 7) === 6
   const isToday = (day: number) => day===today.day&&currentMonth===today.month&&currentYear===today.year
+  const nextMonth=()=>{if(currentMonth===12){setCurrentMonth(1);setCurrentYear(year=>year+1)}else setCurrentMonth(month=>month+1)}
+  const previousMonth=()=>{if(currentMonth===1){setCurrentMonth(12);setCurrentYear(year=>year-1)}else setCurrentMonth(month=>month-1)}
 
   const handleDayClick = (day: number) => {
     const date = `${currentYear}/${currentMonth}/${day}`
@@ -384,7 +389,11 @@ export default function DashboardPage() {
     { label: 'کاربران فعال', value: summary.users||0, icon: <TeamOutlined />, color: '#52c41a', bg: '#f6ffed', change: 'کاربر فعال' },
   ]
 
-  const notifications: {id:string;text:string;time:string;color:string;icon:React.ReactNode}[] = (summary.notifications||[]).map((n:any)=>({id:n.id,text:`${n.title}${n.body?` — ${n.body}`:''}`,time:new Date(n.createdAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),color:String(n.type).toLowerCase()==='chat'?'#13c2c2':'#8B1A6B',icon:String(n.type).toLowerCase()==='chat'?<MessageOutlined/>:<MailOutlined/>}))
+  const notificationVisual=(type:string)=>({
+    letter:{color:'#8B1A6B',icon:<MailOutlined/>},task:{color:'#1677ff',icon:<CheckSquareOutlined/>},ticket:{color:'#fa8c16',icon:<CustomerServiceOutlined/>},form:{color:'#52c41a',icon:<FileTextOutlined/>},calendar:{color:'#722ed1',icon:<CalendarOutlined/>},project:{color:'#2f54eb',icon:<TeamOutlined/>},chat:{color:'#13c2c2',icon:<MessageOutlined/>},warning:{color:'#f5222d',icon:<BellOutlined/>}
+  }[type]||{color:'#8B1A6B',icon:<BellOutlined/>})
+  const notifications: {id:string;text:string;time:string;color:string;icon:React.ReactNode;link?:string;isRead:boolean}[] = (storedNotifications.length?storedNotifications:(summary.notifications||[]).map((n:any)=>({id:n.id,type:String(n.type).toLowerCase(),title:n.title,description:n.body,time:new Date(n.createdAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),link:n.actionUrl,isRead:n.isRead}))).slice(0,8).map((n:any)=>{const visual=notificationVisual(String(n.type).toLowerCase());return{id:n.id,text:`${n.title}${n.description?` — ${n.description}`:''}`,time:n.time||'',color:visual.color,icon:visual.icon,link:n.link,isRead:Boolean(n.isRead)}})
+  const openNotification=(item:{id:string;link?:string})=>{markAsRead(item.id);void fetch(`${API}/notifications/${item.id}/read`,{method:'PATCH',headers:authHeaders()});if(item.link)navigate(item.link)}
 
   const recentLetters = summary.recentLetters.map((l:any)=>({id:l.id,subject:l.subject,from:l.fromUserName||'—',date:new Date(l.createdAt).toLocaleDateString('fa-IR'),status:String(l.status).toLowerCase(),color:'#8B1A6B'}))
 
@@ -438,9 +447,9 @@ export default function DashboardPage() {
             style={{ borderRadius: 12 }}
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Button type="text" icon={<LeftOutlined />} onClick={() => setCurrentMonth(m => m < 12 ? m + 1 : 1)} />
+                <Button type="text" icon={<LeftOutlined />} onClick={nextMonth} />
                 <span style={{ fontWeight: 700, fontSize: 16 }}>{PERSIAN_MONTHS[currentMonth - 1]} {currentYear}</span>
-                <Button type="text" icon={<RightOutlined />} onClick={() => setCurrentMonth(m => m > 1 ? m - 1 : 12)} />
+                <Button type="text" icon={<RightOutlined />} onClick={previousMonth} />
               </div>
             }
             extra={allowed('calendar.create') ?
@@ -492,12 +501,12 @@ export default function DashboardPage() {
 
         <Col xs={24} lg={8}>
           <Card
-            title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.length} style={{ background: '#fa8c16' }} /></Space>}
+            title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.filter(n=>!n.isRead).length} style={{ background: '#fa8c16' }} /></Space>}
             styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
             style={{ borderRadius: 12, height: '100%' }}
           >
             {notifications.map(n => (
-              <div key={n.id} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start' }}>
+              <div key={n.id} onClick={()=>openNotification(n)} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start',cursor:n.link?'pointer':'default',background:n.isRead?'transparent':'#faf5ff',borderRadius:6 }}>
                 <div style={{ width: 30, height: 30, borderRadius: '50%', background: `${n.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: n.color, fontSize: 13, flexShrink: 0 }}>
                   {n.icon}
                 </div>

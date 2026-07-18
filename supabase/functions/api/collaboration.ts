@@ -2,6 +2,7 @@ import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { jalaliDateString, jalaliYearMonth } from '../_shared/jalali.ts'
+import { createNotification, createNotifications, notificationType } from '../_shared/notifications.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -46,7 +47,7 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
       const rows = participants.map((p: Obj) => ({ ...base(auth), EventId: event.Id, PersonType: p.personType, PersonId: p.personId, DisplayName: p.displayName ?? '', Role: p.role ?? 'attendee', ResponseStatus: 'pending' }))
       const added = await db.from('EventParticipants').insert(rows); check(added.error)
       const userRows = participants.filter((p: Obj) => p.personType === 'user').map((p: Obj) => ({ ...base(auth), EventId: event.Id, UserId: p.personId, ResponseStatus: 'pending', IsRequired: p.isRequired !== false }))
-      if (userRows.length) { const addedUsers = await db.from('EventAttendees').insert(userRows); check(addedUsers.error) }
+      if (userRows.length) { const addedUsers = await db.from('EventAttendees').insert(userRows); check(addedUsers.error); await createNotifications(db,auth,userRows.map((row:Obj)=>row.UserId),{title:'رویداد جدید در تقویم شما',body:event.Title,type:notificationType.calendar,actionUrl:'/calendar',entityId:event.Id,entityType:'CalendarEvent'}) }
     }
     return json(request, await compose(created.data), 201)
   }
@@ -167,6 +168,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     const result = await db.from('OrganizationalForms').insert(row).select().single(); check(result.error)
     const history=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:result.data.Id,ActorUserId:auth.userId,ActorName:route.submitter.fullName,Action:'submitted',Note:null});check(history.error)
     if(account&&requestedHours>0){const reserved=await db.from('LeaveAccounts').update({ReservedHours:Number(account.ReservedHours??0)+requestedHours,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(reserved.error)}
+    await createNotification(db,auth,{userId:route.manager.id,title:'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms?scope=approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
     return json(request, {...camelize(result.data) as Obj,message:'فرم ثبت شد و برای مدیر مستقیم شما ارسال گردید.'}, 201)
   }
   const action = path.match(/^\/forms\/([0-9a-f-]+)\/action$/i)
@@ -187,6 +189,9 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
       const accountUpdate:Obj={ReservedHours:reserved,UpdatedAt:now()};if(input.action==='approve'&&status==='approved')accountUpdate.UsedHours=Number(account.UsedHours??0)+requested
       const saved=await db.from('LeaveAccounts').update(accountUpdate).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(saved.error)
     }
+    const nextUser=status==='hr_pending'?form.HrUserId:form.SubmitterUserId
+    const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
+    await createNotification(db,auth,{userId:nextUser,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:status==='hr_pending'?'/forms?scope=approvals':'/forms',entityId:form.Id,entityType:'OrganizationalForm'})
     return json(request, { status: result.data.Status })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')

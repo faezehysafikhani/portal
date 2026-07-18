@@ -7,6 +7,7 @@ import { handleCollaboration } from './collaboration.ts'
 import { handleLetters } from './letters.ts'
 import { handleIntegrations } from './integrations.ts'
 import { handleReports } from './reports.ts'
+import { createNotification, notificationType } from '../_shared/notifications.ts'
 
 type JsonObject = Record<string, unknown>
 type Db = ReturnType<typeof adminClient>
@@ -396,6 +397,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     if (!row.Title) throw new HttpError(400, 'عنوان وظیفه الزامی است')
     const result = await db.from('Tasks').insert(row).select().single()
     failOnDb(result.error)
+    await createNotification(db,auth,{userId:assignee,title:'وظیفه جدید برای شما ثبت شد',body:row.Title,type:notificationType.task,actionUrl:'/tasks',entityId:String(result.data.Id),entityType:'Task'})
     return json(request, taskDto(result.data))
   }
   if (request.method === 'PATCH' && match) {
@@ -410,6 +412,8 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       .or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`).eq('IsDeleted', false).select().maybeSingle()
     failOnDb(result.error)
     if (!result.data) throw new HttpError(404, 'وظیفه یافت نشد')
+    const target=result.data.AssignedByUserId===auth.userId?result.data.AssignedToUserId:result.data.AssignedByUserId
+    await createNotification(db,auth,{userId:target,title:'وضعیت وظیفه تغییر کرد',body:String(result.data.Title??''),type:notificationType.task,actionUrl:'/tasks',entityId:String(result.data.Id),entityType:'Task'})
     return json(request, taskDto(result.data))
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
@@ -449,7 +453,7 @@ async function positions(request: Request, auth: AuthContext, path: string): Pro
 }
 
 async function notifications(request: Request, auth: AuthContext, path: string): Promise<Response> {
-  const notificationTypes=['Letter','Task','Ticket','Form','System','Sms','Chat']
+  const notificationTypes=['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project']
   const read = path.match(/^\/notifications\/([0-9a-f-]+)\/read$/i)
   const one = path.match(/^\/notifications\/([0-9a-f-]+)$/i)
   if (request.method === 'GET') {
@@ -683,7 +687,7 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
   return json(request, {
     unreadLetters,newLetters:unreadLetters,totalLetters,activeTasks,openTickets,todayEvents,
     users: usersCount, contacts: contactsCount, recentLetters:(recentLettersResult.data??[]).map(item=>({id:item.Id,subject:item.Subject,fromUserName:item.FromUserName,status:typeof item.Status==='number'?['Draft','Sent','Received','InReview','Signed','Referred','Archived','Cancelled'][item.Status]:item.Status,createdAt:item.CreatedAt})),
-    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead})),
+    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead})),
     recentTasks: (recentTasksResult.data ?? []).map(taskDto),
   })
 }

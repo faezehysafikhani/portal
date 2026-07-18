@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import { adminClient, AuthContext, issueToken, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
+import { createNotification, notificationType } from '../_shared/notifications.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -174,6 +175,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
     }
     if (!ticket.Title || !ticket.Description || !ticket.CustomerId) throw new HttpError(400, 'عنوان، توضیحات و مشتری الزامی است')
     const result = await db.from('Tickets').insert(ticket).select().single(); check(result.error)
+    await createNotification(db,auth,{userId:ticket.AssignedToUserId,title:'تیکت جدید به شما تخصیص یافت',body:ticket.Title,type:notificationType.ticket,actionUrl:'/tickets',entityId:result.data.Id,entityType:'Ticket'})
     return json(request, camelize(result.data), 201)
   }
   if (request.method === 'PATCH' && ticketMatch) {
@@ -185,7 +187,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
     if (input.resolution !== undefined) update.Resolution = input.resolution
     if (['resolved', 'closed'].includes(String(input.status))) update.ResolvedAt = now()
     const result = await db.from('Tickets').update(update).eq('TenantId', auth.tenantId).eq('Id', ticketMatch[1]).eq('IsDeleted', false).select().maybeSingle()
-    check(result.error); if (!result.data) throw new HttpError(404, 'تیکت یافت نشد'); return json(request, camelize(result.data))
+    check(result.error); if (!result.data) throw new HttpError(404, 'تیکت یافت نشد'); await createNotification(db,auth,{userId:result.data.AssignedToUserId,title:'تیکت به‌روزرسانی شد',body:result.data.Title,type:notificationType.ticket,actionUrl:'/tickets',entityId:result.data.Id,entityType:'Ticket'}); return json(request, camelize(result.data))
   }
   if (request.method === 'POST' && commentMatch) {
     requirePermission(auth, 'tickets.comment')
@@ -193,7 +195,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
     if (!text) throw new HttpError(400, 'متن پاسخ الزامی است')
     const user = await db.from('Users').select('FirstName,LastName').eq('TenantId', auth.tenantId).eq('Id', auth.userId).single(); check(user.error)
     const result = await db.from('TicketComments').insert({ ...base(auth.tenantId, auth.userId), TicketId: commentMatch[1], Text: text, AuthorName: `${user.data.FirstName} ${user.data.LastName}`, IsCustomer: false }).select().single()
-    check(result.error); return json(request, camelize(result.data), 201)
+    check(result.error); const ticket=await db.from('Tickets').select('Id,Title,AssignedToUserId,CreatedByUserId').eq('TenantId',auth.tenantId).eq('Id',commentMatch[1]).single();check(ticket.error);const target=ticket.data.CreatedByUserId===auth.userId?ticket.data.AssignedToUserId:ticket.data.CreatedByUserId;await createNotification(db,auth,{userId:target,title:'پاسخ جدید در تیکت',body:ticket.data.Title,type:notificationType.ticket,actionUrl:'/tickets',entityId:ticket.data.Id,entityType:'Ticket'}); return json(request, camelize(result.data), 201)
   }
   if (request.method === 'DELETE' && ticketMatch) {
     requirePermission(auth, 'tickets.delete')
@@ -202,4 +204,3 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
-

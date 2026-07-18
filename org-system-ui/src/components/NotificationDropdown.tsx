@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Badge, Popover, Button, List, Tag, Space, Tabs, Switch, Divider, Empty, Avatar } from 'antd'
-import { BellOutlined, MailOutlined, CheckSquareOutlined, CustomerServiceOutlined, FormOutlined, CalendarOutlined, WarningOutlined, MessageOutlined, DeleteOutlined, CheckOutlined } from '@ant-design/icons'
+import { BellOutlined, MailOutlined, CheckSquareOutlined, CustomerServiceOutlined, FormOutlined, CalendarOutlined, WarningOutlined, MessageOutlined, DeleteOutlined, CheckOutlined, ProjectOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useNotificationStore } from '../store/notificationStore'
 import type { Notification, NotificationType } from '../store/notificationStore'
@@ -13,6 +13,7 @@ const TYPE_CONFIG: Record<NotificationType, { icon: React.ReactNode; color: stri
   ticket: { icon: <CustomerServiceOutlined />, color: '#fa8c16', label: 'تیکت' },
   form: { icon: <FormOutlined />, color: '#52c41a', label: 'فرم' },
   calendar: { icon: <CalendarOutlined />, color: '#722ed1', label: 'تقویم' },
+  project: { icon: <ProjectOutlined />, color: '#2f54eb', label: 'پروژه' },
   risk: { icon: <WarningOutlined />, color: '#f5222d', label: 'ریسک' },
   chat: { icon: <MessageOutlined />, color: '#13c2c2', label: 'چت' },
   warning: { icon: <WarningOutlined />, color: '#fa8c16', label: 'هشدار' },
@@ -25,6 +26,7 @@ const NOTIFICATION_SETTINGS = [
   { key: 'ticket', label: 'تیکت‌های جدید و پاسخ‌ها', icon: '🎫' },
   { key: 'form', label: 'فرم‌های در انتظار تأیید', icon: '📋' },
   { key: 'calendar', label: 'یادآوری رویدادها', icon: '📅' },
+  { key: 'project', label: 'پروژه‌ها و تغییرات پروژه', icon: '📊' },
   { key: 'risk', label: 'ریسک‌های بحرانی', icon: '⚠️' },
   { key: 'chat', label: 'پیام‌های چت', icon: '💬' },
   { key: 'warning', label: 'هشدارهای سیستم', icon: '🔔' },
