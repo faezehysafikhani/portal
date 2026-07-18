@@ -73,13 +73,15 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
   requirePermission(auth, 'chat.view')
   const kindName=(value:unknown)=>['Text','File','Voice'][Number(value)]??String(value??'Text')
   if (request.method === 'GET' && path === '/chat/users') {
-    const [users,contacts] = await Promise.all([
-      db.from('Users').select('Id,Username,FirstName,LastName,AvatarUrl,Department,Position').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).neq('Id', auth.userId).order('FirstName'),
+    const [users,contacts,messages] = await Promise.all([
+      db.from('Users').select('Id,Username,FirstName,LastName,AvatarUrl,Department,Position,LastLoginAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).neq('Id', auth.userId).order('FirstName'),
       db.from('Contacts').select('Id,FullName,CompanyName,JobTitle,LinkedUserId').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FullName'),
-    ]); check(users.error); check(contacts.error)
+      db.from('InternalChatMessages').select('SenderUserId,RecipientUserId,RecipientContactId,Content,Kind,AttachmentName,CreatedAt,IsRead').eq('TenantId',auth.tenantId).eq('IsDeleted',false).or(`SenderUserId.eq.${auth.userId},RecipientUserId.eq.${auth.userId}`).order('CreatedAt',{ascending:false}).limit(1000),
+    ]); check(users.error); check(contacts.error);check(messages.error)
+    const rows=messages.data??[],summary=(personType:string,personId:string)=>{const related=personType==='user'?rows.filter(x=>(x.SenderUserId===auth.userId&&x.RecipientUserId===personId)||(x.SenderUserId===personId&&x.RecipientUserId===auth.userId)):rows.filter(x=>x.SenderUserId===auth.userId&&x.RecipientContactId===personId);const last=related[0];return{lastMessage:last?(Number(last.Kind)===2?'🎤 پیام صوتی':Number(last.Kind)===1?`📎 ${last.AttachmentName}`:last.Content):null,lastMessageAt:last?.CreatedAt,unread:personType==='user'?related.filter(x=>x.SenderUserId===personId&&x.RecipientUserId===auth.userId&&!x.IsRead).length:0}}
     return json(request, [
-      ...(users.data ?? []).map((u) => ({ id: `user:${u.Id}`, personId:u.Id, personType:'user', username: u.Username, fullName: `${u.FirstName} ${u.LastName}`.trim(), avatarUrl: u.AvatarUrl, department: u.Department, position: u.Position, isOnline:false, unread:0 })),
-      ...(contacts.data ?? []).map((c) => ({ id:`contact:${c.Id}`, personId:c.Id, personType:'contact', fullName:c.FullName, department:c.CompanyName, position:c.JobTitle, isOnline:false, unread:0 })),
+      ...(users.data ?? []).map((u) => ({ id: `user:${u.Id}`, personId:u.Id, personType:'user', username: u.Username, fullName: `${u.FirstName} ${u.LastName}`.trim(), avatarUrl: u.AvatarUrl, department: u.Department, position: u.Position, isOnline:Boolean(u.LastLoginAt&&new Date(u.LastLoginAt)>new Date(Date.now()-15*60*1000)),...summary('user',u.Id) })),
+      ...(contacts.data ?? []).map((c) => ({ id:`contact:${c.Id}`, personId:c.Id, personType:'contact', fullName:c.FullName, department:c.CompanyName, position:c.JobTitle, isOnline:false,...summary('contact',c.Id) })),
     ])
   }
   const messages = path.match(/^\/chat\/messages\/(user|contact):([0-9a-f-]+)$/i)
@@ -88,7 +90,7 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
     let query=db.from('InternalChatMessages').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     query=personType==='user'?query.or(`and(SenderUserId.eq.${auth.userId},RecipientUserId.eq.${personId}),and(SenderUserId.eq.${personId},RecipientUserId.eq.${auth.userId})`):query.eq('SenderUserId',auth.userId).eq('RecipientContactId',personId)
     const result=await query.order('CreatedAt');check(result.error)
-    if(personType==='user')await db.from('InternalChatMessages').update({ IsRead: true, ReadAt: now() }).eq('TenantId', auth.tenantId).eq('SenderUserId', personId).eq('RecipientUserId', auth.userId).eq('IsRead', false)
+    if(personType==='user'){await Promise.all([db.from('InternalChatMessages').update({ IsRead:true,ReadAt:now() }).eq('TenantId',auth.tenantId).eq('SenderUserId',personId).eq('RecipientUserId',auth.userId).eq('IsRead',false),db.from('Notifications').update({IsRead:true,ReadAt:now()}).eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('Type',6).eq('RelatedEntityId',personId).eq('IsRead',false)])}
     return json(request,(result.data??[]).map(item=>({...camelize(item) as Obj,kind:kindName(item.Kind),isMe:item.SenderUserId===auth.userId})))
   }
   const attachment=path.match(/^\/chat\/messages\/([0-9a-f-]+)\/attachment$/i)
@@ -104,7 +106,9 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
     if (!recipientId || (!content && !input.attachmentData)) throw new HttpError(400, 'گیرنده و متن یا فایل الزامی است')
     const kind=({text:0,file:1,voice:2} as Obj)[String(input.kind??'text').toLowerCase()]??0
     const row = { ...base(auth), SenderUserId: auth.userId, RecipientUserId: recipientType==='user'?recipientId:null, RecipientContactId:recipientType==='contact'?recipientId:null, Content: content, Kind: kind, AttachmentData: input.attachmentData ?? null, AttachmentName: input.attachmentName ?? null, AttachmentContentType: input.attachmentContentType ?? null, AttachmentSize: input.attachmentSize ?? null, VoiceDurationSeconds: input.voiceDurationSeconds ?? null, IsRead: false, ReadAt: null }
-    const result = await db.from('InternalChatMessages').insert(row).select().single(); check(result.error); return json(request, {...camelize(result.data) as Obj,kind:kindName(result.data.Kind),isMe:true}, 201)
+    const result = await db.from('InternalChatMessages').insert(row).select().single(); check(result.error)
+    if(recipientType==='user'){const sender=await db.from('Users').select('FirstName,LastName,Username').eq('TenantId',auth.tenantId).eq('Id',auth.userId).single();check(sender.error);const senderName=`${sender.data.FirstName??''} ${sender.data.LastName??''}`.trim()||sender.data.Username;const notificationBody=kind===2?'یک پیام صوتی برای شما ارسال شد':kind===1?`فایل «${input.attachmentName??''}» برای شما ارسال شد`:content.slice(0,120);const notice=await db.from('Notifications').insert({...base(auth),UserId:recipientId,Title:`پیام جدید از ${senderName}`,Body:notificationBody,Type:6,IsRead:false,ReadAt:null,ActionUrl:`/chat?user=user:${auth.userId}`,RelatedEntityId:auth.userId,RelatedEntityType:'Chat'});check(notice.error)}
+    return json(request, {...camelize(result.data) as Obj,kind:kindName(result.data.Kind),isMe:true}, 201)
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }

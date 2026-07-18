@@ -449,12 +449,13 @@ async function positions(request: Request, auth: AuthContext, path: string): Pro
 }
 
 async function notifications(request: Request, auth: AuthContext, path: string): Promise<Response> {
+  const notificationTypes=['Letter','Task','Ticket','Form','System','Sms','Chat']
   const read = path.match(/^\/notifications\/([0-9a-f-]+)\/read$/i)
   const one = path.match(/^\/notifications\/([0-9a-f-]+)$/i)
   if (request.method === 'GET') {
     const result = await db.from('Notifications').select('*').eq('TenantId', auth.tenantId)
       .eq('UserId', auth.userId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(100)
-    failOnDb(result.error); return json(request, asCamel(result.data))
+    failOnDb(result.error); return json(request,(result.data??[]).map(item=>({...asCamel(item) as Record<string,unknown>,type:typeof item.Type==='number'?notificationTypes[item.Type]??'System':item.Type})))
   }
   if (request.method === 'PATCH' && read) {
     const result = await db.from('Notifications').update({ IsRead: true, ReadAt: now() }).eq('TenantId', auth.tenantId).eq('UserId', auth.userId).eq('Id', read[1])
@@ -664,18 +665,25 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
     if (customize) query = customize(query)
     const result = await query; failOnDb(result.error); return result.count ?? 0
   }
-  const [unreadLetters, activeTasks, openTickets, usersCount, contactsCount] = await Promise.all([
+  const tehranNow=new Date(Date.now()+3.5*60*60*1000),tehranStart=new Date(Date.UTC(tehranNow.getUTCFullYear(),tehranNow.getUTCMonth(),tehranNow.getUTCDate())-3.5*60*60*1000),tehranEnd=new Date(tehranStart.getTime()+86400000)
+  const [unreadLetters,totalLetters,activeTasks,openTickets,usersCount,contactsCount,todayEvents,recentLettersResult,recentNotifications] = await Promise.all([
     count('LetterRecipients', (q) => q.eq('UserId', auth.userId).eq('IsRead', false)),
+    count('Letters'),
     count('Tasks', (q) => q.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`).not('Status', 'in', '(3,4)')),
     count('Tickets', (q) => q.not('Status', 'in', '(closed,resolved)')),
     count('Users', (q) => q.eq('IsActive', true)), count('Contacts'),
+    count('CalendarEvents',(q)=>q.gte('StartAt',tehranStart.toISOString()).lt('StartAt',tehranEnd.toISOString())),
+    db.from('Letters').select('Id,Subject,FromUserName,Status,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(5),
+    db.from('Notifications').select('Id,Title,Body,Type,ActionUrl,CreatedAt,IsRead').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(5),
   ])
+  failOnDb(recentLettersResult.error);failOnDb(recentNotifications.error)
   const recentTasksResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     .or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`).order('CreatedAt', { ascending: false }).limit(5)
   failOnDb(recentTasksResult.error)
   return json(request, {
-    unreadLetters, activeTasks, openTickets, todayEvents: 0,
-    users: usersCount, contacts: contactsCount, recentLetters: [],
+    unreadLetters,newLetters:unreadLetters,totalLetters,activeTasks,openTickets,todayEvents,
+    users: usersCount, contacts: contactsCount, recentLetters:(recentLettersResult.data??[]).map(item=>({id:item.Id,subject:item.Subject,fromUserName:item.FromUserName,status:typeof item.Status==='number'?['Draft','Sent','Received','InReview','Signed','Referred','Archived','Cancelled'][item.Status]:item.Status,createdAt:item.CreatedAt})),
+    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead})),
     recentTasks: (recentTasksResult.data ?? []).map(taskDto),
   })
 }

@@ -68,7 +68,7 @@ interface ApiUser {
 interface ApiContact { id: string; fullName: string; companyName?: string; jobTitle?: string; mobile?: string; phone?: string }
 
 export interface LetterComposeProps {
-  onSave: (data: Record<string, any>) => void
+  onSave: (data: Record<string, any>) => Promise<boolean>
   onCancel: () => void
   initialData?: any
 }
@@ -122,6 +122,8 @@ function RichEditor({ onChange, initialHtml = '' }: { onChange: (html: string) =
 
 export default function LetterComposePage({ onSave, onCancel, initialData }: LetterComposeProps) {
   const [form] = Form.useForm()
+  const [saving,setSaving]=useState(false)
+  const clientRequestId=useRef(crypto.randomUUID())
   const [users, setUsers] = useState<ApiUser[]>([])
   const [contacts, setContacts] = useState<ApiContact[]>([])
   const [letterType, setLetterType] = useState<'internal' | 'incoming' | 'outgoing'>('incoming')
@@ -205,6 +207,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
   }
 
   const handleAction = async (status: string) => {
+    if(saving)return
     try {
       const values = status === 'draft' ? form.getFieldsValue() : await form.validateFields()
       if(status!=='draft' && letterType==='internal' && !values.toUser) throw new Error('انتخاب گیرنده داخلی الزامی است')
@@ -212,10 +215,11 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       const primary: Recipient[]=[]
       if(letterType==='internal'&&values.toUser){const u=users.find(x=>x.id===values.toUser);if(u)primary.push({id:`primary-${u.id}`,personId:u.id,name:u.fullName,type:'internal',referralType:'اصل',phoneNumber:u.phoneNumber,sendSms:!!values.sendPrimarySms})}
       if(letterType!=='internal'&&values.toExternal){const c=contacts.find(x=>x.id===values.toExternal);if(c)primary.push({id:`primary-${c.id}`,personId:c.id,name:c.fullName,organization:c.companyName,type:'external',referralType:'اصل',phoneNumber:c.mobile||c.phone,sendSms:!!values.sendPrimarySms})}
-      onSave({ ...values, toExternal:contacts.find(x=>x.id===values.toExternal)?.fullName||values.toExternal, toExternalOrg:contacts.find(x=>x.id===values.toExternal)?.companyName||values.toExternalOrg, status, paperSize, hasHeader, hasFooter, hasSignature, classification, priority, body: bodyHtml, attachments, recipients:[...primary,...recipients.filter(r=>!primary.some(p=>p.personId===r.personId))], letterType, letterNumber, letterTemplateId:selectedTemplate?.databaseId||null, templateKey:selectedTemplate?.templateKey||selectedTemplate?.id })
+      setSaving(true)
+      await onSave({ ...values, toExternal:contacts.find(x=>x.id===values.toExternal)?.fullName||values.toExternal, toExternalOrg:contacts.find(x=>x.id===values.toExternal)?.companyName||values.toExternalOrg, status, paperSize, hasHeader, hasFooter, hasSignature, classification, priority, body: bodyHtml, attachments, recipients:[...primary,...recipients.filter(r=>!primary.some(p=>p.personId===r.personId))], letterType, letterNumber, clientRequestId:clientRequestId.current, letterTemplateId:selectedTemplate?.databaseId||null, templateKey:selectedTemplate?.templateKey||selectedTemplate?.id })
     } catch(error) {
       Modal.warning({title:'اطلاعات نامه کامل نیست',content:error instanceof Error?error.message:'فیلدهای الزامی را کامل کنید'})
-    }
+    } finally { setSaving(false) }
   }
 
   const getFileIcon = (name: string) => {
@@ -332,9 +336,9 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       <div style={{ background: '#1e3a5f', padding: '8px 16px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderRadius: '8px 8px 0 0' }}>
         <Button icon={<ArrowRightOutlined />} size="small" onClick={onCancel} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>بازگشت</Button>
         <Divider type="vertical" style={{ background: 'rgba(255,255,255,0.2)', height: 20 }} />
-        {allowed('letters.send') && <Button icon={<SaveOutlined />} size="small" onClick={() => handleAction('sent')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ذخیره و ارسال</Button>}
-        {allowed('letters.sign') && <Button icon={<CheckCircleOutlined />} size="small" onClick={() => handleAction('signed')} style={{ background: '#13c2c2', color: 'white', border: 'none' }}>تأیید و امضا</Button>}
-        {(initialData ? allowed('letters.edit') : allowed('letters.create')) && <Button icon={<SaveOutlined />} size="small" onClick={() => handleAction('draft')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>ذخیره پیش‌نویس</Button>}
+        {allowed('letters.send') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('sent')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ذخیره و ارسال</Button>}
+        {allowed('letters.sign') && <Button loading={saving} disabled={saving} icon={<CheckCircleOutlined />} size="small" onClick={() => handleAction('signed')} style={{ background: '#13c2c2', color: 'white', border: 'none' }}>تأیید و امضا</Button>}
+        {(initialData ? allowed('letters.edit') : allowed('letters.create')) && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('draft')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>ذخیره پیش‌نویس</Button>}
         {allowed('letters.refer') && <Button icon={<SwapLeftOutlined />} size="small" onClick={() => setReferralModal(true)} style={{ background: '#fa8c16', color: 'white', border: 'none' }}>ارجاع</Button>}
         {allowed('letters.print') && <Dropdown menu={{
           items: [

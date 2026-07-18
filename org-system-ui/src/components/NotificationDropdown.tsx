@@ -4,6 +4,8 @@ import { BellOutlined, MailOutlined, CheckSquareOutlined, CustomerServiceOutline
 import { useNavigate } from 'react-router-dom'
 import { useNotificationStore } from '../store/notificationStore'
 import type { Notification, NotificationType } from '../store/notificationStore'
+import { apiFetch } from '../utils/api'
+import { formatJalaliDate } from '../utils/jalali'
 
 const TYPE_CONFIG: Record<NotificationType, { icon: React.ReactNode; color: string; label: string }> = {
   letter: { icon: <MailOutlined />, color: '#8B1A6B', label: 'نامه' },
@@ -81,12 +83,12 @@ export default function NotificationDropdown() {
 
   const unreadCount = notifications.filter(n => !n.isRead).length
   const headers = { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
-  const loadNotifications = async () => { const r=await fetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>({id:n.id,type:String(n.type).toLowerCase()==='system'?'warning':String(n.type).toLowerCase(),title:n.title,description:n.body,date:new Intl.DateTimeFormat('fa-IR').format(new Date(n.createdAt)),time:new Intl.DateTimeFormat('fa-IR',{hour:'2-digit',minute:'2-digit'}).format(new Date(n.createdAt)),isRead:n.isRead,link:n.actionUrl})))} }
-  useEffect(()=>{loadNotifications();const timer=setInterval(loadNotifications,30000);return()=>clearInterval(timer)},[])
-  const readOne=(id:string)=>{markAsRead(id);fetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers})}
-  const readAll=()=>{markAllAsRead();fetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers})}
-  const removeOne=(id:string)=>{deleteNotification(id);fetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}
-  const removeAll=()=>{clearAll();fetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers})}
+  const loadNotifications = async () => { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl}}))} }
+  useEffect(()=>{loadNotifications();const timer=setInterval(loadNotifications,10000);return()=>clearInterval(timer)},[])
+  const readOne=(id:string)=>{markAsRead(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers})}
+  const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers})}
+  const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}
+  const removeAll=()=>{clearAll();void apiFetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers})}
   const unreadNotifications = notifications.filter(n => !n.isRead)
   const readNotifications = notifications.filter(n => n.isRead)
 

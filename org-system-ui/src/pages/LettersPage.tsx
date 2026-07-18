@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox } from 'antd'
 import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined } from '@ant-design/icons'
 import LetterComposePage from './LetterComposePage'
@@ -272,24 +272,26 @@ export default function LettersPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [referModal, setReferModal] = useState(false)
   const [referLoading,setReferLoading]=useState(false)
+  const referralRequestId=useRef(crypto.randomUUID())
   const [referForm] = Form.useForm()
   const [searchFilters, setSearchFilters] = useState<SearchFilters>(EMPTY_FILTERS)
   const [editingDraft, setEditingDraft] = useState<any>(null)
 
   const isRegistry = location.pathname === '/letters/registry'
+  const isReferrals=location.pathname==='/letters/referrals'
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
 
   useEffect(() => {
     if (location.pathname === '/letters/new') setComposing(true)
-    else setComposing(false)
+    else {setComposing(false);if(location.pathname==='/letters/referrals')setActiveTab('all')}
   }, [location.pathname])
 
   const fetchLetters = async () => {
     try {
       setLoading(true)
-      const res = await apiFetch(`${API}/letters${isRegistry ? '?scope=registry' : ''}`, { headers: authHeaders() })
+      const res = await apiFetch(`${API}/letters${isRegistry?'?scope=registry':isReferrals?'?scope=referrals':''}`, { headers: authHeaders() })
       if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(e.message||`خطای ${res.status}`) }
       setLetters(await res.json())
     } catch (e) {
@@ -312,7 +314,7 @@ export default function LettersPage() {
   useEffect(() => {
     fetchLetters()
     fetchDirectory()
-  }, [isRegistry])
+  }, [isRegistry,isReferrals])
 
   const handleViewLetter = async (letter: Letter) => {
     setSelectedLetter(letter)
@@ -368,7 +370,8 @@ export default function LettersPage() {
           phoneNumber: contact?.mobile || contact?.phone || null,
           sendSms: !!values.sendSms,
           referralType: values.referralType,
-          referralText: values.referralText
+          referralText: values.referralText,
+          clientRequestId:referralRequestId.current
         })
       })
       const result=await res.json().catch(()=>({}))
@@ -377,6 +380,7 @@ export default function LettersPage() {
       setReferModal(false)
       setViewModal(false)
       referForm.resetFields()
+      referralRequestId.current=crypto.randomUUID()
       setLetterDetail(null)
       setSelectedLetter(null)
       fetchLetters()
@@ -430,6 +434,7 @@ export default function LettersPage() {
         paperSize: data.paperSize || 'A4',
         templateHasHeader: data.hasHeader !== false,
         templateHasFooter: data.hasFooter !== false,
+        clientRequestId:data.clientRequestId,
         recipients: data.recipients?.map((r: any) => ({
           userId: r.type === 'internal' ? r.personId || null : null,
           userName: r.name,
@@ -446,15 +451,17 @@ export default function LettersPage() {
 
       const res = await apiFetch(editingDraft ? `${API}/letters/${editingDraft.id}` : `${API}/letters`, { method: editingDraft ? 'PUT' : 'POST', headers: authHeaders(), body: JSON.stringify(body) })
       const result = await res.json()
-      if (!res.ok) { notification.error({ message: result.message || 'خطا در ذخیره نامه' }); return }
+      if (!res.ok) { notification.error({ message: result.message || 'خطا در ذخیره نامه' }); return false }
 
       notification.success({ message: result.letterNumber ? `نامه با شماره ${result.letterNumber} ثبت شد` : 'پیش‌نویس ذخیره شد' })
       setComposing(false)
       setEditingDraft(null)
       navigate('/letters')
       fetchLetters()
+      return true
     } catch {
       notification.error({ message: 'خطا در اتصال به سرور' })
+      return false
     }
   }
 
@@ -537,7 +544,7 @@ export default function LettersPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>📬 نامه‌نگاری</span>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{isReferrals?'↩️ ارجاعات من':'📬 نامه‌نگاری'}</span>
         {allowed('letters.create') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setComposing(true); navigate('/letters/new') }} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>نامه جدید</Button>}
       </div>
 
