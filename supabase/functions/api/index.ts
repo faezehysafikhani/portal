@@ -102,6 +102,8 @@ async function login(request: Request): Promise<Response> {
     permissions, isAdmin: String(user.Username).toLowerCase() === 'admin',
   }
   const accessToken = await issueToken(auth)
+  const companyResult = await db.from('Tenants').select('Id,Name,LogoUrl,Website').eq('Id', tenantId).maybeSingle()
+  failOnDb(companyResult.error)
   await db.from('Users').update({ FailedLoginCount: 0, LockoutEnd: null, LastLoginAt: now() })
     .eq('Id', user.Id).eq('TenantId', tenantId)
 
@@ -115,8 +117,152 @@ async function login(request: Request): Promise<Response> {
       roles: auth.isAdmin ? ['Admin'] : [],
     },
     permissions,
+    company: asCamel(companyResult.data),
     expiresIn: 43200,
   })
+}
+
+async function publicCompany(request: Request, url: URL): Promise<Response> {
+  const tenantId = String(url.searchParams.get('tenantId') ?? tenantDefault)
+  const result = await db.from('Tenants').select('Id,Name,LogoUrl,Website').eq('Id', tenantId).eq('IsActive', true).maybeSingle()
+  failOnDb(result.error)
+  if (!result.data) throw new HttpError(404, 'اطلاعات شرکت یافت نشد')
+  return json(request, asCamel(result.data))
+}
+
+async function company(request: Request, auth: AuthContext): Promise<Response> {
+  if (request.method === 'GET') {
+    requirePermission(auth, 'company.view')
+    const result = await db.from('Tenants').select('Id,Name,LogoUrl,Phone,Email,Address,Website,NationalId,EconomicCode,IsActive')
+      .eq('Id', auth.tenantId).maybeSingle()
+    failOnDb(result.error)
+    if (!result.data) throw new HttpError(404, 'اطلاعات شرکت یافت نشد')
+    return json(request, asCamel(result.data))
+  }
+  if (request.method === 'PUT') {
+    requirePermission(auth, 'company.edit')
+    const input = await body<JsonObject>(request)
+    const logoUrl = input.logoUrl == null ? null : String(input.logoUrl)
+    if (logoUrl && (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(logoUrl) || logoUrl.length > 3_000_000)) {
+      throw new HttpError(400, 'لوگو باید تصویر PNG، JPG، WEBP یا GIF و حداکثر ۲ مگابایت باشد')
+    }
+    const name = String(input.name ?? '').trim()
+    if (!name) throw new HttpError(400, 'نام شرکت الزامی است')
+    const values = {
+      Name: name,
+      LogoUrl: logoUrl,
+      Phone: input.phone ? String(input.phone) : null,
+      Email: input.email ? String(input.email) : null,
+      Address: input.address ? String(input.address) : null,
+      Website: input.website ? String(input.website) : null,
+      NationalId: input.nationalId ? String(input.nationalId) : null,
+      EconomicCode: input.economicCode ? String(input.economicCode) : null,
+      UpdatedAt: now(),
+    }
+    const result = await db.from('Tenants').update(values).eq('Id', auth.tenantId)
+      .select('Id,Name,LogoUrl,Phone,Email,Address,Website,NationalId,EconomicCode,IsActive').maybeSingle()
+    failOnDb(result.error)
+    if (!result.data) throw new HttpError(404, 'اطلاعات شرکت یافت نشد')
+    return json(request, asCamel(result.data))
+  }
+  throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
+}
+
+const registryFields = ['Name', 'Prefix', 'Separator', 'IncludeYear', 'IncludeMonth', 'CurrentNumber', 'PadLength', 'IsActive', 'Description'] as const
+
+async function registries(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response> {
+  requireAdmin(auth)
+  const accessMatch = path.match(/^\/registries\/([0-9a-f-]+)\/access$/i)
+  if (accessMatch) {
+    const registry = await db.from('Registries').select('Id').eq('TenantId', auth.tenantId).eq('Id', accessMatch[1]).eq('IsDeleted', false).maybeSingle()
+    failOnDb(registry.error)
+    if (!registry.data) throw new HttpError(404, 'دبیرخانه یافت نشد')
+    const input = request.method === 'PUT' ? await body<JsonObject>(request) : null
+    const userId = request.method === 'GET' ? String(url.searchParams.get('userId') ?? '') : String(input?.userId ?? '')
+    if (!userId) throw new HttpError(400, 'انتخاب کاربر الزامی است')
+    const user = await db.from('Users').select('Id').eq('TenantId', auth.tenantId).eq('Id', userId).eq('IsDeleted', false).eq('IsActive', true).maybeSingle()
+    failOnDb(user.error)
+    if (!user.data) throw new HttpError(400, 'کاربر انتخاب‌شده معتبر نیست')
+    if (request.method === 'GET') {
+      const result = await db.from('RegistryUserAccess').select('*').eq('TenantId', auth.tenantId).eq('RegistryId', accessMatch[1]).eq('UserId', userId).eq('IsDeleted', false).maybeSingle()
+      failOnDb(result.error)
+      return json(request, result.data ? asCamel(result.data) : null)
+    }
+    if (request.method === 'PUT') {
+      const accessObjects = [input?.internalAccess, input?.outgoingAccess, input?.incomingAccess] as JsonObject[]
+      const hasDetailedAccess = String(input?.draftScope ?? 'none') !== 'none' || accessObjects.some((access) =>
+        access && (String(access.view) !== 'ندارد' || Object.entries(access).some(([key, value]) => key !== 'view' && value === true))
+      )
+      const permission = await db.from('Permissions').select('Id').eq('TenantId', auth.tenantId).eq('Code', 'letters.registry.view').eq('IsDeleted', false).maybeSingle()
+      failOnDb(permission.error)
+      if (!permission.data) throw new HttpError(500, 'مجوز دبیرخانه در سیستم تعریف نشده است')
+      if (!hasDetailedAccess) {
+        const removed = await db.from('RegistryUserAccess').delete().eq('TenantId', auth.tenantId).eq('RegistryId', accessMatch[1]).eq('UserId', userId)
+        failOnDb(removed.error)
+        const remaining = await db.from('RegistryUserAccess').select('Id', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('UserId', userId).eq('IsDeleted', false)
+        failOnDb(remaining.error)
+        if ((remaining.count ?? 0) === 0) {
+          const revoked = await db.from('UserPermissions').delete().eq('TenantId', auth.tenantId).eq('UserId', userId).eq('PermissionId', permission.data.Id)
+          failOnDb(revoked.error)
+        }
+        return json(request, { removed: true, message: 'دسترسی این کاربر به دبیرخانه برداشته شد' })
+      }
+      const values = {
+        DraftScope: ['all', 'own', 'none'].includes(String(input?.draftScope)) ? String(input?.draftScope) : 'none',
+        InternalAccess: input?.internalAccess ?? {}, OutgoingAccess: input?.outgoingAccess ?? {}, IncomingAccess: input?.incomingAccess ?? {},
+        UpdatedAt: now(), IsDeleted: false, DeletedAt: null,
+      }
+      const existing = await db.from('RegistryUserAccess').select('Id').eq('TenantId', auth.tenantId).eq('RegistryId', accessMatch[1]).eq('UserId', userId).maybeSingle()
+      failOnDb(existing.error)
+      const result = existing.data
+        ? await db.from('RegistryUserAccess').update(values).eq('Id', existing.data.Id).eq('TenantId', auth.tenantId).select().single()
+        : await db.from('RegistryUserAccess').insert({ ...baseInsert(auth), RegistryId: accessMatch[1], UserId: userId, ...values }).select().single()
+      failOnDb(result.error)
+      if (String(userId) !== tenantDefault) {
+        const directPermission = await db.from('UserPermissions').select('Id').eq('TenantId', auth.tenantId).eq('UserId', userId).eq('PermissionId', permission.data.Id).eq('IsDeleted', false).maybeSingle()
+        failOnDb(directPermission.error)
+        if (!directPermission.data) {
+          const granted = await db.from('UserPermissions').insert({ ...baseInsert(auth), UserId: userId, PermissionId: permission.data.Id })
+          failOnDb(granted.error)
+        }
+      }
+      return json(request, asCamel(result.data))
+    }
+    throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
+  }
+
+  const match = path.match(/^\/registries\/([0-9a-f-]+)$/i)
+  if (request.method === 'GET' && !match) {
+    const [registryResult, accessResult, usersResult] = await Promise.all([
+      db.from('Registries').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt'),
+      db.from('RegistryUserAccess').select('RegistryId,UserId').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
+      db.from('Users').select('Id,FirstName,LastName,Username').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
+    ])
+    failOnDb(registryResult.error); failOnDb(accessResult.error); failOnDb(usersResult.error)
+    const names = new Map((usersResult.data ?? []).map((user) => [user.Id, `${user.FirstName ?? ''} ${user.LastName ?? ''}`.trim() || user.Username]))
+    return json(request, (registryResult.data ?? []).map((registry) => ({
+      ...(asCamel(registry) as JsonObject),
+      userAccess: (accessResult.data ?? []).filter((item) => item.RegistryId === registry.Id).map((item) => names.get(item.UserId)).filter(Boolean),
+    })))
+  }
+  if (request.method === 'POST' && !match) {
+    const input = await body<JsonObject>(request)
+    const name = String(input.name ?? '').trim()
+    if (!name) throw new HttpError(400, 'نام دبیرخانه الزامی است')
+    const result = await db.from('Registries').insert({ ...baseInsert(auth), ...pascalize(input, registryFields), Name: name }).select().single()
+    failOnDb(result.error); return json(request, asCamel(result.data), 201)
+  }
+  if (request.method === 'PUT' && match) {
+    const input = await body<JsonObject>(request)
+    const result = await db.from('Registries').update({ ...pascalize(input, registryFields), UpdatedAt: now() })
+      .eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).select().maybeSingle()
+    failOnDb(result.error); if (!result.data) throw new HttpError(404, 'دبیرخانه یافت نشد'); return json(request, asCamel(result.data))
+  }
+  if (request.method === 'DELETE' && match) {
+    const result = await db.from('Registries').update({ IsDeleted: true, DeletedAt: now(), UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1])
+    failOnDb(result.error); return new Response(null, { status: 204, headers: corsHeaders(request) })
+  }
+  throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
 
 async function changePassword(request: Request, auth: AuthContext): Promise<Response> {
@@ -520,6 +666,7 @@ async function dispatch(request: Request): Promise<Response> {
   const path = routePath(url)
   if (path === '/health' && request.method === 'GET') return json(request, { status: 'ok', runtime: 'supabase-edge' })
   if (path === '/auth/login' && request.method === 'POST') return await login(request)
+  if (path === '/company/public' && request.method === 'GET') return await publicCompany(request, url)
   const publicCustomerResponse = await handlePublicCustomer(request, path)
   if (publicCustomerResponse) return publicCustomerResponse
 
@@ -532,6 +679,8 @@ async function dispatch(request: Request): Promise<Response> {
   if (path.startsWith('/notifications')) return await notifications(request, auth, path)
   if (path.startsWith('/profile')) return await profile(request, auth, path)
   if (path.startsWith('/users')) return await users(request, auth, path)
+  if (path === '/company') return await company(request, auth)
+  if (path.startsWith('/registries')) return await registries(request, auth, path, url)
   if (path.startsWith('/letter-templates')) return await letterTemplates(request, auth, path)
   const ticketCustomerResponse = await handleTicketsCustomers(request, auth, path, url)
   if (ticketCustomerResponse) return ticketCustomerResponse

@@ -20,7 +20,9 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [user,setUser]=useState<any>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
+  const [company,setCompany]=useState<{name?:string;logoUrl?:string|null}>(()=>{try{return JSON.parse(localStorage.getItem('company')||'{}')}catch{return {}}})
   useEffect(()=>{const sync=()=>setUser(JSON.parse(localStorage.getItem('user')||'{}'));window.addEventListener('profile-updated',sync);return()=>window.removeEventListener('profile-updated',sync)},[])
+  useEffect(()=>{const sync=(event:Event)=>setCompany((event as CustomEvent).detail||{});window.addEventListener('company-updated',sync);return()=>window.removeEventListener('company-updated',sync)},[])
   const { hasPermission } = usePermissionStore()
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
@@ -130,11 +132,11 @@ export default function MainLayout() {
           padding: '0 8px', textAlign: 'center'
         }}>
           {collapsed ? (
-            <img src="/logo.png" style={{ width: 36, height: 36, objectFit: 'contain' }} />
+            company.logoUrl ? <img src={company.logoUrl} alt="لوگوی شرکت" style={{ width: 36, height: 36, objectFit: 'contain' }} /> : <span>🏢</span>
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <img src="/logo.png" style={{ width: 36, height: 36, objectFit: 'contain' }} />
-              <span style={{ fontSize: 13, fontWeight: 700 }}>مدیریت پروژه پارس</span>
+              {company.logoUrl ? <img src={company.logoUrl} alt="لوگوی شرکت" style={{ width: 36, height: 36, objectFit: 'contain' }} /> : <span style={{ fontSize: 24 }}>🏢</span>}
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{company.name || 'مدیریت پروژه پارس'}</span>
             </div>
           )}
         </div>

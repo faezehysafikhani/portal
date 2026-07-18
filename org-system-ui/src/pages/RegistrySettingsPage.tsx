@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Card, Table, Button, Modal, Form, Input, Select, Space, Tag, Switch, Row, Col, Divider, InputNumber, Tabs, Checkbox } from 'antd'
+import { useEffect, useState } from 'react'
+import { Card, Table, Button, Modal, Form, Input, Select, Space, Tag, Switch, Row, Col, Divider, InputNumber, Tabs, Checkbox, message } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined, FolderOutlined } from '@ant-design/icons'
 
 interface LetterTypeAccess {
@@ -30,9 +30,9 @@ interface Registry {
   description?: string
   unitAccess?: string[]
   userAccess?: string[]
-  internalAccess: LetterTypeAccess
-  outgoingAccess: LetterTypeAccess
-  incomingAccess: LetterTypeAccess
+  internalAccess?: LetterTypeAccess
+  outgoingAccess?: LetterTypeAccess
+  incomingAccess?: LetterTypeAccess
 }
 
 interface Folder {
@@ -46,7 +46,8 @@ interface Folder {
 }
 
 const UNITS = ['دبیرخانه مرکزی', 'دبیرخانه واردات', 'دبیرخانه صادرات', 'واحد مالی', 'واحد فنی', 'واحد اداری']
-const USERS = ['مدیر سیستم', 'علی محمدی', 'مریم احمدی', 'رضا کریمی', 'سارا نوری', 'امیر حسینی']
+const API = 'http://localhost:5043/api/v1'
+const apiHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') || ''}` })
 const FOLDER_ACCESS = ['افزودن پرونده', 'ویرایش پرونده', 'انتقال پرونده', 'دسترسی پرونده']
 
 const DEFAULT_ACCESS: LetterTypeAccess = {
@@ -56,39 +57,6 @@ const DEFAULT_ACCESS: LetterTypeAccess = {
   attachAdd: true, attachDelete: true,
   relatedAdd: true, relatedDelete: true,
 }
-
-const INITIAL_REGISTRIES: Registry[] = [
-  {
-    id: '1', name: 'دبیرخانه مرکزی',
-    prefix: 'د', separator: '/', includeYear: true, includeMonth: false,
-    currentNumber: 152, padLength: 4, example: 'د/۱۴۰۳/۰۱۵۲', isActive: true,
-    description: 'دبیرخانه اصلی سازمان',
-    unitAccess: ['دبیرخانه مرکزی'], userAccess: ['مدیر سیستم', 'علی محمدی'],
-    internalAccess: { ...DEFAULT_ACCESS },
-    outgoingAccess: { ...DEFAULT_ACCESS },
-    incomingAccess: { ...DEFAULT_ACCESS },
-  },
-  {
-    id: '2', name: 'دبیرخانه واردات',
-    prefix: 'و', separator: '/', includeYear: true, includeMonth: false,
-    currentNumber: 48, padLength: 4, example: 'و/۱۴۰۳/۰۰۴۸', isActive: true,
-    description: 'نامه‌های ورودی از خارج سازمان',
-    unitAccess: ['دبیرخانه مرکزی'], userAccess: ['مدیر سیستم'],
-    internalAccess: { ...DEFAULT_ACCESS },
-    outgoingAccess: { ...DEFAULT_ACCESS },
-    incomingAccess: { ...DEFAULT_ACCESS },
-  },
-  {
-    id: '3', name: 'دبیرخانه صادرات',
-    prefix: 'ص', separator: '/', includeYear: true, includeMonth: false,
-    currentNumber: 95, padLength: 4, example: 'ص/۱۴۰۳/۰۰۹۵', isActive: true,
-    description: 'نامه‌های خروجی به خارج سازمان',
-    unitAccess: ['دبیرخانه مرکزی'], userAccess: ['مدیر سیستم'],
-    internalAccess: { ...DEFAULT_ACCESS },
-    outgoingAccess: { ...DEFAULT_ACCESS },
-    incomingAccess: { ...DEFAULT_ACCESS },
-  },
-]
 
 const INITIAL_FOLDERS: Folder[] = [
   { id: '1', code: 'PRJ-001', title: 'پرونده سامانه یکپارچه', description: 'مکاتبات پروژه سامانه', access: ['افزودن پرونده', 'ویرایش پرونده'], userAccess: ['مدیر سیستم', 'علی محمدی'], status: 'فعال' },
@@ -176,7 +144,8 @@ function AccessColumn({ title, color, value, onChange }: {
 }
 
 export default function RegistrySettingsPage() {
-  const [registries, setRegistries] = useState<Registry[]>(INITIAL_REGISTRIES)
+  const [registries, setRegistries] = useState<Registry[]>([])
+  const [users, setUsers] = useState<{id:string;fullName:string;username:string}[]>([])
   const [folders, setFolders] = useState<Folder[]>(INITIAL_FOLDERS)
   const [registryModal, setRegistryModal] = useState(false)
   const [accessModal, setAccessModal] = useState(false)
@@ -190,6 +159,22 @@ export default function RegistrySettingsPage() {
   const [internalAccess, setInternalAccess] = useState<LetterTypeAccess>({ ...DEFAULT_ACCESS })
   const [outgoingAccess, setOutgoingAccess] = useState<LetterTypeAccess>({ ...DEFAULT_ACCESS })
   const [incomingAccess, setIncomingAccess] = useState<LetterTypeAccess>({ ...DEFAULT_ACCESS })
+  const [selectedAccessUserId, setSelectedAccessUserId] = useState<string>()
+  const [draftScope, setDraftScope] = useState<'all'|'own'|'none'>('none')
+
+  const loadRegistries = async () => {
+    const [registryResponse,userResponse] = await Promise.all([
+      fetch(`${API}/registries`,{headers:apiHeaders()}),
+      fetch(`${API}/users`,{headers:apiHeaders()}),
+    ])
+    const registryData=await registryResponse.json().catch(()=>[])
+    const userData=await userResponse.json().catch(()=>[])
+    if(!registryResponse.ok){message.error(registryData.message||'دریافت دبیرخانه‌ها ناموفق بود');return}
+    setRegistries(registryData.map((registry:Registry)=>({...registry,example:generateExample(registry)})))
+    if(userResponse.ok)setUsers(userData)
+  }
+
+  useEffect(()=>{void loadRegistries()},[])
 
   const openRegistryModal = (registry?: Registry) => {
     if (registry) {
@@ -207,18 +192,35 @@ export default function RegistrySettingsPage() {
 
   const openAccessModal = (registry: Registry) => {
     setEditingRegistry(registry)
-    setInternalAccess({ ...registry.internalAccess })
-    setOutgoingAccess({ ...registry.outgoingAccess })
-    setIncomingAccess({ ...registry.incomingAccess })
+    setSelectedAccessUserId(undefined)
+    setDraftScope('none')
+    setInternalAccess({ ...DEFAULT_ACCESS, view:'ندارد', register:false, edit:false, bodyRequired:false, bodyAdd:false, bodyEdit:false, bodyDelete:false, attachAdd:false, attachDelete:false, relatedAdd:false, relatedDelete:false })
+    setOutgoingAccess({ ...DEFAULT_ACCESS, view:'ندارد', register:false, edit:false, bodyRequired:false, bodyAdd:false, bodyEdit:false, bodyDelete:false, attachAdd:false, attachDelete:false, relatedAdd:false, relatedDelete:false })
+    setIncomingAccess({ ...DEFAULT_ACCESS, view:'ندارد', register:false, edit:false, bodyRequired:false, bodyAdd:false, bodyEdit:false, bodyDelete:false, attachAdd:false, attachDelete:false, relatedAdd:false, relatedDelete:false })
     setAccessModal(true)
   }
 
-  const handleSaveAccess = () => {
-    if (!editingRegistry) return
-    setRegistries(prev => prev.map(r => r.id === editingRegistry.id ? {
-      ...r, internalAccess, outgoingAccess, incomingAccess
-    } : r))
+  const loadUserAccess = async (userId:string) => {
+    setSelectedAccessUserId(userId)
+    if(!editingRegistry)return
+    const response=await fetch(`${API}/registries/${editingRegistry.id}/access?userId=${encodeURIComponent(userId)}`,{headers:apiHeaders()})
+    const data=await response.json().catch(()=>null)
+    if(!response.ok){message.error(data?.message||'دریافت دسترسی کاربر ناموفق بود');return}
+    const empty={ ...DEFAULT_ACCESS, view:'ندارد' as const, register:false, edit:false, bodyRequired:false, bodyAdd:false, bodyEdit:false, bodyDelete:false, attachAdd:false, attachDelete:false, relatedAdd:false, relatedDelete:false }
+    setDraftScope(data?.draftScope||'none')
+    setInternalAccess(data?.internalAccess||empty)
+    setOutgoingAccess(data?.outgoingAccess||empty)
+    setIncomingAccess(data?.incomingAccess||empty)
+  }
+
+  const handleSaveAccess = async () => {
+    if (!editingRegistry || !selectedAccessUserId){message.warning('ابتدا نام کاربر را انتخاب کنید');return}
+    const response=await fetch(`${API}/registries/${editingRegistry.id}/access`,{method:'PUT',headers:apiHeaders(),body:JSON.stringify({userId:selectedAccessUserId,draftScope,internalAccess,outgoingAccess,incomingAccess})})
+    const data=await response.json().catch(()=>({}))
+    if(!response.ok){message.error(data.message||'ذخیره دسترسی ناموفق بود');return}
+    message.success(data.message||'دسترسی این کاربر جداگانه ذخیره شد؛ کاربر باید دوباره وارد سامانه شود')
     setAccessModal(false)
+    await loadRegistries()
   }
 
   const handleFormChange = () => {
@@ -226,22 +228,30 @@ export default function RegistrySettingsPage() {
     setPreviewExample(generateExample(values))
   }
 
-  const handleSaveRegistry = () => {
-    registryForm.validateFields().then(values => {
+  const handleSaveRegistry = async () => {
+    try {
+      const values=await registryForm.validateFields()
       const example = generateExample(values)
-      if (editingRegistry) {
-        setRegistries(prev => prev.map(r => r.id === editingRegistry.id ? { ...r, ...values, example } : r))
-      } else {
-        setRegistries(prev => [...prev, {
-          id: Date.now().toString(), example,
-          internalAccess: { ...DEFAULT_ACCESS },
-          outgoingAccess: { ...DEFAULT_ACCESS },
-          incomingAccess: { ...DEFAULT_ACCESS },
-          ...values
-        }])
-      }
+      const response=await fetch(editingRegistry?`${API}/registries/${editingRegistry.id}`:`${API}/registries`,{method:editingRegistry?'PUT':'POST',headers:apiHeaders(),body:JSON.stringify(values)})
+      const data=await response.json().catch(()=>({}))
+      if(!response.ok){message.error(data.message||'ذخیره دبیرخانه ناموفق بود');return}
+      message.success(`دبیرخانه با نمونه شماره ${example} ذخیره شد`)
       setRegistryModal(false)
-    })
+      await loadRegistries()
+    }catch{return}
+  }
+
+  const updateRegistry = async (registry:Registry,values:Partial<Registry>) => {
+    const response=await fetch(`${API}/registries/${registry.id}`,{method:'PUT',headers:apiHeaders(),body:JSON.stringify(values)})
+    if(!response.ok){message.error('به‌روزرسانی دبیرخانه ناموفق بود');return}
+    await loadRegistries()
+  }
+
+  const deleteRegistry = async (registry:Registry) => {
+    const response=await fetch(`${API}/registries/${registry.id}`,{method:'DELETE',headers:apiHeaders()})
+    if(!response.ok){message.error('حذف دبیرخانه ناموفق بود');return}
+    message.success('دبیرخانه حذف شد')
+    await loadRegistries()
   }
 
   const openFolderModal = (folder?: Folder) => {
@@ -274,7 +284,7 @@ export default function RegistrySettingsPage() {
     },
     {
       title: 'وضعیت', dataIndex: 'isActive', key: 'isActive', width: 80,
-      render: (a: boolean, r: Registry) => <Switch checked={a} size="small" onChange={v => setRegistries(prev => prev.map(x => x.id === r.id ? { ...x, isActive: v } : x))} />
+      render: (a: boolean, r: Registry) => <Switch checked={a} size="small" onChange={v => void updateRegistry(r,{isActive:v})} />
     },
     {
       title: 'عملیات', key: 'actions', width: 200,
@@ -282,7 +292,7 @@ export default function RegistrySettingsPage() {
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openRegistryModal(r)}>ویرایش</Button>
           <Button size="small" icon={<LockOutlined />} onClick={() => openAccessModal(r)}>دسترسی‌ها</Button>
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRegistries(prev => prev.filter(x => x.id !== r.id))}>حذف</Button>
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => void deleteRegistry(r)}>حذف</Button>
         </Space>
       )
     },
@@ -417,7 +427,7 @@ export default function RegistrySettingsPage() {
             </Col>
             <Col span={24}>
               <Form.Item name="userAccess" label="دسترسی کاربران">
-                <Select mode="multiple" allowClear>{USERS.map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}</Select>
+                <Select mode="multiple" allowClear options={users.map(user=>({value:user.id,label:user.fullName||user.username}))} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
@@ -450,14 +460,21 @@ export default function RegistrySettingsPage() {
         okButtonProps={{ style: { background: '#8B1A6B', borderColor: '#8B1A6B' } }}
       >
         <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>کاربر موردنظر</div>
+          <Select
+            showSearch optionFilterProp="label" value={selectedAccessUserId}
+            placeholder="نام فرد را انتخاب کنید"
+            options={users.map(user=>({value:user.id,label:`${user.fullName||user.username} (${user.username})`}))}
+            onChange={value=>void loadUserAccess(value)} style={{ width: '100%', marginBottom: 14 }}
+          />
           <div style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>دسترسی به پیش‌نویس‌های ایجاد شده در کارتابل‌ها</div>
-          <Select defaultValue="پیش‌نویس همه کاربران" style={{ width: 250 }}>
-            <Select.Option value="پیش‌نویس همه کاربران">پیش‌نویس همه کاربران</Select.Option>
-            <Select.Option value="ندارد">ندارد</Select.Option>
-            <Select.Option value="پیش‌نویس‌های انتخاب شده">پیش‌نویس‌های انتخاب شده</Select.Option>
+          <Select value={draftScope} onChange={setDraftScope} style={{ width: 250 }} disabled={!selectedAccessUserId}>
+            <Select.Option value="all">پیش‌نویس همه کاربران</Select.Option>
+            <Select.Option value="own">فقط پیش‌نویس‌های خود کاربر</Select.Option>
+            <Select.Option value="none">ندارد</Select.Option>
           </Select>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, opacity:selectedAccessUserId?1:0.45, pointerEvents:selectedAccessUserId?'auto':'none' }}>
           <AccessColumn title="داخلی" color="#faad14" value={internalAccess} onChange={setInternalAccess} />
           <AccessColumn title="صادره" color="#52c41a" value={outgoingAccess} onChange={setOutgoingAccess} />
           <AccessColumn title="وارده" color="#f5222d" value={incomingAccess} onChange={setIncomingAccess} />
@@ -492,7 +509,7 @@ export default function RegistrySettingsPage() {
           </Form.Item>
           <Form.Item name="userAccess" label="کاربران مجاز">
             <Select mode="multiple" allowClear placeholder="کاربران مجاز را انتخاب کنید">
-              {USERS.map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}
+              {users.map(user => <Select.Option key={user.id} value={user.fullName||user.username}>{user.fullName||user.username}</Select.Option>)}
             </Select>
           </Form.Item>
         </Form>

@@ -23,6 +23,14 @@ function PersianClock() {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [company, setCompany] = useState<{ name?: string; logoUrl?: string | null }>({ name: 'موسسه مدیریت پروژه پارس' })
+
+  useEffect(() => {
+    fetch('http://localhost:5043/api/v1/company/public?tenantId=00000000-0000-0000-0000-000000000001')
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => { setCompany(data); localStorage.setItem('company', JSON.stringify(data)) })
+      .catch(() => undefined)
+  }, [])
 
   const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true)
@@ -42,6 +50,7 @@ export default function LoginPage() {
       localStorage.setItem('token', data.accessToken)
       localStorage.setItem('user', JSON.stringify(data.user))
       localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
+      if (data.company) localStorage.setItem('company', JSON.stringify(data.company))
       window.location.assign('/dashboard')
     } catch {
       setError('خطا در اتصال به سرور')
@@ -113,10 +122,10 @@ export default function LoginPage() {
         alignItems: 'center', justifyContent: 'center',
         padding: 48, color: 'white', direction: 'rtl',
       }}>
-        <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '2px solid rgba(255,255,255,0.25)' }}>
-          <span style={{ fontSize: 38 }}>🏢</span>
+        <div style={{ width: 96, height: 96, borderRadius: 18, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '2px solid rgba(255,255,255,0.25)', padding: 8 }}>
+          {company.logoUrl ? <img src={company.logoUrl} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 38 }}>🏢</span>}
         </div>
-        <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>موسسه مدیریت پروژه پارس</div>
+        <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginBottom: 40 }}>سامانه یکپارچه مدیریت سازمانی</div>
 
         <PersianClock />

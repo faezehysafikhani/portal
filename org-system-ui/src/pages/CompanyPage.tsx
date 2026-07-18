@@ -1,12 +1,14 @@
-import { useState } from 'react'
-import { Card, Form, Input, Button, Upload, Table, Modal, Switch, Tag, Space, Row, Col, Divider, message } from 'antd'
-import { PlusOutlined, EditOutlined, UploadOutlined, BankOutlined, PhoneOutlined, MailOutlined, GlobalOutlined } from '@ant-design/icons'
-import { usePermissionStore } from '../store/permissionStore'
+import { useEffect, useState } from 'react'
+import { Card, Form, Input, Button, Upload, Modal, Row, Col, message, Spin } from 'antd'
+import { EditOutlined, UploadOutlined } from '@ant-design/icons'
+
+const API = 'http://localhost:5043/api/v1'
+const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') || ''}` })
 
 interface Company {
   id: string
   name: string
-  logo?: string
+  logoUrl?: string | null
   phone?: string
   email?: string
   address?: string
@@ -14,158 +16,126 @@ interface Company {
   nationalId?: string
   economicCode?: string
   isActive: boolean
-  isMain: boolean
 }
 
-const INITIAL_COMPANIES: Company[] = [
-  {
-    id: '1', name: 'شرکت پارس PMI', phone: '021-12345678',
-    email: 'info@parspmi.ir', address: 'تهران، خیابان ولیعصر',
-    website: 'www.parspmi.ir', nationalId: '10100012345',
-    economicCode: '411123456789', isActive: true, isMain: true
-  }
-]
-
 export default function CompanyPage() {
-  const { companyMode } = usePermissionStore()
-  const [companies, setCompanies] = useState<Company[]>(INITIAL_COMPANIES)
+  const [company, setCompany] = useState<Company | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
-  const [editingCompany, setEditingCompany] = useState<Company | null>(null)
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [form] = Form.useForm()
+  const signedInUser = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} } })()
+  const permissions: string[] = (() => { try { return JSON.parse(localStorage.getItem('permissions') || '[]') } catch { return [] } })()
+  const canEdit = (Array.isArray(signedInUser.roles) && signedInUser.roles.includes('Admin')) || permissions.includes('company.edit')
 
-  const openModal = (company?: Company) => {
-    if (company) { setEditingCompany(company); form.setFieldsValue(company) }
-    else { setEditingCompany(null); form.resetFields() }
+  const loadCompany = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch(`${API}/company`, { headers: headers() })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'دریافت اطلاعات شرکت ناموفق بود')
+      setCompany(data)
+      setLogoPreview(data.logoUrl || null)
+      localStorage.setItem('company', JSON.stringify(data))
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'دریافت اطلاعات شرکت ناموفق بود')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { void loadCompany() }, [])
+
+  const openModal = () => {
+    if (!company) return
+    form.setFieldsValue(company)
+    setLogoPreview(company.logoUrl || null)
     setModalOpen(true)
   }
 
-  const handleSave = () => {
-    form.validateFields().then(values => {
-      if (editingCompany) {
-        setCompanies(prev => prev.map(c => c.id === editingCompany.id ? { ...c, ...values } : c))
-      } else {
-        if (companyMode === 'single' && companies.length >= 1) {
-          message.error('در حالت تک شرکتی فقط یک شرکت مجاز است!')
-          return
-        }
-        setCompanies(prev => [...prev, { id: Date.now().toString(), isActive: true, isMain: false, ...values }])
-      }
-      setModalOpen(false)
-    })
+  const selectLogo = (file: File) => {
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      message.error('فرمت لوگو باید PNG، JPG، WEBP یا GIF باشد')
+      return Upload.LIST_IGNORE
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      message.error('حجم لوگو حداکثر باید ۲ مگابایت باشد')
+      return Upload.LIST_IGNORE
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const value = String(reader.result)
+      setLogoPreview(value)
+      form.setFieldValue('logoUrl', value)
+    }
+    reader.readAsDataURL(file)
+    return false
   }
 
-  const columns = [
-    { title: 'نام شرکت', dataIndex: 'name', key: 'name',
-      render: (name: string, r: Company) => (
-        <Space>
-          <BankOutlined />
-          <div>
-            <div style={{ fontWeight: 500 }}>{name}</div>
-            {r.isMain && <Tag color="gold">شرکت اصلی</Tag>}
-          </div>
-        </Space>
-      )
-    },
-    { title: 'تلفن', dataIndex: 'phone', key: 'phone', render: (p: string) => p ? <Space><PhoneOutlined />{p}</Space> : '-' },
-    { title: 'ایمیل', dataIndex: 'email', key: 'email', render: (e: string) => e ? <Space><MailOutlined />{e}</Space> : '-' },
-    { title: 'وب‌سایت', dataIndex: 'website', key: 'website', render: (w: string) => w ? <Space><GlobalOutlined />{w}</Space> : '-' },
-    { title: 'وضعیت', dataIndex: 'isActive', key: 'isActive',
-      render: (active: boolean, record: Company) => (
-        <Switch checked={active} onChange={val => setCompanies(prev => prev.map(c => c.id === record.id ? { ...c, isActive: val } : c))} />
-      )
-    },
-    { title: 'عملیات', key: 'actions',
-      render: (_: unknown, record: Company) => (
-        <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>ویرایش</Button>
-      )
-    },
-  ]
+  const handleSave = async () => {
+    try {
+      const values = await form.validateFields()
+      setSaving(true)
+      const response = await fetch(`${API}/company`, { method: 'PUT', headers: headers(), body: JSON.stringify(values) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'ذخیره اطلاعات شرکت ناموفق بود')
+      setCompany(data)
+      setLogoPreview(data.logoUrl || null)
+      localStorage.setItem('company', JSON.stringify(data))
+      window.dispatchEvent(new CustomEvent('company-updated', { detail: data }))
+      setModalOpen(false)
+      message.success('اطلاعات و لوگوی شرکت ذخیره شد')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'ذخیره اطلاعات شرکت ناموفق بود')
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  const mainCompany = companies.find(c => c.isMain)
+  if (loading) return <div style={{ display: 'grid', placeItems: 'center', minHeight: 300 }}><Spin size="large" /></div>
+  if (!company) return <Card>اطلاعات شرکت یافت نشد.</Card>
 
   return (
     <div>
-      {/* اطلاعات شرکت اصلی */}
-      {mainCompany && (
-        <Card
-          title="اطلاعات شرکت اصلی"
-          extra={<Button icon={<EditOutlined />} onClick={() => openModal(mainCompany)}>ویرایش</Button>}
-          style={{ marginBottom: 16 }}
-        >
-          <Row gutter={[16, 16]}>
-            <Col xs={24} md={4} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-              <div style={{
-                width: 80, height: 80, borderRadius: 12, background: '#f0f0f0',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32
-              }}>🏢</div>
-            </Col>
-            <Col xs={24} md={20}>
-              <Row gutter={[16, 8]}>
-                <Col xs={24} md={8}><strong>نام شرکت:</strong> {mainCompany.name}</Col>
-                <Col xs={24} md={8}><strong>تلفن:</strong> {mainCompany.phone}</Col>
-                <Col xs={24} md={8}><strong>ایمیل:</strong> {mainCompany.email}</Col>
-                <Col xs={24} md={8}><strong>وب‌سایت:</strong> {mainCompany.website}</Col>
-                <Col xs={24} md={8}><strong>شناسه ملی:</strong> {mainCompany.nationalId}</Col>
-                <Col xs={24} md={8}><strong>کد اقتصادی:</strong> {mainCompany.economicCode}</Col>
-                <Col xs={24}><strong>آدرس:</strong> {mainCompany.address}</Col>
-              </Row>
-            </Col>
-          </Row>
-        </Card>
-      )}
+      <Card title="اطلاعات شرکت اصلی" extra={canEdit && <Button icon={<EditOutlined />} onClick={openModal}>ویرایش</Button>}>
+        <Row gutter={[20, 20]} align="middle">
+          <Col xs={24} md={5} style={{ textAlign: 'center' }}>
+            {company.logoUrl
+              ? <img src={company.logoUrl} alt={`لوگوی ${company.name}`} style={{ width: 120, height: 120, objectFit: 'contain', borderRadius: 12, border: '1px solid #eee', padding: 8 }} />
+              : <div style={{ width: 120, height: 120, margin: 'auto', display: 'grid', placeItems: 'center', background: '#f5f5f5', borderRadius: 12, fontSize: 42 }}>🏢</div>}
+          </Col>
+          <Col xs={24} md={19}>
+            <Row gutter={[16, 12]}>
+              <Col xs={24} md={8}><strong>نام شرکت:</strong> {company.name}</Col>
+              <Col xs={24} md={8}><strong>تلفن:</strong> {company.phone || '—'}</Col>
+              <Col xs={24} md={8}><strong>ایمیل:</strong> {company.email || '—'}</Col>
+              <Col xs={24} md={8}><strong>وب‌سایت:</strong> {company.website || '—'}</Col>
+              <Col xs={24} md={8}><strong>شناسه ملی:</strong> {company.nationalId || '—'}</Col>
+              <Col xs={24} md={8}><strong>کد اقتصادی:</strong> {company.economicCode || '—'}</Col>
+              <Col span={24}><strong>آدرس:</strong> {company.address || '—'}</Col>
+            </Row>
+          </Col>
+        </Row>
+      </Card>
 
-      {/* لیست شرکت‌ها در حالت Multi */}
-      {companyMode === 'multi' && (
-        <Card title="لیست شرکت‌ها" extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>شرکت جدید</Button>
-        }>
-          <Table columns={columns} dataSource={companies} rowKey="id" />
-        </Card>
-      )}
-
-      {companyMode === 'single' && (
-        <Card style={{ background: '#e6f7ff', border: '1px solid #91d5ff' }}>
-          <p>💡 برای افزودن چند شرکت، ابتدا از بخش <strong>تنظیمات → حالت شرکت</strong> را به <strong>چند شرکتی</strong> تغییر دهید.</p>
-        </Card>
-      )}
-
-      <Modal
-        title={editingCompany ? 'ویرایش شرکت' : 'شرکت جدید'}
-        open={modalOpen}
-        onOk={handleSave}
-        onCancel={() => setModalOpen(false)}
-        okText="ذخیره"
-        cancelText="انصراف"
-        width={600}
-      >
+      <Modal title="ویرایش اطلاعات شرکت" open={modalOpen} onOk={handleSave} confirmLoading={saving} onCancel={() => setModalOpen(false)} okText="ذخیره" cancelText="انصراف" width={680}>
         <Form form={form} layout="vertical">
+          <Form.Item name="logoUrl" hidden><Input /></Form.Item>
           <Row gutter={16}>
+            <Col span={24}><Form.Item name="name" label="نام شرکت" rules={[{ required: true, message: 'نام شرکت الزامی است' }]}><Input /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="phone" label="تلفن"><Input /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="email" label="ایمیل" rules={[{ type: 'email', message: 'ایمیل معتبر نیست' }]}><Input /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="website" label="وب‌سایت"><Input /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="nationalId" label="شناسه ملی"><Input /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="economicCode" label="کد اقتصادی"><Input /></Form.Item></Col>
+            <Col span={24}><Form.Item name="address" label="آدرس"><Input.TextArea rows={2} /></Form.Item></Col>
             <Col span={24}>
-              <Form.Item name="name" label="نام شرکت" rules={[{ required: true }]}><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="phone" label="تلفن"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="email" label="ایمیل"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="website" label="وب‌سایت"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="nationalId" label="شناسه ملی"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="economicCode" label="کد اقتصادی"><Input /></Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item name="address" label="آدرس"><Input.TextArea rows={2} /></Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item name="logo" label="لوگو">
-                <Upload listType="picture-card" maxCount={1}>
-                  <div><UploadOutlined /><div>آپلود لوگو</div></div>
+              <Form.Item label="لوگوی شرکت" extra="فرمت‌های PNG، JPG، WEBP یا GIF؛ حداکثر ۲ مگابایت">
+                <Upload accept="image/png,image/jpeg,image/webp,image/gif" showUploadList={false} beforeUpload={selectLogo}>
+                  <Button icon={<UploadOutlined />}>انتخاب لوگو</Button>
                 </Upload>
+                {logoPreview && <div style={{ marginTop: 12 }}><img src={logoPreview} alt="پیش‌نمایش لوگو" style={{ width: 100, height: 100, objectFit: 'contain', border: '1px solid #eee', borderRadius: 8, padding: 6 }} /></div>}
               </Form.Item>
             </Col>
           </Row>
