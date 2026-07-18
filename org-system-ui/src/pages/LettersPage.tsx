@@ -491,15 +491,15 @@ export default function LettersPage() {
 
   const tabFilteredLetters = letters.filter(l =>
     activeTab === 'all' ||
-    (activeTab === 'inbox' && l.isInbox) ||
-    (activeTab === 'incoming' && l.isInbox && l.type === 'Incoming') ||
+    (activeTab === 'inbox' && l.isInbox && l.status !== 'Draft') ||
+    (activeTab === 'incoming' && l.isInbox && l.status !== 'Draft' && l.type === 'Incoming') ||
     (activeTab === 'outgoing' && l.isSender && l.status !== 'Draft') ||
     (activeTab === 'draft' && l.isSender && l.status === 'Draft') ||
     (activeTab === 'archived' && l.status === 'Archived')
   )
 
   const filteredLetters = applyFilters(tabFilteredLetters, searchFilters)
-  const unreadCount = letters.filter(l => !l.isRead && (isReferrals ? l.referralDirection === 'incoming' : l.isInbox)).length
+  const unreadCount = letters.filter(l => !l.isRead && (isReferrals ? l.referralDirection === 'incoming' : l.isInbox && l.status !== 'Draft')).length
 
   const columns = [
     {
