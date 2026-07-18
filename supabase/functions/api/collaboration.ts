@@ -169,7 +169,9 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
   }
   if (path === '/forms' && request.method === 'GET') {
     requirePermission(auth, 'forms.view'); let query=db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
-    if(url.searchParams.get('scope')==='approvals')query=query.or(`and(ManagerUserId.eq.${auth.userId},Status.eq.manager_pending),and(HrUserId.eq.${auth.userId},Status.eq.hr_pending)`)
+    const scope=url.searchParams.get('scope')||'sent'
+    if(scope==='approvals')query=query.or(`and(ManagerUserId.eq.${auth.userId},Status.eq.manager_pending),and(HrUserId.eq.${auth.userId},Status.eq.hr_pending)`)
+    else if(scope==='inbox')query=query.eq('SubmitterUserId',auth.userId).in('Status',['approved','rejected','returned'])
     else query=query.eq('SubmitterUserId',auth.userId)
     const result=await query.order('CreatedAt',{ascending:false});check(result.error)
     const enriched=await Promise.all((result.data??[]).map(async(form:Obj)=>{const history=await db.from('FormWorkflowHistories').select('*').eq('TenantId',auth.tenantId).eq('FormId',form.Id).eq('IsDeleted',false).order('CreatedAt');check(history.error);return{...camelize(form) as Obj,history:camelize(history.data)}}))
@@ -187,7 +189,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     const result = await db.from('OrganizationalForms').insert(row).select().single(); check(result.error)
     const history=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:result.data.Id,ActorUserId:auth.userId,ActorName:route.submitter.fullName,Action:'submitted',Note:null});check(history.error)
     if(account&&requestedHours>0){const reserved=await db.from('LeaveAccounts').update({ReservedHours:Number(account.ReservedHours??0)+requestedHours,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(reserved.error)}
-    await createNotification(db,auth,{userId:route.manager.id,title:'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms?scope=approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
+    await createNotification(db,auth,{userId:route.manager.id,title:'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
     return json(request, {...camelize(result.data) as Obj,message:'فرم ثبت شد و برای مدیر مستقیم شما ارسال گردید.'}, 201)
   }
   const action = path.match(/^\/forms\/([0-9a-f-]+)\/action$/i)
@@ -210,7 +212,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     }
     const nextUser=status==='hr_pending'?form.HrUserId:form.SubmitterUserId
     const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
-    await createNotification(db,auth,{userId:nextUser,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:status==='hr_pending'?'/forms?scope=approvals':'/forms',entityId:form.Id,entityType:'OrganizationalForm'})
+    await createNotification(db,auth,{userId:nextUser,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:status==='hr_pending'?'/forms/approvals':'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'})
     return json(request, { status: result.data.Status })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')

@@ -433,7 +433,7 @@ export default function UsersPage() {
           هر گزینه مستقیماً روی همین کاربر اعمال می‌شود و هیچ نقش یا دسترسی کلی وجود ندارد.
         </div>
         <Checkbox.Group value={selectedPermissionIds} onChange={values=>setSelectedPermissionIds(values as string[])} style={{width:'100%'}}>
-          <Collapse defaultActiveKey={['letters','calendar']} items={Object.entries(
+          <Collapse defaultActiveKey={['letters','calendar','forms']} items={Object.entries(
             availablePermissions.reduce<Record<string,typeof availablePermissions>>((groups,permission)=>{
               ;(groups[permission.module] ||= []).push(permission)
               return groups

@@ -77,7 +77,10 @@ function App() {
           <Route path="/tickets" element={<TicketsPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/sms" element={<SmsPage />} />
-          <Route path="/forms" element={<FormsPage />} />
+          <Route path="/forms" element={<Navigate to="/forms/sent" replace />} />
+          <Route path="/forms/inbox" element={<FormsPage />} />
+          <Route path="/forms/sent" element={<FormsPage />} />
+          <Route path="/forms/approvals" element={<FormsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/company" element={<CompanyPage />} />

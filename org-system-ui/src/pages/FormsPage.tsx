@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Switch, Alert, InputNumber, Upload, Badge, notification, TimePicker } from 'antd'
-import { PlusOutlined, EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, FileTextOutlined, LockOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
-import { useRolesStore } from '../store/rolesStore'
+import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker } from 'antd'
+import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
+import { useLocation } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
 import PersianDatePicker from '../components/PersianDatePicker'
 import { jalaliToDate, formatJalaliDate } from '../utils/jalali'
@@ -17,10 +17,6 @@ interface LeaveBalance { availableHours:number; days:number; monthlyAccrualHours
 interface WorkflowConfig { submitter?:InternalUser; manager?:InternalUser; hrManager?:InternalUser; isConfigured:boolean; message?:string; users:InternalUser[] }
 
 type FormStatus = 'پیش‌نویس' | 'ارسال شده' | 'در بررسی مدیر' | 'برگشت برای اصلاح' | 'تأیید مدیر' | 'در بررسی منابع انسانی' | 'تأیید نهایی' | 'رد شده'
-
-interface FormAccess {
-  roleIds: string[]
-}
 
 interface FormSubmission {
   id: string
@@ -79,34 +75,20 @@ const INITIAL_FORMS: FormSubmission[] = [
   },
 ]
 
-const INITIAL_ACCESS: Record<string, FormAccess> = {
-  leave_daily: { roleIds: ['1', '2', '3', '4'] },
-  leave_hourly: { roleIds: ['1', '2', '3', '4'] },
-  mission: { roleIds: ['1', '2', '3', '4'] },
-  loan: { roleIds: ['1', '3', '4'] },
-  payslip: { roleIds: ['1', '4'] },
-  resignation: { roleIds: ['1', '4'] },
-  equipment: { roleIds: ['1', '2', '3', '4'] },
-  personnel: { roleIds: ['1', '2', '3', '4'] },
-}
-
-// export برای استفاده در UsersPage
-export { INITIAL_ACCESS }
-
 export default function FormsPage() {
-  const { roles } = useRolesStore()
+  const location=useLocation()
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const isAdmin=Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin')
   const assignedFormTypes=grantedPermissions.filter(code=>code.startsWith('forms.type.'))
   const canUseFormType=(type:string)=>isAdmin||grantedPermissions.includes('forms.access')||assignedFormTypes.length===0||assignedFormTypes.includes(`forms.type.${type}`)
+  const canCreate=isAdmin||grantedPermissions.includes('forms.create')
   const [forms, setForms] = useState<FormSubmission[]>([])
+  const [inboxForms, setInboxForms] = useState<FormSubmission[]>([])
   const [approvalForms, setApprovalForms] = useState<FormSubmission[]>([])
   const [users, setUsers] = useState<InternalUser[]>([])
   const [workflow,setWorkflow]=useState<WorkflowConfig>({isConfigured:false,users:[]})
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance>({availableHours:0,days:0,monthlyAccrualHours:20,reservedHours:0})
-  const [access, setAccess] = useState<Record<string, FormAccess>>(INITIAL_ACCESS)
-  const [activeTab, setActiveTab] = useState('1')
   const [newFormModal, setNewFormModal] = useState(false)
   const [newFormType, setNewFormType] = useState<string>('leave_daily')
   const [viewModal, setViewModal] = useState(false)
@@ -116,7 +98,7 @@ export default function FormsPage() {
   const [form] = Form.useForm()
 
   const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:formatJalaliDate(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName,hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),history:(x.history||[]).map((h:any)=>({date:formatJalaliDate(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
-  const load=async()=>{const [m,a,u,b]=await Promise.all([apiFetch(`${API}/forms`),apiFetch(`${API}/forms?scope=approvals`),apiFetch(`${API}/forms/approvers`),apiFetch(`${API}/forms/balance`)]);if(m.ok)setForms((await m.json()).map(mapApiForm));if(a.ok)setApprovalForms((await a.json()).map(mapApiForm));if(u.ok){const w=await u.json();setWorkflow(w);setUsers(w.users||[])}if(b.ok)setLeaveBalance(await b.json())}
+  const load=async()=>{const [s,i,a,u,b]=await Promise.all([apiFetch(`${API}/forms?scope=sent`),apiFetch(`${API}/forms?scope=inbox`),apiFetch(`${API}/forms?scope=approvals`),apiFetch(`${API}/forms/approvers`),apiFetch(`${API}/forms/balance`)]);if(s.ok)setForms((await s.json()).map(mapApiForm));if(i.ok)setInboxForms((await i.json()).map(mapApiForm));if(a.ok)setApprovalForms((await a.json()).map(mapApiForm));if(u.ok){const w=await u.json();setWorkflow(w);setUsers(w.users||[])}if(b.ok)setLeaveBalance(await b.json())}
   useEffect(()=>{load()},[])
   const managerOptions=workflow.manager?[{value:workflow.manager.id,label:`${workflow.manager.fullName}${workflow.manager.position?' — '+workflow.manager.position:''}`}]:[]
   const hrOptions=workflow.hrManager?[{value:workflow.hrManager.id,label:`${workflow.hrManager.fullName}${workflow.hrManager.position?' — '+workflow.hrManager.position:''}`}]:[]
@@ -371,89 +353,31 @@ export default function FormsPage() {
     },
   ]
 
+  const isApprovals=location.pathname.endsWith('/approvals')
+  const isInbox=location.pathname.endsWith('/inbox')
+  const pageTitle=isApprovals?'تأییدات من':isInbox?'کارتابل فرم':'فرم‌های ارسالی من'
+  const pageDescription=isApprovals?'فرم‌هایی که اکنون نیازمند تصمیم شما هستند':isInbox?'نتیجه فرم‌های تأییدشده، ردشده یا برگشتی شما':'تمام فرم‌هایی که برای مدیر یا منابع انسانی ارسال کرده‌اید'
+  const pageForms=isApprovals?approvalForms:isInbox?inboxForms:forms
+  const tableColumns=isApprovals?[
+    ...columns.slice(0,4),
+    {
+      title:'عملیات',key:'actions',width:250,
+      render:(_:unknown,r:FormSubmission)=><Space>
+        <Button size="small" icon={<EyeOutlined/>} onClick={()=>{setSelectedForm(r);setViewModal(true)}}>مشاهده</Button>
+        <Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>تأیید</Button>
+        <Button size="small" icon={<RollbackOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('return')}}>اصلاح</Button>
+        <Button size="small" danger icon={<CloseOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('reject')}}>رد</Button>
+      </Space>
+    }
+  ]:columns
+
   return (
     <div>
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
-        {
-          key: '1',
-          label: <span><FileTextOutlined /> فرم‌های من</span>,
-          children: (
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <Space wrap>
-                  <Tag color="orange">مانده مرخصی: {leaveBalance.days} روز کامل</Tag>
-                  <Tag color="cyan">مانده کل: {leaveBalance.availableHours} ساعت</Tag>
-                  <Tag color="blue">افزایش ماهانه: {leaveBalance.monthlyAccrualHours} ساعت</Tag>
-                </Space>
-                <Select placeholder="➕ فرم جدید" style={{ width: 200 }} onChange={v => { if (v) openForm(v) }} value={undefined}>
-                  {Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key, val]) => (
-                    <Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>
-                  ))}
-                </Select>
-              </div>
-              <Table columns={columns} dataSource={forms} rowKey="id" />
-            </div>
-          )
-        },
-        {
-          key: '2',
-          label: <span>📥 در انتظار تأیید من <Badge count={approvalForms.length} style={{ background: '#fa8c16' }} /></span>,
-          children: (
-            <Table
-              columns={[
-                ...columns.slice(0, 4),
-                {
-                  title: 'عملیات', key: 'actions', width: 250,
-                  render: (_: unknown, r: FormSubmission) => (
-                    <Space>
-                      <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedForm(r); setViewModal(true) }}>مشاهده</Button>
-                      <Button size="small" icon={<CheckOutlined />} style={{ color: '#52c41a', borderColor: '#52c41a' }} onClick={() => { setSelectedForm(r); setActionModal('approve') }}>تأیید</Button>
-                      <Button size="small" icon={<RollbackOutlined />} onClick={() => { setSelectedForm(r); setActionModal('return') }}>برگشت</Button>
-                      <Button size="small" danger icon={<CloseOutlined />} onClick={() => { setSelectedForm(r); setActionModal('reject') }}>رد</Button>
-                    </Space>
-                  )
-                }
-              ]}
-              dataSource={approvalForms}
-              rowKey="id"
-            />
-          )
-        },
-        {
-          key: '3',
-          label: <span><LockOutlined /> دسترسی فرم‌ها</span>,
-          children: (
-            <div>
-              <Alert message="دسترسی به هر فرم را بر اساس نقش کاربران تعیین کنید. این تنظیمات در صفحه مدیریت کاربران نیز قابل تنظیم است." type="info" showIcon style={{ marginBottom: 16 }} />
-              {Object.entries(FORM_TYPES).map(([key, val]) => (
-                <Card key={key} size="small" style={{ marginBottom: 10, borderRight: `4px solid ${val.color}` }}
-                  title={<Space><span style={{ fontSize: 18 }}>{val.icon}</span><span style={{ fontWeight: 600 }}>{val.label}</span></Space>}
-                >
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-                    {roles.map(role => (
-                      <div key={role.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Switch
-                          size="small"
-                          checked={access[key]?.roleIds.includes(role.id)}
-                          onChange={checked => setAccess(prev => ({
-                            ...prev,
-                            [key]: {
-                              roleIds: checked
-                                ? [...(prev[key]?.roleIds || []), role.id]
-                                : (prev[key]?.roleIds || []).filter(id => id !== role.id)
-                            }
-                          }))}
-                        />
-                        <Tag color={role.color} style={{ margin: 0 }}>{role.name}</Tag>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )
-        },
-      ]} />
+      <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
+        <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
+        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {leaveBalance.days} روز کامل</Tag><Tag color="cyan">مانده کل: {leaveBalance.availableHours} ساعت</Tag><Tag color="blue">افزایش ماهانه: {leaveBalance.monthlyAccrualHours} ساعت</Tag></Space>}
+        <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
+      </Card>
 
       {/* Modal فرم جدید */}
       <Modal

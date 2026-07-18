@@ -8,7 +8,7 @@ import {
   BankOutlined, ContactsOutlined, ProjectOutlined, UnorderedListOutlined,
   FolderOutlined, InboxOutlined, EditOutlined, BookOutlined,
   DollarOutlined, WarningOutlined, BugOutlined, SwapOutlined, 
-  FileTextOutlined
+  FileTextOutlined, SendOutlined
 } from '@ant-design/icons'
 import { usePermissionStore } from '../store/permissionStore'
 import NotificationDropdown from '../components/NotificationDropdown'
@@ -64,7 +64,13 @@ export default function MainLayout() {
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
     ...(allowed('contacts.view') ? [{ key: '/contacts', icon: <ContactsOutlined />, label: 'مخاطبین' }] : []),
     ...(allowed('sms.view') ? [{ key: '/sms', icon: <MessageOutlined />, label: 'پیامک' }] : []),
-    ...(allowed('forms.view') ? [{ key: '/forms', icon: <FormOutlined />, label: 'فرم‌های سازمانی' }] : []),
+    ...(allowed('forms.view') ? [{
+      key: 'forms-group', icon: <FormOutlined />, label: 'فرم‌های سازمانی', children: [
+        { key: '/forms/inbox', icon: <InboxOutlined />, label: 'کارتابل فرم' },
+        { key: '/forms/sent', icon: <SendOutlined />, label: 'ارسالی‌ها' },
+        ...(allowed('forms.approve') ? [{ key: '/forms/approvals', icon: <CheckSquareOutlined />, label: 'تأییدات من' }] : []),
+      ]
+    }] : []),
     ...(allowed('reports.view') ? [{ key: '/reports', icon: <BarChartOutlined />, label: 'گزارشات' }] : []),
     ...(allowed('ai.view') ? [{ key: '/ai', icon: <RobotOutlined />, label: 'دستیار هوشمند' }] : []),
     ...(allowed('chat.view') ? [{ key: '/chat', icon: <MessageOutlined />, label: 'چت داخلی' }] : []),
@@ -86,6 +92,9 @@ export default function MainLayout() {
       '/contacts': 'مخاطبین',
       '/sms': 'پیامک',
       '/forms': 'فرم‌های سازمانی',
+      '/forms/inbox': 'کارتابل فرم',
+      '/forms/sent': 'فرم‌های ارسالی',
+      '/forms/approvals': 'تأییدات فرم',
       '/reports': 'گزارشات',
       '/ai': 'دستیار هوشمند',
       '/company': 'اطلاعات شرکت',
@@ -118,6 +127,8 @@ export default function MainLayout() {
       ? ['tasks-group']
       : location.pathname.startsWith('/letters')
       ? ['letters-group']
+      : location.pathname.startsWith('/forms')
+      ? ['forms-group']
       : []
 
   return (

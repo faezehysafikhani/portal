@@ -468,12 +468,12 @@ export default function DashboardPage() {
               </Button> : null
             }
           >
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, marginBottom: 8 }}>
               {PERSIAN_DAYS.map((d, i) => (
                 <div key={d} style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, padding: '6px 0', color: i === 6 ? '#f5222d' : '#8c8c8c', background: '#fafafa', borderRadius: 6 }}>{d}</div>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}>
               {Array(firstDay).fill(null).map((_, i) => <div key={`e-${i}`} />)}
               {Array(daysInMonth).fill(null).map((_, i) => {
                 const day = i + 1
@@ -483,14 +483,14 @@ export default function DashboardPage() {
                 const today = isToday(day)
                 return (
                   <div key={day} onClick={() => handleDayClick(day)}
-                    style={{ minHeight: 68, border: `1px solid ${today ? '#8B1A6B' : '#f0f0f0'}`, borderRadius: 8, padding: '4px 6px', cursor: 'pointer', background: today ? '#8B1A6B11' : holiday || friday ? '#fff1f0' : 'white', transition: 'all 0.15s', boxShadow: today ? '0 0 0 2px #8B1A6B44' : 'none' }}
+                    style={{ minWidth:0, minHeight:68, overflow:'hidden', border: `1px solid ${today ? '#8B1A6B' : '#f0f0f0'}`, borderRadius: 8, padding: '4px 6px', cursor: 'pointer', background: today ? '#8B1A6B11' : holiday || friday ? '#fff1f0' : 'white', transition: 'all 0.15s', boxShadow: today ? '0 0 0 2px #8B1A6B44' : 'none' }}
                     onMouseEnter={e => { if (!today) (e.currentTarget as HTMLDivElement).style.background = '#f9f0ff' }}
                     onMouseLeave={e => { if (!today) (e.currentTarget as HTMLDivElement).style.background = holiday || friday ? '#fff1f0' : 'white' }}
                   >
                     <div style={{ fontSize: 12, fontWeight: today ? 700 : 400, color: holiday || friday ? '#f5222d' : today ? '#8B1A6B' : '#333', marginBottom: 2 }}>{day}</div>
                     {(holiday || friday) && <div title={getIranHoliday(currentYear, currentMonth, day) || 'جمعه'} style={{ fontSize: 8, color: '#cf1322', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getIranHoliday(currentYear, currentMonth, day) || 'جمعه'}</div>}
                     {dayEvents.slice(0, 2).map(ev => (
-                      <div key={ev.id} title={`${ev.time ? `${ev.time} — ` : ''}${ev.title}`} onClick={event=>{event.stopPropagation();openEventDetails(ev)}} style={{ background: ev.color, color: 'white', borderRadius: 3, padding: '0 3px', height:15, lineHeight:'15px', fontSize: 8, marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth:'100%', cursor:'pointer' }}>
+                      <div key={ev.id} title={`${ev.time ? `${ev.time} — ` : ''}${ev.title}`} onClick={event=>{event.stopPropagation();openEventDetails(ev)}} style={{ display:'block',width:'100%',boxSizing:'border-box',background:ev.color,color:'white',borderRadius:3,padding:'0 3px',height:15,lineHeight:'15px',fontSize:8,marginBottom:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:'pointer' }}>
                         {ev.time && `${ev.time} `}{ev.title}
                       </div>
                     ))}

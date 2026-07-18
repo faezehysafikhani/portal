@@ -44,6 +44,7 @@ export default function ChatPage(){
   const chunksRef=useRef<Blob[]>([])
   const recordTimerRef=useRef<number|null>(null)
   const recordSecondsRef=useRef(0)
+  const draftsRef=useRef<Record<string,string>>({})
   const selected=users.find(x=>x.id===selectedId)
 
   const loadUsers=async(silent=false)=>{
@@ -79,8 +80,8 @@ export default function ChatPage(){
     if(selectedFile){
       if(selectedFile.size>MAX_FILE_SIZE){message.error('حداکثر حجم فایل ۲۰۰ کیلوبایت است');return}
       const attachmentData=await fileToBase64(selectedFile).catch(()=>null);if(!attachmentData){message.error('خواندن فایل انجام نشد');return}
-      if(await postMessage({content,kind:'file',attachmentName:selectedFile.name,attachmentData,attachmentContentType:selectedFile.type||'application/octet-stream',attachmentSize:selectedFile.size})){setText('');setSelectedFile(undefined)}
-    }else if(await postMessage({content,kind:'text'}))setText('')
+      if(await postMessage({content,kind:'file',attachmentName:selectedFile.name,attachmentData,attachmentContentType:selectedFile.type||'application/octet-stream',attachmentSize:selectedFile.size})){if(selectedId)draftsRef.current[selectedId]='';setText('');setSelectedFile(undefined)}
+    }else if(await postMessage({content,kind:'text'})){if(selectedId)draftsRef.current[selectedId]='';setText('')}
   }
   const chooseFile=(file?:File)=>{
     if(!file)return
@@ -118,19 +119,19 @@ export default function ChatPage(){
     const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=item.attachmentName||'attachment';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
   }
   const filtered=useMemo(()=>users.filter(x=>`${x.fullName} ${x.position||''} ${x.department||''}`.includes(search.trim())),[users,search])
-  const choose=(id:string)=>{if(recording)stopRecording();setSelectedFile(undefined);setSelectedId(id);history.replaceState(null,'',`/chat?user=${id}`)}
+  const choose=(id:string)=>{if(id===selectedId)return;if(recording)stopRecording();if(selectedId)draftsRef.current[selectedId]=text;setText(draftsRef.current[id]||'');setEmojiOpen(false);setSelectedFile(undefined);setSelectedId(id);history.replaceState(null,'',`/chat?user=${id}`)}
   const faTime=(value?:string)=>value?new Date(value).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''
   const addEmoji=(emoji:string)=>{setText(current=>`${current}${emoji}`.slice(0,2000));setEmojiOpen(false)}
   const emojiPicker=<div style={{width:340,maxWidth:'calc(100vw - 64px)',maxHeight:240,overflowY:'auto',display:'grid',gridTemplateColumns:'repeat(10,minmax(28px,1fr))',gap:3,direction:'ltr',padding:'2px 4px 2px 0'}}>{CHAT_EMOJIS.map(emoji=><Button key={emoji} type="text" onClick={()=>addEmoji(emoji)} aria-label={`ایموجی ${emoji}`} style={{fontSize:25,padding:0,height:36,minWidth:0,lineHeight:'36px',borderRadius:7}}>{emoji}</Button>)}</div>
 
   if(loading)return <div style={{display:'grid',placeItems:'center',height:400}}><Spin size="large"/></div>
   return <div style={{height:'calc(100vh - 125px)',display:'flex',gap:14,minHeight:520}}>
-    <Card title={<Space>💬 <span>کارتابل پیام‌ها</span><Badge count={users.reduce((s,x)=>s+x.unread,0)}/></Space>} style={{width:320,flexShrink:0,borderRadius:14,overflow:'hidden'}} styles={{body:{padding:0,height:'calc(100% - 58px)',display:'flex',flexDirection:'column'}}}>
+    <Card title={<Space>💬 <span>کارتابل پیام‌ها</span><Badge count={users.reduce((s,x)=>s+x.unread,0)}/></Space>} style={{width:280,flexShrink:0,borderRadius:14,overflow:'hidden'}} styles={{body:{padding:0,height:'calc(100% - 58px)',display:'flex',flexDirection:'column'}}}>
       <div style={{padding:12,borderBottom:'1px solid #f0f0f0'}}><Input allowClear prefix={<SearchOutlined/>} value={search} onChange={e=>setSearch(e.target.value)} placeholder="جستجوی همکار..."/></div>
       <div style={{overflowY:'auto',flex:1}}>{filtered.length===0?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="کاربری یافت نشد"/>:filtered.map(user=><div key={user.id} onClick={()=>choose(user.id)} style={{padding:'12px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:selectedId===user.id?'#f7eaf3':'#fff',borderRight:selectedId===user.id?'4px solid #8b1a6b':'4px solid transparent'}}>
         <div style={{display:'flex',gap:10,alignItems:'center'}}><Badge dot color={user.isOnline?'#52c41a':'#bfbfbf'} offset={[-4,35]}><Avatar size={42} src={user.avatarUrl} icon={<UserOutlined/>} style={{background:'#8b1a6b'}}/></Badge>
           <div style={{flex:1,minWidth:0}}><div style={{display:'flex',justifyContent:'space-between'}}><b style={{fontSize:13}}>{user.fullName}</b><small style={{color:'#999'}}>{faTime(user.lastMessageAt)}</small></div>
-            <div style={{fontSize:11,color:'#888'}}>{user.position||user.department||(user.personType==='contact'?'مخاطب خارجی':'کاربر داخلی')}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:11,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:195}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
+            <div style={{fontSize:11,color:'#888'}}>{user.position||user.department||(user.personType==='contact'?'مخاطب خارجی':'کاربر داخلی')}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:11,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:155}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
         </div></div>)}</div>
     </Card>
     <Card style={{flex:1,borderRadius:14,overflow:'hidden'}} styles={{body:{height:'100%',padding:0,display:'flex',flexDirection:'column'}}}>
@@ -140,12 +141,15 @@ export default function ChatPage(){
           {kind==='voice'?<div><div style={{display:'flex',gap:6,alignItems:'center',marginBottom:5}}><AudioOutlined/><span style={{fontSize:12}}>پیام صوتی {item.voiceDurationSeconds?`• ${item.voiceDurationSeconds.toLocaleString('fa-IR')} ثانیه`:''}</span></div><VoicePlayer id={item.id}/></div>:kind==='file'?<div><Button type="text" onClick={()=>downloadFile(item)} style={{color:item.isMe?'white':'#8b1a6b',height:'auto',padding:0}} icon={<FileOutlined/>}><span style={{maxWidth:280,display:'inline-block',overflow:'hidden',textOverflow:'ellipsis'}}>{item.attachmentName}</span></Button><div style={{fontSize:10,opacity:.75}}>{bytesLabel(item.attachmentSize)} <DownloadOutlined/></div>{item.content&&<div style={{marginTop:7,lineHeight:1.8}}>{chatText(item.content)}</div>}</div>:<span style={{lineHeight:1.8}}>{chatText(item.content)}</span>}
           </div><div style={{fontSize:10,color:'#999',marginTop:3}}>{faTime(item.createdAt)} {item.isMe&&(item.isRead?'✓✓':'✓')}</div></div></div>})}<div ref={endRef}/></div>
         {selectedFile&&<div style={{padding:'7px 14px',background:'#fff7fb',borderTop:'1px solid #f1d8e8',display:'flex',gap:8,alignItems:'center'}}><FileOutlined style={{color:'#8b1a6b'}}/><b style={{fontSize:12}}>{selectedFile.name}</b><span style={{fontSize:11,color:'#888'}}>{bytesLabel(selectedFile.size)}</span><Button size="small" type="text" icon={<CloseOutlined/>} onClick={()=>setSelectedFile(undefined)} style={{marginRight:'auto'}}/></div>}
-        <div style={{padding:14,borderTop:'1px solid #eee',display:'flex',gap:8,alignItems:'flex-end'}}>
+        <div style={{padding:'10px 14px',borderTop:'1px solid #eee',display:'flex',gap:8,alignItems:'center'}}>
           <input ref={fileInputRef} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.txt,.docx,.xlsx" onChange={e=>{chooseFile(e.target.files?.[0]);e.currentTarget.value=''}}/>
           <Tooltip title="پیوست فایل تا ۲۰۰KB"><Button icon={<PaperClipOutlined/>} onClick={()=>fileInputRef.current?.click()} disabled={recording||sending}/></Tooltip>
           <Tooltip title={recording?'توقف و ارسال ویس':'ضبط پیام صوتی تا ۶۰ ثانیه'}><Button danger={recording} type={recording?'primary':'default'} icon={recording?<StopOutlined/>:<AudioOutlined/>} onClick={recording?stopRecording:startRecording} disabled={sending}>{recording?`${recordSeconds.toLocaleString('fa-IR')} ثانیه`:''}</Button></Tooltip>
           <Popover content={emojiPicker} title="انتخاب ایموجی" trigger="click" open={emojiOpen} onOpenChange={setEmojiOpen} placement="top" overlayStyle={{maxWidth:'calc(100vw - 24px)'}}><Tooltip title="ایموجی"><Button icon={<SmileOutlined/>} disabled={recording||sending}/></Tooltip></Popover>
-          <Input.TextArea style={{fontSize:15}} autoSize={{minRows:1,maxRows:4}} value={text} maxLength={2000} showCount disabled={recording} onChange={e=>setText(e.target.value)} onPressEnter={e=>{if(!e.shiftKey){e.preventDefault();send()}}} placeholder={recording?'در حال ضبط پیام صوتی...':`پیام به ${selected.fullName}...`}/>
+          <div style={{position:'relative',flex:1,minWidth:0}}>
+            <Input.TextArea style={{fontSize:14,paddingBottom:20}} autoSize={{minRows:1,maxRows:4}} value={text} maxLength={2000} disabled={recording} onChange={e=>{const value=e.target.value;setText(value);if(selectedId)draftsRef.current[selectedId]=value}} onPressEnter={e=>{if(!e.shiftKey){e.preventDefault();send()}}} placeholder={recording?'در حال ضبط پیام صوتی...':`پیام به ${selected.fullName}...`}/>
+            <span style={{position:'absolute',left:9,bottom:3,fontSize:10,color:text.length>1900?'#f5222d':'#aaa',direction:'ltr',pointerEvents:'none'}}>{text.length.toLocaleString('fa-IR')} / ۲۰۰۰</span>
+          </div>
           <Button type="primary" loading={sending} icon={<SendOutlined/>} onClick={send} disabled={recording||(!text.trim()&&!selectedFile)} style={{background:'#8b1a6b'}}>ارسال</Button>
         </div>
       </>}
