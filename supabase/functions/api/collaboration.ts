@@ -23,6 +23,27 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     ]); [attendees, participants, letters, tasks].forEach((x) => check(x.error))
     return { ...(camelize(event) as Obj), persianStartDate:jalaliDateString(event.StartAt), gregorianStartDate:new Date(event.StartAt).toISOString().slice(0,10), attendees: camelize(attendees.data), participants: camelize(participants.data), relatedLetterIds: (letters.data ?? []).map((x) => x.LetterId), relatedTaskIds: (tasks.data ?? []).map((x) => x.TaskId) }
   }
+  const syncRelations = async (eventId: string, input: Obj, notifyNewAttendees = false): Promise<void> => {
+    const participants = Array.isArray(input.participants) ? input.participants : []
+    const relatedLetterIds = Array.isArray(input.relatedLetterIds) ? [...new Set(input.relatedLetterIds.filter(Boolean))] : []
+    const relatedTaskIds = Array.isArray(input.relatedTaskIds) ? [...new Set(input.relatedTaskIds.filter(Boolean))] : []
+    const tables = ['EventAttendees', 'EventParticipants', 'EventLetterLinks', 'EventTaskLinks']
+    for (const table of tables) {
+      const removed = await db.from(table).delete().eq('TenantId', auth.tenantId).eq('EventId', eventId)
+      check(removed.error)
+    }
+    if (participants.length) {
+      const rows = participants.map((p: Obj) => ({ ...base(auth), EventId: eventId, PersonType: p.personType, PersonId: p.personId, DisplayName: p.displayName ?? '', Role: p.role ?? 'attendee', ResponseStatus: 'pending' }))
+      const added = await db.from('EventParticipants').insert(rows); check(added.error)
+      const userRows = participants.filter((p: Obj) => p.personType === 'user').map((p: Obj) => ({ ...base(auth), EventId: eventId, UserId: p.personId, ResponseStatus: 'pending', IsRequired: p.isRequired !== false }))
+      if (userRows.length) {
+        const addedUsers = await db.from('EventAttendees').insert(userRows); check(addedUsers.error)
+        if (notifyNewAttendees) await createNotifications(db,auth,userRows.map((row:Obj)=>row.UserId),{title:'رویداد جدید در تقویم شما',body:String(input.title ?? ''),type:notificationType.calendar,actionUrl:'/calendar',entityId:eventId,entityType:'CalendarEvent'})
+      }
+    }
+    if (relatedLetterIds.length) { const linked = await db.from('EventLetterLinks').insert(relatedLetterIds.map((letterId) => ({ ...base(auth), EventId:eventId, LetterId:letterId }))); check(linked.error) }
+    if (relatedTaskIds.length) { const linked = await db.from('EventTaskLinks').insert(relatedTaskIds.map((taskId) => ({ ...base(auth), EventId:eventId, TaskId:taskId }))); check(linked.error) }
+  }
   if (request.method === 'GET') {
     let query = db.from('CalendarEvents').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     const from = url.searchParams.get('from'); const to = url.searchParams.get('to')
@@ -42,21 +63,17 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     if (!input.title || !input.startAt || !input.endAt || new Date(input.endAt) <= new Date(input.startAt)) throw new HttpError(400, 'عنوان و بازه زمانی معتبر الزامی است')
     const event = { ...base(auth), Title: String(input.title).trim(), Description: input.description ?? null, StartAt: input.startAt, EndAt: input.endAt, IsAllDay: Boolean(input.isAllDay), TimeZone: input.timeZone ?? 'Asia/Tehran', EventType: input.eventType ?? 'meeting', Location: input.location ?? null, OnlineMeetingUrl: input.onlineMeetingUrl ?? null, Status: 'scheduled', OrganizerUserId: auth.userId, OrganizerType: 'user', OrganizerContactId: null, OrganizerDisplayName: input.organizerDisplayName ?? auth.username }
     const created = await db.from('CalendarEvents').insert(event).select().single(); check(created.error)
-    const participants = Array.isArray(input.participants) ? input.participants : []
-    if (participants.length) {
-      const rows = participants.map((p: Obj) => ({ ...base(auth), EventId: event.Id, PersonType: p.personType, PersonId: p.personId, DisplayName: p.displayName ?? '', Role: p.role ?? 'attendee', ResponseStatus: 'pending' }))
-      const added = await db.from('EventParticipants').insert(rows); check(added.error)
-      const userRows = participants.filter((p: Obj) => p.personType === 'user').map((p: Obj) => ({ ...base(auth), EventId: event.Id, UserId: p.personId, ResponseStatus: 'pending', IsRequired: p.isRequired !== false }))
-      if (userRows.length) { const addedUsers = await db.from('EventAttendees').insert(userRows); check(addedUsers.error); await createNotifications(db,auth,userRows.map((row:Obj)=>row.UserId),{title:'رویداد جدید در تقویم شما',body:event.Title,type:notificationType.calendar,actionUrl:'/calendar',entityId:event.Id,entityType:'CalendarEvent'}) }
-    }
+    await syncRelations(event.Id, input, true)
     return json(request, await compose(created.data), 201)
   }
   if (request.method === 'PUT' && match) {
     requirePermission(auth, 'calendar.edit'); const input = await body<Obj>(request)
     const fields: Obj = { UpdatedAt: now() }; const map: Obj = { title: 'Title', description: 'Description', startAt: 'StartAt', endAt: 'EndAt', isAllDay: 'IsAllDay', eventType: 'EventType', location: 'Location', onlineMeetingUrl: 'OnlineMeetingUrl', status: 'Status' }
     for (const [key, column] of Object.entries(map)) if (input[key] !== undefined) fields[column as string] = input[key]
-    const result = await db.from('CalendarEvents').update(fields).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('OrganizerUserId', auth.userId).select().maybeSingle(); check(result.error)
-    if (!result.data) throw new HttpError(404, 'رویداد یافت نشد'); return json(request, await compose(result.data))
+    const result = await db.from('CalendarEvents').update(fields).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).select().maybeSingle(); check(result.error)
+    if (!result.data) throw new HttpError(404, 'رویداد یافت نشد')
+    if (input.participants !== undefined || input.relatedLetterIds !== undefined || input.relatedTaskIds !== undefined) await syncRelations(match[1], input)
+    return json(request, await compose(result.data))
   }
   if (request.method === 'PATCH' && responseMatch) {
     requirePermission(auth, 'calendar.respond'); const input = await body<Obj>(request)
@@ -64,7 +81,8 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     return json(request, { message: 'پاسخ ثبت شد' })
   }
   if (request.method === 'DELETE' && match) {
-    requirePermission(auth, 'calendar.delete'); const result = await db.from('CalendarEvents').update({ IsDeleted: true, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('OrganizerUserId', auth.userId); check(result.error)
+    requirePermission(auth, 'calendar.delete'); const result = await db.from('CalendarEvents').update({ IsDeleted: true, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).select('Id').maybeSingle(); check(result.error)
+    if (!result.data) throw new HttpError(404, 'رویداد یافت نشد')
     return new Response(null, { status: 204, headers: corsHeaders(request) })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')

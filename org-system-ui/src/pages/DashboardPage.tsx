@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Progress, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox } from 'antd'
+import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Progress, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox, Descriptions } from 'antd'
+import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import PersianDatePicker from '../components/PersianDatePicker'
 import { currentJalali, isLeapJalali, jalaliToDate } from '../utils/jalali'
@@ -9,7 +10,7 @@ import { useNotificationStore } from '../store/notificationStore'
 import {
   MailOutlined, CheckSquareOutlined, CustomerServiceOutlined,
   PlusOutlined, BellOutlined, ClockCircleOutlined,
-  CalendarOutlined, RightOutlined, LeftOutlined, UserOutlined, DeleteOutlined, TeamOutlined, FileTextOutlined, MessageOutlined
+  CalendarOutlined, RightOutlined, LeftOutlined, UserOutlined, DeleteOutlined, TeamOutlined, FileTextOutlined, MessageOutlined, EditOutlined, EnvironmentOutlined
 } from '@ant-design/icons'
 
 const PERSIAN_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
@@ -22,6 +23,14 @@ interface CalEvent {
   time?: string
   type: 'meeting' | 'task' | 'reminder'
   color: string
+  startAt: string
+  endAt: string
+  description?: string
+  location?: string
+  organizerDisplayName?: string
+  participants: { personType: 'user' | 'contact'; personId: string; displayName?: string }[]
+  relatedLetterIds: string[]
+  relatedTaskIds: string[]
 }
 
 const EVENT_COLORS = {
@@ -41,15 +50,7 @@ function getFirstDayOfMonth(month: number, year: number): number {
   return (jsWeekday + 1) % 7
 }
 
-const INITIAL_EVENTS: CalEvent[] = [
-  { id: '1', title: 'جلسه هیئت مدیره', date: '1403/4/15', time: '۱۰:۰۰', type: 'meeting', color: '#1677ff' },
-  { id: '2', title: 'مهلت تحویل گزارش', date: '1403/4/18', type: 'task', color: '#52c41a' },
-  { id: '3', title: 'جلسه با مشتریان', date: '1403/4/20', time: '۱۴:۰۰', type: 'meeting', color: '#1677ff' },
-  { id: '4', title: 'بررسی قراردادها', date: '1403/4/22', type: 'reminder', color: '#fa8c16' },
-]
-
 const USERS = ['مدیر سیستم', 'علی محمدی', 'مریم احمدی', 'رضا کریمی']
-const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`)
 const API = 'http://localhost:5043/api/v1'
 const authHeaders = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') || ''}` })
 interface PersonOption { key: string; type: 'user' | 'contact'; id: string; name: string; detail: string }
@@ -58,8 +59,8 @@ interface TaskOption { id: string; title: string }
 function currentPersian() { return currentJalali() }
 
 function EnhancedEventModal(props: any) {
-  const { open,onCancel,onSave,saving,form,error,people,letters,tasks,persianDate,setPersianDate,relatedPeople,setRelatedPeople,relatedLetters,setRelatedLetters,relatedTasks,setRelatedTasks }=props
-  return <Modal title="رویداد جدید" open={open} onCancel={onCancel} onOk={onSave} confirmLoading={saving} okText="ذخیره" cancelText="بازگشت" width={800}>
+  const { open,onCancel,onSave,saving,form,error,people,letters,tasks,persianDate,setPersianDate,relatedPeople,setRelatedPeople,relatedLetters,setRelatedLetters,relatedTasks,setRelatedTasks,editing }=props
+  return <Modal title={editing?'ویرایش رویداد':'رویداد جدید'} open={open} onCancel={onCancel} onOk={onSave} confirmLoading={saving} okText={editing?'ذخیره تغییرات':'ذخیره'} cancelText="بازگشت" width={800}>
     {error&&<Alert type="error" showIcon message={error} style={{marginBottom:12}}/>}
     <Form form={form} layout="vertical" initialValues={{type:'meeting'}}><Tabs items={[
       {key:'details',label:'مشخصات رویداد',children:<Row gutter={16}>
@@ -348,6 +349,8 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState('')
   const [dayEventsModal, setDayEventsModal] = useState(false)
   const [selectedDayEvents, setSelectedDayEvents] = useState<CalEvent[]>([])
+  const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null)
+  const [editingEvent, setEditingEvent] = useState<CalEvent | null>(null)
   const [eventForm] = Form.useForm()
   const [peopleOptions,setPeopleOptions]=useState<PersonOption[]>([]),[letterOptions,setLetterOptions]=useState<LetterOption[]>([]),[taskOptions,setTaskOptions]=useState<TaskOption[]>([])
   const [eventOptionsLoaded,setEventOptionsLoaded]=useState(false)
@@ -359,7 +362,7 @@ export default function DashboardPage() {
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
 
-  const loadCalendar=async()=>{setCalendarError('');try{const response=await fetch(`${API}/calendar`,{headers:authHeaders()});if(!response.ok)throw new Error('تقویم از backend دریافت نشد');const ev=await response.json();setEvents(ev.map((e:any)=>({id:e.id,title:e.title,date:e.persianStartDate.replace(/\/0/g,'/'),time:new Date(e.startAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),type:e.eventType,color:EVENT_COLORS[e.eventType as keyof typeof EVENT_COLORS]||'#1677ff'})))}catch(e){setCalendarError(e instanceof Error?e.message:'خطای اتصال')}}
+  const loadCalendar=async()=>{setCalendarError('');try{const response=await fetch(`${API}/calendar`,{headers:authHeaders()});if(!response.ok)throw new Error('تقویم از backend دریافت نشد');const ev=await response.json();setEvents(ev.map((e:any)=>({id:e.id,title:e.title,date:e.persianStartDate.replace(/\/0/g,'/'),time:new Date(e.startAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),type:e.eventType,color:EVENT_COLORS[e.eventType as keyof typeof EVENT_COLORS]||'#1677ff',startAt:e.startAt,endAt:e.endAt,description:e.description,location:e.location,organizerDisplayName:e.organizerDisplayName,participants:e.participants||[],relatedLetterIds:e.relatedLetterIds||[],relatedTaskIds:e.relatedTaskIds||[]})))}catch(e){setCalendarError(e instanceof Error?e.message:'خطای اتصال')}}
   const loadEventOptions=async()=>{if(eventOptionsLoaded)return;const [dr,lr,tr]=await Promise.all([fetch(`${API}/directory`,{headers:authHeaders()}),fetch(`${API}/letters?scope=mailbox`,{headers:authHeaders()}),fetch(`${API}/tasks`,{headers:authHeaders()})]);const directory=dr.ok?await dr.json():{users:[],contacts:[]};setPeopleOptions([...(directory.users||[]).map((u:any)=>({key:`user:${u.id}`,type:'user',id:u.id,name:u.fullName||u.username,detail:u.department||'کاربر داخلی'})),...(directory.contacts||[]).map((c:any)=>({key:`contact:${c.id}`,type:'contact',id:c.id,name:c.fullName,detail:c.companyName||'مخاطب'}))]);setLetterOptions(lr.ok?await lr.json():[]);setTaskOptions(tr.ok?await tr.json():[]);setEventOptionsLoaded(true)}
   useEffect(()=>{void loadCalendar();fetch(`${API}/dashboard/summary`,{headers:authHeaders()}).then(r=>r.ok?r.json():Promise.reject()).then(setSummary).catch(()=>setCalendarError('آمار داشبورد دریافت نشد'))},[])
 
@@ -372,7 +375,9 @@ export default function DashboardPage() {
   const isToday = (day: number) => day===today.day&&currentMonth===today.month&&currentYear===today.year
   const nextMonth=()=>{if(currentMonth===12){setCurrentMonth(1);setCurrentYear(year=>year+1)}else setCurrentMonth(month=>month+1)}
   const previousMonth=()=>{if(currentMonth===1){setCurrentMonth(12);setCurrentYear(year=>year-1)}else setCurrentMonth(month=>month-1)}
-  const openNewEvent=(date:string)=>{setSelectedDate(date);setPersianEventDate(date);eventForm.resetFields();setEventModal(true);void loadEventOptions()}
+  const openNewEvent=(date:string)=>{setEditingEvent(null);setSelectedDate(date);setPersianEventDate(date);setRelatedPeople([]);setRelatedLetters([]);setRelatedTasks([]);eventForm.resetFields();eventForm.setFieldsValue({type:'meeting'});setEventModal(true);void loadEventOptions()}
+  const openEventDetails=(event:CalEvent)=>{setSelectedEvent(event);setDayEventsModal(false)}
+  const openEditEvent=(event:CalEvent)=>{setSelectedEvent(null);setDayEventsModal(false);setEditingEvent(event);setSelectedDate(event.date);setPersianEventDate(event.date);setRelatedPeople(event.participants.map(person=>`${person.personType}:${person.personId}`));setRelatedLetters(event.relatedLetterIds);setRelatedTasks(event.relatedTaskIds);eventForm.setFieldsValue({title:event.title,type:event.type,startTime:dayjs(event.startAt),endTime:dayjs(event.endAt),location:event.location,description:event.description});setEventModal(true);void loadEventOptions()}
 
   const handleDayClick = (day: number) => {
     const date = `${currentYear}/${currentMonth}/${day}`
@@ -381,7 +386,8 @@ export default function DashboardPage() {
     else if (allowed('calendar.create')) openNewEvent(date)
   }
 
-  const handleAddEvent=async()=>{const v=await eventForm.validateFields() as {title:string;type:string;startTime:Dayjs;endTime:Dayjs;location?:string;organizer?:string;description?:string;sendSms?:boolean};if(!persianEventDate){message.error('تاریخ شمسی را انتخاب کنید');return}const start=jalaliToDate(persianEventDate),end=jalaliToDate(persianEventDate);start.setHours(v.startTime.hour(),v.startTime.minute(),0,0);end.setHours(v.endTime.hour(),v.endTime.minute(),0,0);if(end<=start){message.error('ساعت پایان باید بعد از شروع باشد');return}const person=(k:string,r:string)=>{const p=peopleOptions.find(x=>x.key===k);return p?{personType:p.type,personId:p.id,displayName:p.name,role:r}:null};setSavingEvent(true);try{const res=await fetch(`${API}/calendar`,{method:'POST',headers:authHeaders(),body:JSON.stringify({title:v.title,description:v.description,startAt:start.toISOString(),endAt:end.toISOString(),isAllDay:false,timeZone:'Asia/Tehran',eventType:v.type,location:v.location,onlineMeetingUrl:null,organizer:v.organizer?person(v.organizer,'organizer'):null,participants:relatedPeople.map(k=>person(k,'attendee')).filter(Boolean),relatedLetterIds:relatedLetters,relatedTaskIds:relatedTasks,sendSms:!!v.sendSms})});if(!res.ok)throw new Error((await res.json()).message||'ثبت ناموفق بود');message.success('رویداد ثبت شد');setEventModal(false);setPersianEventDate('');await loadCalendar()}catch(e){message.error(e instanceof Error?e.message:'خطا')}finally{setSavingEvent(false)}}
+  const handleSaveEvent=async()=>{const v=await eventForm.validateFields() as {title:string;type:string;startTime:Dayjs;endTime:Dayjs;location?:string;organizer?:string;description?:string;sendSms?:boolean};if(!persianEventDate){message.error('تاریخ شمسی را انتخاب کنید');return}const start=jalaliToDate(persianEventDate),end=jalaliToDate(persianEventDate);start.setHours(v.startTime.hour(),v.startTime.minute(),0,0);end.setHours(v.endTime.hour(),v.endTime.minute(),0,0);if(end<=start){message.error('ساعت پایان باید بعد از شروع باشد');return}const person=(k:string,r:string)=>{const p=peopleOptions.find(x=>x.key===k);return p?{personType:p.type,personId:p.id,displayName:p.name,role:r}:null};setSavingEvent(true);try{const res=await fetch(`${API}/calendar${editingEvent?`/${editingEvent.id}`:''}`,{method:editingEvent?'PUT':'POST',headers:authHeaders(),body:JSON.stringify({title:v.title,description:v.description,startAt:start.toISOString(),endAt:end.toISOString(),isAllDay:false,timeZone:'Asia/Tehran',eventType:v.type,location:v.location,onlineMeetingUrl:null,organizer:v.organizer?person(v.organizer,'organizer'):null,participants:relatedPeople.map(k=>person(k,'attendee')).filter(Boolean),relatedLetterIds:relatedLetters,relatedTaskIds:relatedTasks,sendSms:!!v.sendSms})});if(!res.ok)throw new Error((await res.json()).message||(editingEvent?'ویرایش ناموفق بود':'ثبت ناموفق بود'));message.success(editingEvent?'رویداد ویرایش شد':'رویداد ثبت شد');setEventModal(false);setEditingEvent(null);setPersianEventDate('');await loadCalendar()}catch(e){message.error(e instanceof Error?e.message:'خطا')}finally{setSavingEvent(false)}}
+  const handleDeleteEvent=(event:CalEvent)=>Modal.confirm({title:'حذف رویداد',content:`رویداد «${event.title}» حذف شود؟`,okText:'حذف',cancelText:'انصراف',okButtonProps:{danger:true},onOk:async()=>{const response=await fetch(`${API}/calendar/${event.id}`,{method:'DELETE',headers:authHeaders()});if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.message||'حذف رویداد انجام نشد')}message.success('رویداد حذف شد');setSelectedEvent(null);setDayEventsModal(false);await loadCalendar()}})
 
   const stats = [
     { label: 'نامه‌های جدید', value: summary.newLetters, icon: <MailOutlined />, color: '#8B1A6B', bg: '#8B1A6B11', change: 'خوانده‌نشده' },
@@ -415,7 +421,7 @@ export default function DashboardPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <EnhancedEventModal open={eventModal} onCancel={()=>setEventModal(false)} onSave={handleAddEvent} saving={savingEvent} form={eventForm} error={calendarError}
+      <EnhancedEventModal open={eventModal} onCancel={()=>{setEventModal(false);setEditingEvent(null)}} onSave={handleSaveEvent} saving={savingEvent} form={eventForm} error={calendarError} editing={editingEvent}
         people={peopleOptions} letters={letterOptions} tasks={taskOptions} persianDate={persianEventDate} setPersianDate={setPersianEventDate} relatedPeople={relatedPeople} setRelatedPeople={setRelatedPeople}
         relatedLetters={relatedLetters} setRelatedLetters={setRelatedLetters} relatedTasks={relatedTasks} setRelatedTasks={setRelatedTasks}/>
 
@@ -484,7 +490,7 @@ export default function DashboardPage() {
                     <div style={{ fontSize: 12, fontWeight: today ? 700 : 400, color: holiday || friday ? '#f5222d' : today ? '#8B1A6B' : '#333', marginBottom: 2 }}>{day}</div>
                     {(holiday || friday) && <div title={getIranHoliday(currentYear, currentMonth, day) || 'جمعه'} style={{ fontSize: 8, color: '#cf1322', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getIranHoliday(currentYear, currentMonth, day) || 'جمعه'}</div>}
                     {dayEvents.slice(0, 2).map(ev => (
-                      <div key={ev.id} style={{ background: ev.color, color: 'white', borderRadius: 3, padding: '1px 4px', fontSize: 9, marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div key={ev.id} title={`${ev.time ? `${ev.time} — ` : ''}${ev.title}`} onClick={event=>{event.stopPropagation();openEventDetails(ev)}} style={{ background: ev.color, color: 'white', borderRadius: 3, padding: '0 3px', height:15, lineHeight:'15px', fontSize: 8, marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth:'100%', cursor:'pointer' }}>
                         {ev.time && `${ev.time} `}{ev.title}
                       </div>
                     ))}
@@ -570,39 +576,6 @@ export default function DashboardPage() {
         </Col>
       </Row>
 
-      {/* Modal ثبت رویداد */}
-      <Modal
-        title={<Space><CalendarOutlined style={{ color: '#8B1A6B' }} /><span>رویداد جدید</span><Tag color="purple">{selectedDate}</Tag></Space>}
-        open={false} onOk={handleAddEvent} onCancel={() => setEventModal(false)}
-        okText="ذخیره" cancelText="بازگشت" width={780}
-        okButtonProps={{ style: { background: '#8B1A6B', borderColor: '#8B1A6B' } }}
-      >
-        <Form form={eventForm} layout="vertical">
-          <Tabs items={[
-            {
-              key: '1', label: 'مشخصات رویداد',
-              children: (
-                <Row gutter={16}>
-                  <Col xs={24} md={12}><Form.Item name="title" label="عنوان رویداد" rules={[{ required: true }]}><Input /></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item name="type" label="نوع رویداد" initialValue="meeting"><Select><Select.Option value="meeting">🔵 جلسه</Select.Option><Select.Option value="task">🟢 وظیفه</Select.Option><Select.Option value="reminder">🟡 یادآوری</Select.Option></Select></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item label="تاریخ"><Input value={selectedDate} readOnly /></Form.Item></Col>
-                  <Col xs={24} md={6}><Form.Item name="startTime" label="ساعت شروع"><Select allowClear>{HOURS.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}</Select></Form.Item></Col>
-                  <Col xs={24} md={6}><Form.Item name="endTime" label="ساعت پایان"><Select allowClear>{HOURS.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}</Select></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item name="location" label="مکان"><Input placeholder="اتاق کنفرانس" /></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item name="organizer" label="برگزارکننده"><Select allowClear>{USERS.map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}</Select></Form.Item></Col>
-                  <Col span={24}><Form.Item name="description" label="توضیحات"><Input.TextArea rows={2} /></Form.Item></Col>
-                </Row>
-              )
-            },
-            { key: '2', label: 'افراد مرتبط', children: <EventPeopleTab /> },
-            { key: '3', label: 'دستور جلسه', children: <EventAgendaTab /> },
-            { key: '4', label: 'صورتجلسه و اقدامات', children: <EventMinutesTab /> },
-            { key: '5', label: 'ارتباط با نامه', children: <EventLettersTab /> },
-            { key: '6', label: 'ارتباط با وظایف', children: <EventTasksTab /> },
-          ]} />
-        </Form>
-      </Modal>
-
       {/* Modal رویدادهای روز */}
       <Modal
         title={<Space><CalendarOutlined style={{ color: '#8B1A6B' }} /><span>رویدادهای {selectedDate}</span></Space>}
@@ -612,10 +585,10 @@ export default function DashboardPage() {
             onClick={() => { setDayEventsModal(false); openNewEvent(selectedDate) }}>رویداد جدید</Button> : null,
           <Button key="close" onClick={() => setDayEventsModal(false)}>بستن</Button>
         ].filter(Boolean)}
-        width={420}
+        width={620}
       >
         <List dataSource={selectedDayEvents} renderItem={ev => (
-          <List.Item>
+          <List.Item onClick={()=>openEventDetails(ev)} style={{cursor:'pointer',padding:'12px 8px'}}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', width: '100%' }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: ev.color, flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
@@ -628,6 +601,33 @@ export default function DashboardPage() {
             </div>
           </List.Item>
         )} />
+      </Modal>
+
+      <Modal
+        title={<Space><CalendarOutlined style={{color:selectedEvent?.color||'#8B1A6B'}}/><span>جزئیات رویداد</span></Space>}
+        open={!!selectedEvent}
+        onCancel={()=>setSelectedEvent(null)}
+        width={720}
+        footer={selectedEvent?[
+          <Button key="close" onClick={()=>setSelectedEvent(null)}>بستن</Button>,
+          allowed('calendar.delete')?<Button key="delete" danger icon={<DeleteOutlined/>} onClick={()=>handleDeleteEvent(selectedEvent)}>حذف</Button>:null,
+          allowed('calendar.edit')?<Button key="edit" type="primary" icon={<EditOutlined/>} onClick={()=>openEditEvent(selectedEvent)} style={{background:'#8B1A6B'}}>ویرایش</Button>:null,
+        ].filter(Boolean):null}
+      >
+        {selectedEvent&&<>
+          <div style={{padding:'14px 16px',borderRadius:12,background:`${selectedEvent.color}12`,borderRight:`4px solid ${selectedEvent.color}`,marginBottom:18}}>
+            <div style={{fontSize:18,fontWeight:700,marginBottom:6}}>{selectedEvent.title}</div>
+            <Tag color={selectedEvent.type==='meeting'?'blue':selectedEvent.type==='task'?'green':'orange'}>{selectedEvent.type==='meeting'?'جلسه':selectedEvent.type==='task'?'وظیفه':'یادآوری'}</Tag>
+          </div>
+          <Descriptions bordered size="small" column={{xs:1,sm:2}}>
+            <Descriptions.Item label="تاریخ">{selectedEvent.date}</Descriptions.Item>
+            <Descriptions.Item label="زمان">{new Date(selectedEvent.startAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})} تا {new Date(selectedEvent.endAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'})}</Descriptions.Item>
+            <Descriptions.Item label="برگزارکننده">{selectedEvent.organizerDisplayName||'—'}</Descriptions.Item>
+            <Descriptions.Item label="مکان"><Space><EnvironmentOutlined/>{selectedEvent.location||'—'}</Space></Descriptions.Item>
+            <Descriptions.Item label="افراد مرتبط" span={2}>{selectedEvent.participants.length?selectedEvent.participants.map(person=><Tag key={`${person.personType}:${person.personId}`}>{person.displayName||'بدون نام'}</Tag>):'—'}</Descriptions.Item>
+            <Descriptions.Item label="توضیحات" span={2}>{selectedEvent.description||'توضیحی ثبت نشده است'}</Descriptions.Item>
+          </Descriptions>
+        </>}
       </Modal>
     </div>
   )
