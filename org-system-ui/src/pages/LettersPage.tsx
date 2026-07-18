@@ -11,6 +11,7 @@ const authHeaders = () => ({ 'Content-Type': 'application/json', 'Authorization'
 
 interface Letter {
   id: string
+  trackingCode: number
   subject: string
   letterNumber: string
   letterDate: string
@@ -216,7 +217,7 @@ function RegistryPage({ letters }: { letters: Letter[] }) {
   const applySearch = (f: SearchFilters) => {
     setFiltered(letters.filter(l => {
       const kw = f.keyword.toLowerCase()
-      if (f.trackingId && !l.id.includes(f.trackingId)) return false
+      if (f.trackingId && !String(l.trackingCode ?? '').includes(f.trackingId.trim())) return false
       if (f.letterNumber && !l.letterNumber?.includes(f.letterNumber)) return false
       if (f.type && l.type !== f.type) return false
       if (f.status && l.status !== f.status) return false
@@ -240,7 +241,7 @@ function RegistryPage({ letters }: { letters: Letter[] }) {
       </div>
 
       <Table size="small" dataSource={filtered} rowKey="id" onRow={record=>({onClick:()=>void openLetter(record),style:{cursor:'pointer'}})} columns={[
-        { title: 'کد رهگیری', dataIndex: 'id', key: 'id', width: 120, render: (id: string) => <Tag style={{ fontFamily: 'monospace', fontSize: 10 }}>{id.substring(0, 8)}...</Tag> },
+        { title: 'کد رهگیری', dataIndex: 'trackingCode', key: 'trackingCode', width: 120, render: (trackingCode: number) => <Tag color="blue" style={{ fontFamily: 'monospace', fontSize: 12 }}>{trackingCode ?? '—'}</Tag> },
         { title: 'شماره', dataIndex: 'letterNumber', key: 'num', width: 130, render: (n: string) => n ? <Tag color="purple" style={{ fontFamily: 'monospace' }}>{n}</Tag> : <Tag color="default">پیش‌نویس</Tag> },
         { title: 'موضوع', dataIndex: 'subject', key: 'subject' },
         { title: 'نوع', dataIndex: 'type', key: 'type', width: 80, render: (t: string) => <Tag color={TYPE_LABELS[t]?.color}>{TYPE_LABELS[t]?.label}</Tag> },
@@ -496,7 +497,7 @@ export default function LettersPage() {
   const applyFilters = (ls: Letter[], f: SearchFilters) => {
     return ls.filter(l => {
       const kw = f.keyword.toLowerCase()
-      if (f.trackingId && !l.id.includes(f.trackingId)) return false
+      if (f.trackingId && !String(l.trackingCode ?? '').includes(f.trackingId.trim())) return false
       if (f.letterNumber && !l.letterNumber?.includes(f.letterNumber)) return false
       if (f.type && l.type !== f.type) return false
       if (f.status && l.status !== f.status) return false
@@ -530,11 +531,11 @@ export default function LettersPage() {
       render: (_: unknown, r: Letter) => !r.isRead && !r.isSender ? <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8B1A6B' }} /> : null
     },
     {
-      title: 'کد رهگیری', dataIndex: 'id', key: 'tracking', width: 100,
-      render: (id: string) => (
-        <Tooltip title={id}>
-          <Tag style={{ fontFamily: 'monospace', fontSize: 10, cursor: 'pointer' }} onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(id) }}>
-            {id.substring(0, 8)}...
+      title: 'کد رهگیری', dataIndex: 'trackingCode', key: 'tracking', width: 100,
+      render: (trackingCode: number) => (
+        <Tooltip title="کلیک برای کپی">
+          <Tag color="blue" style={{ fontFamily: 'monospace', fontSize: 12, cursor: 'pointer', minWidth: 48, textAlign: 'center' }} onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(String(trackingCode)) }}>
+            {trackingCode ?? '—'}
           </Tag>
         </Tooltip>
       )
@@ -670,7 +671,7 @@ export default function LettersPage() {
 
             <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '10px 14px', margin:'16px 0', border: '1px solid #e8e8e8' }}>
               <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}>
-                <span><strong>کد رهگیری:</strong> {letterDetail.id}</span>
+                <span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span>
                 <span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span>
                 <span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>
               </div>
