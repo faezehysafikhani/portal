@@ -55,6 +55,7 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
     const [result,rec]=await Promise.all([query.order('CreatedAt',{ascending:false}).limit(500),db.from('LetterRecipients').select('*').eq('TenantId',auth.tenantId).eq('IsDeleted',false).limit(3000)]);check(result.error);check(rec.error);const output:Obj[]=[]
     const byLetter=new Map<string,Obj[]>();for(const row of rec.data??[]){const rows=byLetter.get(row.LetterId)??[];rows.push(row);byLetter.set(row.LetterId,rows)}
     for(const letter of result.data??[]){
+      if(Number(letter.Status)===0&&letter.FromUserId!==auth.userId)continue
       const rows=byLetter.get(letter.Id)??[]
       const primaryRows=rows.filter(x=>Number(x.RecipientType)!==2)
       const referralRows=rows.filter(x=>Number(x.RecipientType)===2)
@@ -71,6 +72,7 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
   }
   if (request.method === 'GET' && match) {
     if (!canInbox && !canRegistry) throw new HttpError(403, 'دسترسی غیرمجاز'); const result = await db.from('Letters').select('*').eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).maybeSingle(); check(result.error); if (!result.data) throw new HttpError(404, 'نامه یافت نشد')
+    if(Number(result.data.Status)===0&&result.data.FromUserId!==auth.userId)throw new HttpError(403,'پیش‌نویس فقط برای سازنده نامه قابل مشاهده است')
     const recipient = await db.from('LetterRecipients').select('Id').eq('TenantId', auth.tenantId).eq('LetterId', match[1]).eq('UserId', auth.userId).eq('IsDeleted', false); check(recipient.error)
     if (!canRegistry && result.data.FromUserId !== auth.userId && !(recipient.data?.length)) throw new HttpError(403, 'دسترسی غیرمجاز'); if (recipient.data?.length) await Promise.all([db.from('LetterRecipients').update({ IsRead: true, ReadAt: now() }).eq('TenantId',auth.tenantId).eq('LetterId',match[1]).eq('UserId',auth.userId).eq('IsDeleted',false),db.from('Notifications').update({IsRead:true,ReadAt:now()}).eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('Type',0).eq('RelatedEntityId',match[1]).eq('IsRead',false)])
     return json(request, await details(auth, result.data))

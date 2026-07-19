@@ -78,23 +78,26 @@ const sanitizeRichHtml=(html:string)=>{
 }
 
 function SavedLetterPage({detail,compact=false}:{detail:any;compact?:boolean}){
+  const paper=detail.paperSize==='A5'?'A5':'A4'
   const image=detail.template?.imageData
-  const metrics={width:'210mm',height:'297mm',x:'20mm',receiver:image?'52mm':'20mm',meta:image?'52mm':'20mm',subject:image?'64mm':'32mm',content:image?'77mm':'45mm',bottom:'24mm',font:13}
+  const metrics=paper==='A5'
+    ? {width:'148mm',height:'210mm',x:'12mm',receiver:image?'36mm':'16mm',meta:image?'36mm':'16mm',subject:image?'48mm':'28mm',content:image?'59mm':'39mm',bottom:'20mm',font:11,subjectFont:12,signatureWidth:'44mm',signatureImageWidth:80,signatureImageHeight:44}
+    : {width:'210mm',height:'297mm',x:'20mm',receiver:image?'62mm':'22mm',meta:image?'62mm':'22mm',subject:image?'76mm':'36mm',content:image?'89mm':'49mm',bottom:'24mm',font:13,subjectFont:15,signatureWidth:'58mm',signatureImageWidth:110,signatureImageHeight:60}
   const primary=detail.recipients?.find((x:any)=>x.recipientType!=='Referral') || detail.recipients?.[0]
   const receiver=primary?.userName||primary?.externalName||detail.toExternalName||'—'
-  return <div id="saved-letter-print" style={{width:metrics.width,minHeight:metrics.height,position:'relative',boxSizing:'border-box',margin:'0 auto',direction:'rtl',backgroundColor:'#fff',backgroundImage:image?`url(${image})`:undefined,backgroundSize:'210mm 297mm',backgroundRepeat:'repeat-y',padding:`${metrics.content} ${metrics.x} ${metrics.bottom}`,boxShadow:'0 2px 18px #0002',fontFamily:'IRANSans,Tahoma',zoom:compact?.72:1,display:'flex',flexDirection:'column'}}>
-    <div style={{position:'absolute',top:metrics.receiver,right:metrics.x,fontSize:12}}><strong>گیرنده:</strong> {receiver}</div>
-    <div style={{position:'absolute',top:metrics.meta,left:metrics.x,textAlign:'left',fontSize:12}}>
+  return <div id="saved-letter-print" data-paper-size={paper} style={{width:metrics.width,minHeight:metrics.height,position:'relative',boxSizing:'border-box',margin:'0 auto',direction:'rtl',backgroundColor:'#fff',backgroundImage:image?`url(${image})`:undefined,backgroundSize:`${metrics.width} ${metrics.height}`,backgroundRepeat:'repeat-y',padding:`${metrics.content} ${metrics.x} ${metrics.bottom}`,boxShadow:'0 2px 18px #0002',fontFamily:'IRANSans,Tahoma',zoom:compact?(paper==='A5' ? 0.82 : 0.72):1,display:'flex',flexDirection:'column'}}>
+    <div style={{position:'absolute',top:metrics.receiver,right:metrics.x,fontSize:paper==='A5'?10:12}}><strong>گیرنده:</strong> {receiver}</div>
+    <div style={{position:'absolute',top:metrics.meta,left:metrics.x,textAlign:'left',fontSize:paper==='A5'?10:12}}>
       <div><strong>تاریخ:</strong> {detail.letterDate?new Intl.DateTimeFormat('fa-IR-u-nu-latn').format(new Date(detail.letterDate)):'—'}</div>
       <div><strong>شماره:</strong> {detail.letterNumber||'—'}</div>
       <div><strong>پیوست:</strong> {detail.hasAttachment?'دارد':'ندارد'}</div>
     </div>
-    <div style={{position:'absolute',top:metrics.subject,left:metrics.x,width:'112mm',textAlign:'left',fontWeight:700,fontSize:15}}>موضوع: {detail.subject}</div>
+    <div style={{position:'absolute',top:metrics.subject,right:metrics.x,left:metrics.x,textAlign:'right',fontWeight:700,fontSize:metrics.subjectFont}}>موضوع: {detail.subject}</div>
     <div className="saved-letter-body" style={{fontSize:metrics.font,lineHeight:2.15,textAlign:'justify',flex:'1 0 auto'}} dangerouslySetInnerHTML={{__html:sanitizeRichHtml(detail.body||'<p>متن نامه خالی است</p>')}}/>
-    <div className="saved-letter-signature" style={{marginTop:'18mm',marginRight:'auto',width:'58mm',textAlign:'center',fontSize:12,breakInside:'avoid',pageBreakInside:'avoid'}}>
+    <div className="saved-letter-signature" style={{marginTop:paper==='A5'?'12mm':'18mm',marginRight:'auto',width:metrics.signatureWidth,textAlign:'center',fontSize:paper==='A5'?10:12,breakInside:'avoid',pageBreakInside:'avoid'}}>
       <div style={{fontWeight:600}}>{detail.fromUserName}</div>
       {detail.senderPosition&&<div>{detail.senderPosition}</div>}
-      {detail.senderSignatureDataUrl&&<img src={detail.senderSignatureDataUrl} alt="امضا" style={{width:110,height:60,objectFit:'contain'}}/>}
+      {detail.senderSignatureDataUrl&&<img src={detail.senderSignatureDataUrl} alt="امضا" style={{width:metrics.signatureImageWidth,height:metrics.signatureImageHeight,objectFit:'contain'}}/>}
     </div>
   </div>
 }
@@ -285,7 +288,7 @@ export default function LettersPage() {
   const [searchFilters, setSearchFilters] = useState<SearchFilters>(EMPTY_FILTERS)
   const [editingDraft, setEditingDraft] = useState<any>(null)
   const [printSettingsOpen,setPrintSettingsOpen]=useState(false)
-  const [printSettings,setPrintSettings]=useState<{orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{orientation:'portrait',margin:0,includeReferrals:true}}})
+  const [printSettings,setPrintSettings]=useState<{paperSize:'auto'|'A4'|'A5';orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true}}})
   const [computerNameOpen,setComputerNameOpen]=useState(()=>!localStorage.getItem('portal-computer-name'))
   const [computerName,setComputerName]=useState(()=>localStorage.getItem('portal-computer-name')||'')
 
@@ -439,8 +442,10 @@ export default function LettersPage() {
     clone.style.zoom='1'
     const popup=window.open('','_blank')
     if(!popup){notification.error({message:'مرورگر پنجره چاپ را مسدود کرده است'});return}
+    const paper=printSettings.paperSize==='auto'?(letterDetail.paperSize==='A5'?'A5':'A4'):printSettings.paperSize
+    const paperWidth=paper==='A5'?'148mm':'210mm',paperHeight=paper==='A5'?'210mm':'297mm'
     const referrals=printSettings.includeReferrals&&referralElement?`<div class="referrals">${referralElement.outerHTML}</div>`:''
-    popup.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>${letterDetail.letterNumber||'نامه'} - چاپ</title><style>@page{size:A4 ${printSettings.orientation};margin:${printSettings.margin}mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}#saved-letter-print{width:210mm!important;min-height:297mm!important;zoom:1!important}.saved-letter-body p{break-inside:auto}.saved-letter-signature{break-inside:avoid;page-break-inside:avoid}.referrals{page-break-before:always;padding:15mm}.no-print-shadow{box-shadow:none!important}@media print{button{display:none!important}}</style></head><body>${clone.outerHTML}${referrals}</body></html>`)
+    popup.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>${letterDetail.letterNumber||'نامه'} - چاپ</title><style>@page{size:${paper} ${printSettings.orientation};margin:${printSettings.margin}mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}#saved-letter-print{width:${paperWidth}!important;min-height:${paperHeight}!important;zoom:1!important}.saved-letter-body p{break-inside:auto}.saved-letter-signature{break-inside:avoid;page-break-inside:avoid}.referrals{page-break-before:always;padding:15mm}.no-print-shadow{box-shadow:none!important}@media print{button{display:none!important}}</style></head><body>${clone.outerHTML}${referrals}</body></html>`)
     popup.document.close();popup.focus();popup.onafterprint=()=>popup.close()
     setTimeout(()=>popup.print(),800)
   }
@@ -701,7 +706,7 @@ export default function LettersPage() {
 
       <Modal title={<Space><PrinterOutlined/><span>تنظیمات چاپ</span></Space>} open={printSettingsOpen} onCancel={()=>setPrintSettingsOpen(false)} onOk={()=>{localStorage.setItem('letter-print-settings',JSON.stringify(printSettings));setPrintSettingsOpen(false);notification.success({message:'تنظیمات چاپ ذخیره شد'})}} okText="ذخیره تنظیمات" cancelText="انصراف" width={480}>
         <Form layout="vertical">
-          <Form.Item label="اندازه کاغذ"><Input value="A4 (ثابت)" disabled /></Form.Item>
+          <Form.Item label="اندازه کاغذ"><Select value={printSettings.paperSize} onChange={paperSize=>setPrintSettings(current=>({...current,paperSize}))} options={[{value:'auto',label:'مطابق قالب نامه'},{value:'A4',label:'A4'},{value:'A5',label:'A5'}]}/></Form.Item>
           <Form.Item label="جهت چاپ"><Select value={printSettings.orientation} onChange={orientation=>setPrintSettings(current=>({...current,orientation}))} options={[{value:'portrait',label:'عمودی'},{value:'landscape',label:'افقی'}]}/></Form.Item>
           <Form.Item label="حاشیه چاپ"><Select value={printSettings.margin} onChange={margin=>setPrintSettings(current=>({...current,margin}))} options={[{value:0,label:'بدون حاشیه'},{value:5,label:'۵ میلی‌متر'},{value:10,label:'۱۰ میلی‌متر'},{value:15,label:'۱۵ میلی‌متر'}]}/></Form.Item>
           <Checkbox checked={printSettings.includeReferrals} onChange={event=>setPrintSettings(current=>({...current,includeReferrals:event.target.checked}))}>پیام‌های ارجاع نیز چاپ شوند</Checkbox>
