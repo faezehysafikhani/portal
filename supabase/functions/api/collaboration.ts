@@ -170,8 +170,8 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
   if (path === '/forms' && request.method === 'GET') {
     requirePermission(auth, 'forms.view'); let query=db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     const scope=url.searchParams.get('scope')||'sent'
-    if(scope==='approvals')query=query.or(`and(ManagerUserId.eq.${auth.userId},Status.eq.manager_pending),and(HrUserId.eq.${auth.userId},Status.eq.hr_pending)`)
-    else if(scope==='inbox')query=query.eq('SubmitterUserId',auth.userId).in('Status',['approved','rejected','returned'])
+    if(scope==='approvals')query=query.or(`and(ManagerUserId.eq.${auth.userId},Status.eq.manager_pending),and(HrUserId.eq.${auth.userId},Status.eq.hr_pending),and(HrUserId.eq.${auth.userId},FormType.eq.personnel,Status.eq.completed)`)
+    else if(scope==='inbox')query=query.eq('SubmitterUserId',auth.userId).in('Status',['approved','completed','rejected','returned'])
     else query=query.eq('SubmitterUserId',auth.userId)
     const result=await query.order('CreatedAt',{ascending:false});check(result.error)
     const enriched=await Promise.all((result.data??[]).map(async(form:Obj)=>{const history=await db.from('FormWorkflowHistories').select('*').eq('TenantId',auth.tenantId).eq('FormId',form.Id).eq('IsDeleted',false).order('CreatedAt');check(history.error);return{...camelize(form) as Obj,history:camelize(history.data)}}))
@@ -180,26 +180,35 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
   if (path === '/forms' && request.method === 'POST') {
     requirePermission(auth, 'forms.create'); const input = await body<Obj>(request)
     const formType=String(input.formType??'');const assignedTypes=auth.permissions.filter(code=>code.startsWith('forms.type.'));if(!auth.isAdmin&&!auth.permissions.includes('forms.access')&&assignedTypes.length>0&&!assignedTypes.includes(`forms.type.${formType}`))throw new HttpError(403,'دسترسی ثبت این نوع فرم برای شما فعال نشده است')
-    const route=await workflow(auth);if(!route.isConfigured)throw new HttpError(400,route.message)
+    const route=await workflow(auth);const isPersonnel=formType==='personnel',hrManager=route.hrManager
+    if(!hrManager)throw new HttpError(400,'مدیر منابع انسانی در پروفایل شما تنظیم نشده است.')
+    if(!isPersonnel&&!route.isConfigured)throw new HttpError(400,route.message)
     const requestedHours=['leave_daily','leave_hourly'].includes(String(input.formType))?Number(input.amount??0):0
     if(['leave_daily','leave_hourly'].includes(String(input.formType))&&requestedHours<=0)throw new HttpError(400,'مدت مرخصی معتبر نیست.')
     let account:Obj|null=null
     if(requestedHours>0){account=await leaveAccount(auth);if(requestedHours>account.availableHours)throw new HttpError(400,`مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)}
-    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager.id, ManagerName:route.manager.fullName, HrUserId: route.hrManager.id, HrName:route.hrManager.fullName, Status: 'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}) }
+    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager?.id??null, ManagerName:route.manager?.fullName??null, HrUserId: hrManager.id, HrName:hrManager.fullName, Status: isPersonnel?'hr_pending':'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}) }
     const result = await db.from('OrganizationalForms').insert(row).select().single(); check(result.error)
     const history=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:result.data.Id,ActorUserId:auth.userId,ActorName:route.submitter.fullName,Action:'submitted',Note:null});check(history.error)
     if(account&&requestedHours>0){const reserved=await db.from('LeaveAccounts').update({ReservedHours:Number(account.ReservedHours??0)+requestedHours,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(reserved.error)}
-    await createNotification(db,auth,{userId:route.manager.id,title:'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
-    return json(request, {...camelize(result.data) as Obj,message:'فرم ثبت شد و برای مدیر مستقیم شما ارسال گردید.'}, 201)
+    const firstApprover=isPersonnel?hrManager:route.manager
+    if(!firstApprover)throw new HttpError(400,'مدیر مستقیم در پروفایل شما تنظیم نشده است.')
+    await createNotification(db,auth,{userId:firstApprover.id,title:isPersonnel?'فرم مشخصات پرسنلی جدید':'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
+    return json(request, {...camelize(result.data) as Obj,message:isPersonnel?'فرم مستقیماً برای مدیر منابع انسانی ارسال شد.':'فرم ثبت شد و برای مدیر مستقیم شما ارسال گردید.'}, 201)
   }
   const action = path.match(/^\/forms\/([0-9a-f-]+)\/action$/i)
   if (action && request.method === 'POST') {
     requirePermission(auth, 'forms.approve'); const input = await body<Obj>(request)
+    if(input.action==='return'&&!String(input.note??'').trim())throw new HttpError(400,'ثبت دلیل برگشت برای اصلاح الزامی است')
     const current = await db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('Id', action[1]).eq('IsDeleted', false).single(); check(current.error)
     const form = current.data; const isManager = form.ManagerUserId === auth.userId && form.Status === 'manager_pending'; const isHr = form.HrUserId === auth.userId && form.Status === 'hr_pending'
     if (!isManager && !isHr && !auth.isAdmin) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
+    const personnel=form.FormType==='personnel'
     let status = form.Status
-    if (input.action === 'approve') status = isManager ? 'hr_pending' : 'approved'; else if (input.action === 'return') status = 'returned'; else if (input.action === 'reject') status = 'rejected'; else throw new HttpError(400, 'عملیات نامعتبر است')
+    if(personnel&&isHr&&input.action==='complete')status='completed'
+    else if(personnel&&isHr&&input.action==='return')status='returned'
+    else if(personnel)throw new HttpError(400,'برای فرم مشخصات پرسنلی فقط خاتمه یا برگشت برای اصلاح مجاز است')
+    else if (input.action === 'approve') status = isManager ? 'hr_pending' : 'approved'; else if (input.action === 'return') status = 'returned'; else if (input.action === 'reject') status = 'rejected'; else throw new HttpError(400, 'عملیات نامعتبر است')
     const update: Obj = { Status: status, UpdatedAt: now() }
     const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', action[1]).select().single(); check(result.error)
     const actor=await db.from('Users').select('Username,FirstName,LastName').eq('TenantId',auth.tenantId).eq('Id',auth.userId).single();check(actor.error)
@@ -211,7 +220,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
       const saved=await db.from('LeaveAccounts').update(accountUpdate).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(saved.error)
     }
     const nextUser=status==='hr_pending'?form.HrUserId:form.SubmitterUserId
-    const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
+    const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='completed'?'فرم مشخصات پرسنلی شما خاتمه یافت':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
     await createNotification(db,auth,{userId:nextUser,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:status==='hr_pending'?'/forms/approvals':'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'})
     return json(request, { status: result.data.Status })
   }

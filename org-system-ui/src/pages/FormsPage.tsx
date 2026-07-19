@@ -16,7 +16,7 @@ interface InternalUser { id:string; fullName:string; position?:string; departmen
 interface LeaveBalance { availableHours:number; days:number; monthlyAccrualHours:number; reservedHours:number }
 interface WorkflowConfig { submitter?:InternalUser; manager?:InternalUser; hrManager?:InternalUser; isConfigured:boolean; message?:string; users:InternalUser[] }
 
-type FormStatus = 'پیش‌نویس' | 'ارسال شده' | 'در بررسی مدیر' | 'برگشت برای اصلاح' | 'تأیید مدیر' | 'در بررسی منابع انسانی' | 'تأیید نهایی' | 'رد شده'
+type FormStatus = 'پیش‌نویس' | 'ارسال شده' | 'در بررسی مدیر' | 'برگشت برای اصلاح' | 'تأیید مدیر' | 'در بررسی منابع انسانی' | 'تأیید نهایی' | 'خاتمه یافته' | 'رد شده'
 
 interface FormSubmission {
   id: string
@@ -40,6 +40,7 @@ const STATUS_CONFIG: Record<FormStatus, { color: string; step: number }> = {
   'در بررسی منابع انسانی': { color: 'purple', step: 2 },
   'رد شده': { color: 'red', step: 3 },
   'تأیید نهایی': { color: 'green', step: 3 },
+  'خاتمه یافته': { color: 'green', step: 2 },
 }
 
 export const FORM_TYPES: Record<string, { label: string; icon: string; color: string }> = {
@@ -93,11 +94,11 @@ export default function FormsPage() {
   const [newFormType, setNewFormType] = useState<string>('leave_daily')
   const [viewModal, setViewModal] = useState(false)
   const [selectedForm, setSelectedForm] = useState<FormSubmission | null>(null)
-  const [actionModal, setActionModal] = useState<'approve' | 'reject' | 'return' | null>(null)
+  const [actionModal, setActionModal] = useState<'approve' | 'complete' | 'reject' | 'return' | null>(null)
   const [actionNote, setActionNote] = useState('')
   const [form] = Form.useForm()
 
-  const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:formatJalaliDate(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName,hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),history:(x.history||[]).map((h:any)=>({date:formatJalaliDate(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
+  const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:formatJalaliDate(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',completed:'خاتمه یافته',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName||'—',hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),history:(x.history||[]).map((h:any)=>({date:formatJalaliDate(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',complete:'خاتمه فرم',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
   const load=async()=>{const [s,i,a,u,b]=await Promise.all([apiFetch(`${API}/forms?scope=sent`),apiFetch(`${API}/forms?scope=inbox`),apiFetch(`${API}/forms?scope=approvals`),apiFetch(`${API}/forms/approvers`),apiFetch(`${API}/forms/balance`)]);if(s.ok)setForms((await s.json()).map(mapApiForm));if(i.ok)setInboxForms((await i.json()).map(mapApiForm));if(a.ok)setApprovalForms((await a.json()).map(mapApiForm));if(u.ok){const w=await u.json();setWorkflow(w);setUsers(w.users||[])}if(b.ok)setLeaveBalance(await b.json())}
   useEffect(()=>{load()},[])
   const managerOptions=workflow.manager?[{value:workflow.manager.id,label:`${workflow.manager.fullName}${workflow.manager.position?' — '+workflow.manager.position:''}`}]:[]
@@ -155,6 +156,7 @@ export default function FormsPage() {
 
   const handleAction = async () => {
     if (!selectedForm || !actionModal) return
+    if(actionModal==='return'&&!actionNote.trim()){notification.warning({message:'دلیل برگشت برای اصلاح را بنویسید'});return}
     const res=await apiFetch(`${API}/forms/${selectedForm.id}/action`,{method:'POST',headers:headers(),body:JSON.stringify({action:actionModal,note:actionNote})});const result=await res.json().catch(()=>({}));if(!res.ok){notification.error({message:result.message||'خطا در ثبت گردش کار'});return}
     setActionModal(null)
     setActionNote('')
@@ -294,7 +296,7 @@ export default function FormsPage() {
             <Col span={12}><Form.Item name="position" label="سمت" rules={[nameRule]}><Input maxLength={100} /></Form.Item></Col>
             <Col span={12}><Form.Item name="startDate" label="تاریخ شروع"><PersianDatePicker /></Form.Item></Col>
             <Col span={12}><Form.Item name="contractType" label="نوع قرارداد"><Select>{['دائمی','موقت','پیمانی','پاره‌وقت'].map(c => <Select.Option key={c} value={c}>{c}</Select.Option>)}</Select></Form.Item></Col>
-            <Col span={12}><Form.Item name="manager" label="مدیر مستقیم" rules={[{ required: true }]}><Select disabled options={managerOptions}/></Form.Item></Col>
+            <Col span={12}><Form.Item name="manager" label="مدیر مستقیم (اطلاعات پرسنلی)"><Select disabled options={managerOptions}/></Form.Item></Col>
           </Row>
         )
       },
@@ -356,7 +358,7 @@ export default function FormsPage() {
   const isApprovals=location.pathname.endsWith('/approvals')
   const isInbox=location.pathname.endsWith('/inbox')
   const pageTitle=isApprovals?'تأییدات من':isInbox?'کارتابل فرم':'فرم‌های ارسالی من'
-  const pageDescription=isApprovals?'فرم‌هایی که اکنون نیازمند تصمیم شما هستند':isInbox?'نتیجه فرم‌های تأییدشده، ردشده یا برگشتی شما':'تمام فرم‌هایی که برای مدیر یا منابع انسانی ارسال کرده‌اید'
+  const pageDescription=isApprovals?'فرم‌های در انتظار تصمیم و پرونده‌های خاتمه‌یافته منابع انسانی':isInbox?'نتیجه فرم‌های تأییدشده، خاتمه‌یافته، ردشده یا برگشتی شما':'تمام فرم‌هایی که برای مدیر یا منابع انسانی ارسال کرده‌اید'
   const pageForms=isApprovals?approvalForms:isInbox?inboxForms:forms
   const tableColumns=isApprovals?[
     ...columns.slice(0,4),
@@ -364,16 +366,18 @@ export default function FormsPage() {
       title:'عملیات',key:'actions',width:250,
       render:(_:unknown,r:FormSubmission)=><Space>
         <Button size="small" icon={<EyeOutlined/>} onClick={()=>{setSelectedForm(r);setViewModal(true)}}>مشاهده</Button>
-        <Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>تأیید</Button>
-        <Button size="small" icon={<RollbackOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('return')}}>اصلاح</Button>
-        <Button size="small" danger icon={<CloseOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('reject')}}>رد</Button>
+        {r.formType==='personnel'&&r.status==='در بررسی منابع انسانی'&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('complete')}}>خاتمه</Button>}
+        {r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>تأیید</Button>}
+        {['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<RollbackOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('return')}}>اصلاح</Button>}
+        {r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" danger icon={<CloseOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('reject')}}>رد</Button>}
+        {r.status==='خاتمه یافته'&&<Tag color="green">در کارتابل منابع انسانی</Tag>}
       </Space>
     }
   ]:columns
 
   return (
     <div>
-      <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
+      <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
         <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
         {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {leaveBalance.days} روز کامل</Tag><Tag color="cyan">مانده کل: {leaveBalance.availableHours} ساعت</Tag><Tag color="blue">افزایش ماهانه: {leaveBalance.monthlyAccrualHours} ساعت</Tag></Space>}
         <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
@@ -389,7 +393,14 @@ export default function FormsPage() {
       >
         <Card bordered={false} style={{background:`linear-gradient(145deg,#fff,${FORM_TYPES[newFormType]?.color}0d)`,borderRadius:16,borderTop:`4px solid ${FORM_TYPES[newFormType]?.color}`}}>
         <Form form={form} layout="vertical" requiredMark="optional">
-          <Alert type={workflow.isConfigured?'success':'warning'} showIcon style={{marginBottom:16}} message={workflow.isConfigured?`ثبت‌کننده: ${workflow.submitter?.fullName} | مدیر مستقیم: ${workflow.manager?.fullName} | منابع انسانی: ${workflow.hrManager?.fullName}`:workflow.message||'گردش کار این کاربر کامل تنظیم نشده است'} />
+          <Alert
+            type={(newFormType==='personnel'?!!workflow.hrManager:workflow.isConfigured)?'success':'warning'}
+            showIcon
+            style={{marginBottom:16}}
+            message={newFormType==='personnel'
+              ? workflow.hrManager?`این فرم مستقیماً برای مدیر منابع انسانی (${workflow.hrManager.fullName}) ارسال می‌شود.`:'مدیر منابع انسانی در پروفایل شما تنظیم نشده است.'
+              : workflow.isConfigured?`ثبت‌کننده: ${workflow.submitter?.fullName} | مدیر مستقیم: ${workflow.manager?.fullName} | منابع انسانی: ${workflow.hrManager?.fullName}`:workflow.message||'گردش کار این کاربر کامل تنظیم نشده است'}
+          />
           {renderForm()}
             <Form.Item name="hrManager" label="مسئول منابع انسانی" rules={[{required:true,message:'مسئول منابع انسانی را انتخاب کنید'}]} style={{ marginTop: 8 }}>
               <Select disabled options={hrOptions}/>
@@ -409,7 +420,7 @@ export default function FormsPage() {
               current={STATUS_CONFIG[selectedForm.status]?.step}
               style={{ marginBottom: 20 }}
               size="small"
-              items={[
+              items={selectedForm.formType==='personnel'?[{title:'ارسال',description:selectedForm.submitter},{title:'منابع انسانی',description:selectedForm.hrManager},{title:selectedForm.status==='برگشت برای اصلاح'?'↩️ اصلاح':'✅ خاتمه'}]:[
                 { title: 'ارسال', description: selectedForm.submitter },
                 { title: 'مدیر', description: selectedForm.manager },
                 { title: 'منابع انسانی', description: selectedForm.hrManager },
@@ -423,11 +434,11 @@ export default function FormsPage() {
                 style={{ marginBottom: 16 }} />
             )}
 
-            {approvalForms.some(x=>x.id===selectedForm.id) && (
+            {approvalForms.some(x=>x.id===selectedForm.id)&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(selectedForm.status) && (
               <Space style={{ marginBottom: 16 }}>
-                <Button icon={<CheckOutlined />} style={{ color: '#52c41a', borderColor: '#52c41a' }} onClick={() => setActionModal('approve')}>تأیید</Button>
+                <Button icon={<CheckOutlined />} style={{ color:'#52c41a',borderColor:'#52c41a' }} onClick={() => setActionModal(selectedForm.formType==='personnel'?'complete':'approve')}>{selectedForm.formType==='personnel'?'خاتمه':'تأیید'}</Button>
                 <Button icon={<RollbackOutlined />} onClick={() => setActionModal('return')}>برگشت برای اصلاح</Button>
-                <Button danger icon={<CloseOutlined />} onClick={() => setActionModal('reject')}>رد فرم</Button>
+                {selectedForm.formType!=='personnel'&&<Button danger icon={<CloseOutlined />} onClick={() => setActionModal('reject')}>رد فرم</Button>}
               </Space>
             )}
 
@@ -448,13 +459,13 @@ export default function FormsPage() {
 
       {/* Modal اقدام */}
       <Modal
-        title={actionModal === 'approve' ? '✅ تأیید فرم' : actionModal === 'return' ? '↩️ برگشت برای اصلاح' : '❌ رد فرم'}
+        title={actionModal === 'complete'?'✅ خاتمه فرم مشخصات پرسنلی':actionModal === 'approve' ? '✅ تأیید فرم' : actionModal === 'return' ? '↩️ برگشت برای اصلاح' : '❌ رد فرم'}
         open={!!actionModal} onOk={handleAction} onCancel={() => { setActionModal(null); setActionNote('') }}
         okText="ثبت" cancelText="انصراف"
-        okButtonProps={{ style: { background: actionModal === 'approve' ? '#52c41a' : actionModal === 'return' ? '#fa8c16' : '#f5222d', borderColor: 'transparent' } }}
+        okButtonProps={{ style: { background: ['approve','complete'].includes(actionModal||'') ? '#52c41a' : actionModal === 'return' ? '#fa8c16' : '#f5222d', borderColor: 'transparent' } }}
       >
         <div style={{ marginBottom: 8, fontSize: 13, color: '#555' }}>
-          {actionModal === 'approve' ? 'در صورت نیاز یادداشت تأیید بنویسید:' : actionModal === 'return' ? 'دلیل برگشت را برای کارمند بنویسید:' : 'دلیل رد فرم را بنویسید:'}
+          {actionModal === 'complete'?'در صورت نیاز یادداشت خاتمه پرونده را بنویسید:':actionModal === 'approve' ? 'در صورت نیاز یادداشت تأیید بنویسید:' : actionModal === 'return' ? 'دلیل برگشت را برای کارمند بنویسید:' : 'دلیل رد فرم را بنویسید:'}
         </div>
         <Input.TextArea
           rows={4}

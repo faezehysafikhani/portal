@@ -8,7 +8,7 @@ const API='http://localhost:5043/api/v1'
 const COLORS=['#8b1a6b','#1677ff','#52c41a','#fa8c16','#f5222d','#722ed1']
 const faDate=(v?:string)=>v?new Date(v).toLocaleDateString('fa-IR'):'—'
 const typeLabel:Record<string,string>={Internal:'داخلی',Incoming:'وارده',Outgoing:'صادره'}
-const statusLabel:Record<string,string>={Draft:'پیش‌نویس',Sent:'ارسال شده',Received:'دریافت شده',InReview:'در بررسی',Signed:'امضا شده',Referred:'ارجاع شده',Archived:'بایگانی',Cancelled:'لغو شده',Todo:'جدید',InProgress:'در حال انجام',InReviewTask:'بازبینی',Done:'تکمیل شده',CancelledTask:'لغو شده',open:'باز',inprogress:'در حال بررسی',waiting:'در انتظار',resolved:'حل شده',closed:'بسته',manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',rejected:'رد شده',returned:'برگشت برای اصلاح'}
+const statusLabel:Record<string,string>={Draft:'پیش‌نویس',Sent:'ارسال شده',Received:'دریافت شده',InReview:'در بررسی',Signed:'امضا شده',Referred:'ارجاع شده',Archived:'بایگانی',Cancelled:'لغو شده',Todo:'جدید',InProgress:'در حال انجام',InReviewTask:'بازبینی',Done:'تکمیل شده',CancelledTask:'لغو شده',open:'باز',inprogress:'در حال بررسی',waiting:'در انتظار',resolved:'حل شده',closed:'بسته',manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',completed:'خاتمه یافته',rejected:'رد شده',returned:'برگشت برای اصلاح'}
 const labelStatus=(value:string)=>statusLabel[value]||value
 let reportsCache:{data:any;at:number}|undefined
 
