@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker } from 'antd'
+import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker, Descriptions } from 'antd'
 import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
 import { useLocation } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
@@ -52,6 +52,36 @@ export const FORM_TYPES: Record<string, { label: string; icon: string; color: st
   resignation: { label: 'استعفا', icon: '📝', color: '#f5222d' },
   equipment: { label: 'تحویل تجهیزات', icon: '🖥️', color: '#8B1A6B' },
   personnel: { label: 'مشخصات پرسنلی', icon: '👤', color: '#8B1A6B' },
+}
+
+const FORM_FIELD_LABELS:Record<string,string>={
+  firstName:'نام',lastName:'نام خانوادگی',nationalCode:'کد ملی',birthDate:'تاریخ تولد',gender:'جنسیت',maritalStatus:'وضعیت تأهل',mobile:'شماره موبایل',email:'ایمیل',address:'نشانی',
+  department:'واحد سازمانی',position:'سمت',startDate:'تاریخ شروع همکاری',contractType:'نوع قرارداد',education:'مدرک تحصیلی',fieldOfStudy:'رشته تحصیلی',insuranceCode:'شماره بیمه',accountNumber:'شماره حساب',
+  fromDate:'از تاریخ',toDate:'تا تاریخ',date:'تاریخ',fromTime:'از ساعت',toTime:'تا ساعت',leaveType:'نوع مرخصی',replacement:'جانشین',reason:'علت/دلیل',reasonDetail:'شرح دلیل',destination:'مقصد',days:'تعداد روز',amount:'مبلغ',installments:'تعداد اقساط',month:'ماه',year:'سال',employeeName:'نام کارمند',deliveryDate:'تاریخ تحویل',equipmentList:'فهرست تجهیزات',notes:'توضیحات'
+}
+const PERSONNEL_GROUPS=[
+  {title:'اطلاعات شخصی',keys:['firstName','lastName','nationalCode','birthDate','gender','maritalStatus','mobile','email','address']},
+  {title:'اطلاعات شغلی',keys:['department','position','startDate','contractType']},
+  {title:'تحصیلات، بیمه و حساب',keys:['education','fieldOfStudy','insuranceCode','accountNumber']},
+]
+const visibleFormValue=(value:unknown)=>{
+  if(value===null||value===undefined||value==='')return '—'
+  if(typeof value==='boolean')return value?'بله':'خیر'
+  if(Array.isArray(value))return value.join('، ')
+  if(typeof value==='object')return JSON.stringify(value)
+  return String(value)
+}
+
+function FormDataDetails({submission}:{submission:FormSubmission}){
+  const hidden=new Set(['manager','hrManager'])
+  const groups=submission.formType==='personnel'?PERSONNEL_GROUPS:[{title:'اطلاعات ثبت‌شده',keys:Object.keys(submission.data).filter(key=>!hidden.has(key))}]
+  return <div>{groups.map(group=>{
+    const keys=group.keys.filter(key=>!hidden.has(key)&&Object.prototype.hasOwnProperty.call(submission.data,key))
+    if(!keys.length)return null
+    return <Card key={group.title} size="small" title={group.title} style={{marginBottom:12,background:'#fcfcfc'}}>
+      <Descriptions bordered size="small" column={{xs:1,sm:1,md:2}} items={keys.map(key=>({key,label:FORM_FIELD_LABELS[key]||key,children:<span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{visibleFormValue(submission.data[key])}</span>}))}/>
+    </Card>
+  })}</div>
 }
 
 const INITIAL_FORMS: FormSubmission[] = [
@@ -350,7 +380,7 @@ export default function FormsPage() {
     {
       title: 'عملیات', key: 'actions', width: 100,
       render: (_: unknown, r: FormSubmission) => (
-        <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedForm(r); setViewModal(true) }}>مشاهده</Button>
+        <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedForm(r); setViewModal(true) }}>مشاهده کامل</Button>
       )
     },
   ]
@@ -365,7 +395,7 @@ export default function FormsPage() {
     {
       title:'عملیات',key:'actions',width:250,
       render:(_:unknown,r:FormSubmission)=><Space>
-        <Button size="small" icon={<EyeOutlined/>} onClick={()=>{setSelectedForm(r);setViewModal(true)}}>مشاهده</Button>
+        <Button size="small" icon={<EyeOutlined/>} onClick={()=>{setSelectedForm(r);setViewModal(true)}}>مشاهده کامل</Button>
         {r.formType==='personnel'&&r.status==='در بررسی منابع انسانی'&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('complete')}}>خاتمه</Button>}
         {r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>تأیید</Button>}
         {['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<RollbackOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('return')}}>اصلاح</Button>}
@@ -412,7 +442,7 @@ export default function FormsPage() {
       {/* Modal مشاهده فرم */}
       <Modal
         title={selectedForm && <Space><span style={{ fontSize: 20 }}>{FORM_TYPES[selectedForm.formType]?.icon}</span><span>{FORM_TYPES[selectedForm.formType]?.label}</span><Tag color={STATUS_CONFIG[selectedForm.status]?.color}>{selectedForm.status}</Tag></Space>}
-        open={viewModal} onCancel={() => setViewModal(false)} footer={null} width={700}
+        open={viewModal} onCancel={() => setViewModal(false)} footer={null} width={920} styles={{body:{maxHeight:'78vh',overflowY:'auto'}}}
       >
         {selectedForm && (
           <div>
@@ -427,6 +457,9 @@ export default function FormsPage() {
                 { title: selectedForm.status === 'رد شده' ? '❌ رد' : '✅ نهایی' },
               ]}
             />
+
+            <Divider>مشخصات ثبت‌شده در فرم</Divider>
+            <FormDataDetails submission={selectedForm}/>
 
             {selectedForm.status === 'برگشت برای اصلاح' && (
               <Alert message="این فرم برای اصلاح برگشت داده شده است." type="warning" showIcon
