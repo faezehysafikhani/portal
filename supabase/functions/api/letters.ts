@@ -40,7 +40,8 @@ async function details(auth: AuthContext, letter: Obj): Promise<Obj> {
 
 async function addWorkflow(request:Request, auth: AuthContext, letterId: string, action: number, comment: string): Promise<void> {
   const count = await db.from('LetterWorkflowSteps').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('LetterId', letterId); check(count.error)
-  const result = await db.from('LetterWorkflowSteps').insert({ ...base(auth), LetterId: letterId, UserId: auth.userId, UserName: await fullName(auth), Action: action, Comment: comment, IpAddress:clientIp(request), DeviceId:request.headers.get('x-device-id')?.slice(0,100)||'unknown', StepOrder: (count.count ?? 0) + 1 }); check(result.error)
+  const computerName=request.headers.get('x-computer-name')?.trim().slice(0,100)||'ثبت نشده'
+  const result = await db.from('LetterWorkflowSteps').insert({ ...base(auth), LetterId: letterId, UserId: auth.userId, UserName: await fullName(auth), Action: action, Comment: comment, IpAddress:clientIp(request), DeviceId:computerName, StepOrder: (count.count ?? 0) + 1 }); check(result.error)
 }
 
 export async function handleLetters(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {

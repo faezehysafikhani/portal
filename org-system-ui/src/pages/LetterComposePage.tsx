@@ -180,7 +180,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       const initialKey=initialData?.templateKey || initialData?.template?.templateKey || 'official-a4'
       const chosen=merged.find((x:any)=>x.id===initialKey) || merged[0]
       setSelectedTemplate(chosen)
-      if(chosen){setPaperSize(chosen.size);setHasHeader(chosen.hasHeader);setHasFooter(chosen.hasFooter)}
+      if(chosen){setPaperSize('A4');setHasHeader(chosen.hasHeader);setHasFooter(chosen.hasFooter)}
     }).catch(()=>{})
     if (!initialData) {
       const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', { year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date())
@@ -290,7 +290,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     const subjectTop=showTemplate?pageMetrics.subjectTopWithTemplate:pageMetrics.subjectTopPlain
     const contentTop=showTemplate?pageMetrics.contentTopWithTemplate:pageMetrics.contentTopPlain
     return (
-      <div id="letter-print" style={{ width:pageMetrics.width, minHeight:pageMetrics.height, margin:'0 auto', backgroundColor:'white', backgroundImage:showTemplate?`url(${selectedTemplate.imageData})`:undefined, backgroundSize:'100% 100%', backgroundRepeat:'no-repeat', padding:`${contentTop} ${pageMetrics.x} ${pageMetrics.bottom}`, fontFamily:'Vazirmatn, Tahoma', direction:'rtl', boxSizing:'border-box', position:'relative' }}>
+      <div id="letter-print" style={{ width:pageMetrics.width, minHeight:pageMetrics.height, margin:'0 auto', backgroundColor:'white', backgroundImage:showTemplate?`url(${selectedTemplate.imageData})`:undefined, backgroundSize:'210mm 297mm', backgroundRepeat:'repeat-y', padding:`${contentTop} ${pageMetrics.x} ${pageMetrics.bottom}`, fontFamily:'IRANSans, Tahoma', direction:'rtl', boxSizing:'border-box', position:'relative', display:'flex', flexDirection:'column' }}>
         {classification !== 'normal' && <div style={{ position: 'absolute', top: 8, left: 0, right: 0, textAlign: 'center', color: cls.color, fontWeight: 700, fontSize: 13 }}>{cls.label}</div>}
         <div style={{ fontSize:paperSize==='A5'?10:12, position:'absolute', top:metaTop, left:pageMetrics.x, textAlign:'left' }}>
           <div><strong>تاریخ:</strong> {form.getFieldValue('letterDate') || '—'}</div>
@@ -298,10 +298,10 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
           <div><strong>پیوست:</strong> {attachments.length ? 'دارد' : 'ندارد'}</div>
         </div>
         <div style={{fontSize:paperSize==='A5'?10:12,position:'absolute',top:receiverTop,right:pageMetrics.x}}><strong>گیرنده:</strong> {receiverText || '—'}</div>
-        <div style={{position:'absolute',top:subjectTop,left:pageMetrics.x,right:pageMetrics.x,fontWeight:700,textAlign:'center',fontSize:paperSize==='A5'?12:15}}>{v.subject && <>موضوع: {v.subject}</>}</div>
-        <div style={{ minHeight:paperSize==='A5'?120:200, fontSize:paperSize==='A5'?11:13, lineHeight:2.1 }} dangerouslySetInnerHTML={{ __html: bodyHtml || 'متن نامه...' }} />
+        <div style={{position:'absolute',top:subjectTop,left:pageMetrics.x,width:'112mm',fontWeight:700,textAlign:'left',fontSize:15}}>{v.subject && <>موضوع: {v.subject}</>}</div>
+        <div style={{ minHeight:200, fontSize:13, lineHeight:2.1, flex:'1 0 auto' }} dangerouslySetInnerHTML={{ __html: bodyHtml || 'متن نامه...' }} />
         {attachments.length > 0 && <div style={{ marginTop: 12, fontSize: 12 }}><strong>پیوست:</strong><ul style={{ paddingRight: 16 }}>{attachments.map((f, i) => <li key={i}>{getFileIcon(f.name)} {f.name}</li>)}</ul></div>}
-        {hasSignature && <div style={{ position:'absolute', bottom:pageMetrics.signatureBottom, left:pageMetrics.x, textAlign:'center',fontSize:paperSize==='A5'?10:12 }}><p style={{ fontWeight:600, marginBottom:4 }}>{signerName}</p>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
+        {hasSignature && <div style={{ marginTop:'18mm', marginRight:'auto', width:'58mm', textAlign:'center',fontSize:12,breakInside:'avoid',pageBreakInside:'avoid' }}><p style={{ fontWeight:600, marginBottom:4 }}>{signerName}</p>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:110,height:60,objectFit:'contain'}}/>}</div>}
         {!showTemplate && hasFooter && <div style={{position:'absolute',bottom:'8mm',left:pageMetrics.x,right:pageMetrics.x,borderTop:'1px solid #eee',paddingTop:8,textAlign:'center',fontSize:9,color:'#999'}}>این نامه با سیستم مدیریت اسناد سازمانی صادر شده است</div>}
       </div>
     )
@@ -312,7 +312,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     if (!el) return
     const w = window.open('', '_blank')
     if (!w) return
-    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>چاپ نامه</title><style>*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}@page{size:${paperSize} portrait;margin:0}</style></head><body>${el.outerHTML}</body></html>`)
+    w.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>چاپ نامه</title><style>*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}@page{size:A4 portrait;margin:0}#letter-print{width:210mm!important;min-height:297mm!important}.saved-letter-signature{break-inside:avoid;page-break-inside:avoid}</style></head><body>${el.outerHTML}</body></html>`)
     w.document.close()
     w.focus();w.onafterprint=()=>w.close();setTimeout(() => w.print(), 800)
   }
@@ -405,8 +405,8 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>قالب</div>
               <Select disabled={structuralFieldsLocked} size="small" style={{ width: 180 }} placeholder="انتخاب قالب آپلودشده" allowClear
-                onChange={id => { const t = availableTemplates.find((x:any) => x.id === id); setSelectedTemplate(t); if (t) { setPaperSize(t.size); setHasHeader(t.hasHeader); setHasFooter(t.hasFooter) } }}>
-                {availableTemplates.map((t:any) => <Select.Option key={t.id} value={t.id}>{t.name}{t.imageData?' ✓':''}</Select.Option>)}
+                onChange={id => { const t = availableTemplates.find((x:any) => x.id === id); setSelectedTemplate(t); if (t) { setPaperSize('A4'); setHasHeader(t.hasHeader); setHasFooter(t.hasFooter) } }}>
+                {availableTemplates.filter((t:any)=>t.size==='A4').map((t:any) => <Select.Option key={t.id} value={t.id}>{t.name}{t.imageData?' ✓':''}</Select.Option>)}
               </Select>
             </Col>
             <Col style={{ marginRight: 'auto' }}>
@@ -513,7 +513,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
                 <div style={{ width:pageMetrics.width, minHeight:pageMetrics.height, margin:'0 auto', padding:`${selectedTemplate?.imageData?pageMetrics.contentTopWithTemplate:pageMetrics.contentTopPlain} ${pageMetrics.x} ${pageMetrics.bottom}`, boxSizing:'border-box', position:'relative', backgroundColor:'#fff', backgroundImage:selectedTemplate?.imageData?`url(${selectedTemplate.imageData})`:undefined, backgroundSize:'100% 100%', backgroundPosition:'top center', backgroundRepeat:'no-repeat', boxShadow:'0 2px 18px #0002' }}>
                   <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.receiverTopWithTemplate:pageMetrics.receiverTopPlain,right:pageMetrics.x,fontSize:paperSize==='A5'?10:12,textAlign:'right'}}><strong>گیرنده:</strong> {letterType==='internal' ? users.find(x=>x.id===watchedToUser)?.fullName || '—' : contacts.find(x=>x.id===watchedToExternal)?.fullName || '—'}</div>
                   <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.metaTopWithTemplate:pageMetrics.metaTopPlain,left:pageMetrics.x,fontSize:paperSize==='A5'?10:12,textAlign:'left'}}><div><strong>تاریخ:</strong> {watchedDate || '—'}</div><div><strong>شماره:</strong> {letterNumber}</div><div><strong>پیوست:</strong> {attachments.length?'دارد':'ندارد'}</div></div>
-                  <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.subjectTopWithTemplate:pageMetrics.subjectTopPlain,left:pageMetrics.x,right:pageMetrics.x,fontWeight:700,textAlign:'center',fontSize:paperSize==='A5'?12:15}}>{watchedSubject && <>موضوع: {watchedSubject}</>}</div>
+                  <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.subjectTopWithTemplate:pageMetrics.subjectTopPlain,left:pageMetrics.x,width:'112mm',fontWeight:700,textAlign:'left',fontSize:15}}>{watchedSubject && <>موضوع: {watchedSubject}</>}</div>
                   <RichEditor onChange={setBodyHtml} initialHtml={bodyHtml} />
                   {hasSignature && <div style={{textAlign:'center',position:'absolute',left:pageMetrics.x,bottom:pageMetrics.signatureBottom,fontSize:paperSize==='A5'?10:13}}><strong>{signerName}</strong><br/>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
                 </div>

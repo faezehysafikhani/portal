@@ -78,26 +78,23 @@ const sanitizeRichHtml=(html:string)=>{
 }
 
 function SavedLetterPage({detail,compact=false}:{detail:any;compact?:boolean}){
-  const paper=detail.paperSize==='A5'?'A5':'A4'
   const image=detail.template?.imageData
-  const metrics=paper==='A5'
-    ? {width:'148mm',height:'210mm',x:'12mm',receiver:image?'30mm':'14mm',meta:image?'36mm':'18mm',subject:image?'49mm':'29mm',content:image?'57mm':'36mm',bottom:'24mm',signature:'22mm',font:11}
-    : {width:'210mm',height:'297mm',x:'20mm',receiver:image?'52mm':'20mm',meta:image?'66mm':'27mm',subject:image?'78mm':'38mm',content:image?'85mm':'45mm',bottom:'35mm',signature:'38mm',font:13}
+  const metrics={width:'210mm',height:'297mm',x:'20mm',receiver:image?'52mm':'20mm',meta:image?'52mm':'20mm',subject:image?'64mm':'32mm',content:image?'77mm':'45mm',bottom:'24mm',font:13}
   const primary=detail.recipients?.find((x:any)=>x.recipientType!=='Referral') || detail.recipients?.[0]
   const receiver=primary?.userName||primary?.externalName||detail.toExternalName||'—'
-  return <div id="saved-letter-print" style={{width:metrics.width,minHeight:metrics.height,position:'relative',boxSizing:'border-box',margin:'0 auto',direction:'rtl',backgroundColor:'#fff',backgroundImage:image?`url(${image})`:undefined,backgroundSize:'100% 100%',backgroundRepeat:'no-repeat',padding:`${metrics.content} ${metrics.x} ${metrics.bottom}`,boxShadow:'0 2px 18px #0002',fontFamily:'Vazirmatn,Tahoma',zoom:compact?.72:1}}>
-    <div style={{position:'absolute',top:metrics.receiver,right:metrics.x,fontSize:paper==='A5'?10:12}}><strong>گیرنده:</strong> {receiver}</div>
-    <div style={{position:'absolute',top:metrics.meta,left:metrics.x,textAlign:'left',fontSize:paper==='A5'?10:12}}>
+  return <div id="saved-letter-print" style={{width:metrics.width,minHeight:metrics.height,position:'relative',boxSizing:'border-box',margin:'0 auto',direction:'rtl',backgroundColor:'#fff',backgroundImage:image?`url(${image})`:undefined,backgroundSize:'210mm 297mm',backgroundRepeat:'repeat-y',padding:`${metrics.content} ${metrics.x} ${metrics.bottom}`,boxShadow:'0 2px 18px #0002',fontFamily:'IRANSans,Tahoma',zoom:compact?.72:1,display:'flex',flexDirection:'column'}}>
+    <div style={{position:'absolute',top:metrics.receiver,right:metrics.x,fontSize:12}}><strong>گیرنده:</strong> {receiver}</div>
+    <div style={{position:'absolute',top:metrics.meta,left:metrics.x,textAlign:'left',fontSize:12}}>
       <div><strong>تاریخ:</strong> {detail.letterDate?new Intl.DateTimeFormat('fa-IR-u-nu-latn').format(new Date(detail.letterDate)):'—'}</div>
       <div><strong>شماره:</strong> {detail.letterNumber||'—'}</div>
       <div><strong>پیوست:</strong> {detail.hasAttachment?'دارد':'ندارد'}</div>
     </div>
-    <div style={{position:'absolute',top:metrics.subject,left:metrics.x,right:metrics.x,textAlign:'center',fontWeight:700,fontSize:paper==='A5'?12:15}}>موضوع: {detail.subject}</div>
-    <div style={{fontSize:metrics.font,lineHeight:2.15,textAlign:'justify'}} dangerouslySetInnerHTML={{__html:sanitizeRichHtml(detail.body||'<p>متن نامه خالی است</p>')}}/>
-    <div style={{position:'absolute',left:metrics.x,bottom:metrics.signature,textAlign:'center',fontSize:paper==='A5'?10:12}}>
+    <div style={{position:'absolute',top:metrics.subject,left:metrics.x,width:'112mm',textAlign:'left',fontWeight:700,fontSize:15}}>موضوع: {detail.subject}</div>
+    <div className="saved-letter-body" style={{fontSize:metrics.font,lineHeight:2.15,textAlign:'justify',flex:'1 0 auto'}} dangerouslySetInnerHTML={{__html:sanitizeRichHtml(detail.body||'<p>متن نامه خالی است</p>')}}/>
+    <div className="saved-letter-signature" style={{marginTop:'18mm',marginRight:'auto',width:'58mm',textAlign:'center',fontSize:12,breakInside:'avoid',pageBreakInside:'avoid'}}>
       <div style={{fontWeight:600}}>{detail.fromUserName}</div>
       {detail.senderPosition&&<div>{detail.senderPosition}</div>}
-      {detail.senderSignatureDataUrl&&<img src={detail.senderSignatureDataUrl} alt="امضا" style={{width:paper==='A5'?80:110,height:paper==='A5'?44:60,objectFit:'contain'}}/>}
+      {detail.senderSignatureDataUrl&&<img src={detail.senderSignatureDataUrl} alt="امضا" style={{width:110,height:60,objectFit:'contain'}}/>}
     </div>
   </div>
 }
@@ -288,7 +285,9 @@ export default function LettersPage() {
   const [searchFilters, setSearchFilters] = useState<SearchFilters>(EMPTY_FILTERS)
   const [editingDraft, setEditingDraft] = useState<any>(null)
   const [printSettingsOpen,setPrintSettingsOpen]=useState(false)
-  const [printSettings,setPrintSettings]=useState<{paperSize:'auto'|'A4'|'A5';orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true}}})
+  const [printSettings,setPrintSettings]=useState<{orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{orientation:'portrait',margin:0,includeReferrals:true}}})
+  const [computerNameOpen,setComputerNameOpen]=useState(()=>!localStorage.getItem('portal-computer-name'))
+  const [computerName,setComputerName]=useState(()=>localStorage.getItem('portal-computer-name')||'')
 
   const isRegistry = location.pathname === '/letters/registry'
   const isReferrals=location.pathname==='/letters/referrals'
@@ -440,9 +439,8 @@ export default function LettersPage() {
     clone.style.zoom='1'
     const popup=window.open('','_blank')
     if(!popup){notification.error({message:'مرورگر پنجره چاپ را مسدود کرده است'});return}
-    const paper=printSettings.paperSize==='auto'?(letterDetail.paperSize==='A5'?'A5':'A4'):printSettings.paperSize
     const referrals=printSettings.includeReferrals&&referralElement?`<div class="referrals">${referralElement.outerHTML}</div>`:''
-    popup.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>${letterDetail.letterNumber||'نامه'} - چاپ</title><style>@page{size:${paper} ${printSettings.orientation};margin:${printSettings.margin}mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}.referrals{page-break-before:always;padding:15mm}.no-print-shadow{box-shadow:none!important}@media print{button{display:none!important}}</style></head><body>${clone.outerHTML}${referrals}</body></html>`)
+    popup.document.write(`<html dir="rtl"><head><meta charset="utf-8"><title>${letterDetail.letterNumber||'نامه'} - چاپ</title><style>@page{size:A4 ${printSettings.orientation};margin:${printSettings.margin}mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff}body{font-family:IRANSans,Tahoma,sans-serif}#saved-letter-print{width:210mm!important;min-height:297mm!important;zoom:1!important}.saved-letter-body p{break-inside:auto}.saved-letter-signature{break-inside:avoid;page-break-inside:avoid}.referrals{page-break-before:always;padding:15mm}.no-print-shadow{box-shadow:none!important}@media print{button{display:none!important}}</style></head><body>${clone.outerHTML}${referrals}</body></html>`)
     popup.document.close();popup.focus();popup.onafterprint=()=>popup.close()
     setTimeout(()=>popup.print(),800)
   }
@@ -667,23 +665,43 @@ export default function LettersPage() {
             <Button onClick={() => setViewModal(false)}>بستن</Button>
           </Space>
         ) : null}
-        width={980}
+        width={1280}
         styles={{body:{maxHeight:'76vh',overflowY:'auto'}}}
       >
         {detailLoading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#8c8c8c' }}>در حال بارگذاری...</div>
         ) : letterDetail && (
           <Tabs items={[
-            allowed('letters.content.view')&&{key:'letter',label:<span><FileTextOutlined/> نامه و ارجاعات</span>,children:<div><div style={{display:'grid',gridTemplateColumns:'230px minmax(0,1fr)',gap:12,alignItems:'start',direction:'ltr'}}><aside style={{direction:'rtl',maxHeight:'68vh',overflowY:'auto',padding:12,background:'#fafafa',border:'1px solid #eee',borderRadius:10}}><ReferralMessages detail={letterDetail}/></aside><main style={{direction:'rtl',overflowX:'auto',padding:6,background:'#f5f5f5',borderRadius:10}}><SavedLetterPage detail={letterDetail} compact/></main></div><div style={{background:'#f8f9fa',borderRadius:8,padding:'10px 14px',marginTop:12,border:'1px solid #e8e8e8',display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}><span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span><span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span><span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>{letterDetail.signedByName&&<span><strong>امضاکننده:</strong> {letterDetail.signedByName}</span>}</div></div>},
+            allowed('letters.content.view')&&{key:'letter',label:<span><FileTextOutlined/> نامه و ارجاعات</span>,children:<div><div style={{display:'grid',gridTemplateColumns:'360px minmax(0,1fr)',gap:16,alignItems:'start',direction:'ltr'}}><aside style={{direction:'rtl',padding:14,background:'#fafafa',border:'1px solid #eee',borderRadius:10,minWidth:0}}><ReferralMessages detail={letterDetail}/></aside><main style={{direction:'rtl',overflowX:'auto',padding:8,background:'#f5f5f5',borderRadius:10}}><SavedLetterPage detail={letterDetail} compact/></main></div><div style={{background:'#f8f9fa',borderRadius:8,padding:'10px 14px',marginTop:12,border:'1px solid #e8e8e8',display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}><span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span><span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span><span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>{letterDetail.signedByName&&<span><strong>امضاکننده:</strong> {letterDetail.signedByName}</span>}</div></div>},
             allowed('letters.attachments.view')&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>},
-            allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه</span>,children:<div>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} wrap style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><span dir="ltr">IP: {w.ipAddress||'ثبت نشده'}</span><span dir="ltr">شناسه سیستم: {w.deviceId||'ثبت نشده'}</span></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</div>}
+            allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه</span>,children:<div><div style={{display:'flex',justifyContent:'flex-end'}}><Button type="link" size="small" onClick={()=>setComputerNameOpen(true)}>تغییر نام کامپیوتر</Button></div>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} wrap style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><span dir="ltr">IP: {w.ipAddress||'ثبت نشده'}</span><span dir="ltr">COMPUTER NAME: {w.deviceId||'ثبت نشده'}</span></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</div>}
           ].filter(Boolean) as any}/>
         )}
       </Modal>
 
+      <Modal
+        title="نام کامپیوتر این سیستم"
+        open={computerNameOpen}
+        closable={false}
+        maskClosable={false}
+        cancelButtonProps={{style:{display:'none'}}}
+        okText="ذخیره نام کامپیوتر"
+        onOk={()=>{
+          const value=computerName.trim()
+          if(!value){notification.warning({message:'نام کامپیوتر را وارد کنید'});return}
+          localStorage.setItem('portal-computer-name',value.slice(0,100))
+          setComputerName(value.slice(0,100))
+          setComputerNameOpen(false)
+          notification.success({message:'نام کامپیوتر روی این مرورگر ذخیره شد'})
+        }}
+      >
+        <p style={{color:'#666',lineHeight:1.9}}>به‌دلیل محدودیت امنیتی مرورگر، نام ویندوز قابل خواندن خودکار نیست. نام نمایش‌داده‌شده در Windows را یک‌بار وارد کنید؛ از این پس همین مقدار ثابت در گردش نامه ثبت می‌شود.</p>
+        <Input value={computerName} onChange={event=>setComputerName(event.target.value)} maxLength={100} placeholder="مثلاً: ACCOUNTING-PC-01" dir="ltr" autoFocus />
+      </Modal>
+
       <Modal title={<Space><PrinterOutlined/><span>تنظیمات چاپ</span></Space>} open={printSettingsOpen} onCancel={()=>setPrintSettingsOpen(false)} onOk={()=>{localStorage.setItem('letter-print-settings',JSON.stringify(printSettings));setPrintSettingsOpen(false);notification.success({message:'تنظیمات چاپ ذخیره شد'})}} okText="ذخیره تنظیمات" cancelText="انصراف" width={480}>
         <Form layout="vertical">
-          <Form.Item label="اندازه کاغذ"><Select value={printSettings.paperSize} onChange={paperSize=>setPrintSettings(current=>({...current,paperSize}))} options={[{value:'auto',label:'مطابق قالب نامه'},{value:'A4',label:'A4'},{value:'A5',label:'A5'}]}/></Form.Item>
+          <Form.Item label="اندازه کاغذ"><Input value="A4 (ثابت)" disabled /></Form.Item>
           <Form.Item label="جهت چاپ"><Select value={printSettings.orientation} onChange={orientation=>setPrintSettings(current=>({...current,orientation}))} options={[{value:'portrait',label:'عمودی'},{value:'landscape',label:'افقی'}]}/></Form.Item>
           <Form.Item label="حاشیه چاپ"><Select value={printSettings.margin} onChange={margin=>setPrintSettings(current=>({...current,margin}))} options={[{value:0,label:'بدون حاشیه'},{value:5,label:'۵ میلی‌متر'},{value:10,label:'۱۰ میلی‌متر'},{value:15,label:'۱۵ میلی‌متر'}]}/></Form.Item>
           <Checkbox checked={printSettings.includeReferrals} onChange={event=>setPrintSettings(current=>({...current,includeReferrals:event.target.checked}))}>پیام‌های ارجاع نیز چاپ شوند</Checkbox>
@@ -699,7 +717,7 @@ export default function LettersPage() {
         onOk={() => referForm.validateFields().then(handleRefer)}
         okText="ارجاع دهید" cancelText="انصراف"
         okButtonProps={{ loading:referLoading, style: { background: '#fa8c16', borderColor: '#fa8c16' } }}
-        width={500}
+        width={760}
       >
         <Form form={referForm} layout="vertical">
           <Form.Item name="toPerson" label="ارجاع به" rules={[{ required: true, message: 'انتخاب گیرنده الزامی است' }]}>
