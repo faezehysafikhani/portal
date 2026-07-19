@@ -75,7 +75,7 @@ function App() {
           <Route path="/letters/referrals" element={<LettersPage />} />
           <Route path="/letters/drafts" element={<LettersPage />} />
           <Route path="/tickets" element={<TicketsPage />} />
-          <Route path="/users" element={<UsersPage />} />
+          <Route path="/users" element={<Navigate to="/settings/users" replace />} />
           <Route path="/sms" element={<SmsPage />} />
           <Route path="/forms" element={<Navigate to="/forms/sent" replace />} />
           <Route path="/forms/inbox" element={<FormsPage />} />
@@ -83,7 +83,9 @@ function App() {
           <Route path="/forms/approvals" element={<FormsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/company" element={<CompanyPage />} />
+          <Route path="/settings/company" element={<SettingsPage />} />
+          <Route path="/settings/users" element={<SettingsPage />} />
+          <Route path="/company" element={<Navigate to="/settings/company" replace />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/ai" element={<AiPage />} />
           <Route path="/profile" element={<ProfilePage />} />

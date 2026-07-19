@@ -5,7 +5,7 @@ import {
   DashboardOutlined, MailOutlined, TeamOutlined, CheckSquareOutlined,
   CustomerServiceOutlined, FormOutlined, BarChartOutlined, MessageOutlined,
   UserOutlined, LogoutOutlined, BellOutlined, RobotOutlined, SettingOutlined,
-  BankOutlined, ContactsOutlined, ProjectOutlined, UnorderedListOutlined,
+  ContactsOutlined, ProjectOutlined, UnorderedListOutlined,
   FolderOutlined, InboxOutlined, EditOutlined, BookOutlined,
   DollarOutlined, WarningOutlined, BugOutlined, SwapOutlined, 
   FileTextOutlined, SendOutlined
@@ -28,6 +28,10 @@ export default function MainLayout() {
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
   const allowed = (code: string) => isAdmin || serverPermissions.includes(code)
+  const routeMenuGroup=()=>location.pathname.startsWith('/ptms')?'tasks-group':location.pathname.startsWith('/letters')?'letters-group':location.pathname.startsWith('/forms')?'forms-group':null
+  const [openMenuKeys,setOpenMenuKeys]=useState<string[]>(()=>{const group=routeMenuGroup();return group?[group]:[]})
+  useEffect(()=>{const group=routeMenuGroup();setOpenMenuKeys(group?[group]:[])},[location.pathname])
+  const settingsLanding=allowed('company.view')?'/settings/company':allowed('users.view')?'/settings/users':'/settings'
 
   const menuItems = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'داشبورد' },
@@ -74,10 +78,8 @@ export default function MainLayout() {
     ...(allowed('reports.view') ? [{ key: '/reports', icon: <BarChartOutlined />, label: 'گزارشات' }] : []),
     ...(allowed('ai.view') ? [{ key: '/ai', icon: <RobotOutlined />, label: 'دستیار هوشمند' }] : []),
     ...(allowed('chat.view') ? [{ key: '/chat', icon: <MessageOutlined />, label: 'چت داخلی' }] : []),
-    ...(allowed('company.view') ? [{ key: '/company', icon: <BankOutlined />, label: 'اطلاعات شرکت' }] : []),
-    ...(allowed('users.view') ? [{ key: '/users', icon: <TeamOutlined />, label: 'مدیریت کاربران' }] : []),
    // { key: '/org-chart', icon: <ApartmentOutlined />, label: 'چارت سازمانی' },
-    ...(allowed('settings.view') ? [{ key: '/settings', icon: <SettingOutlined />, label: 'تنظیمات' }] : []),
+    ...((allowed('settings.view')||allowed('company.view')||allowed('users.view')) ? [{ key: settingsLanding, icon: <SettingOutlined />, label: 'تنظیمات' }] : []),
   ]
 
   const getPageTitle = () => {
@@ -101,6 +103,8 @@ export default function MainLayout() {
       '/chat': 'چت داخلی',
       '/users': 'مدیریت کاربران',
       '/settings': 'تنظیمات',
+      '/settings/company': 'تنظیمات — اطلاعات شرکت',
+      '/settings/users': 'تنظیمات — مدیریت کاربران',
       '/profile': 'پروفایل کاربری',
       '/ptms/dashboard': 'داشبورد پروژه‌ها',
       '/ptms/portfolio': 'سبد پروژه‌ها',
@@ -121,15 +125,6 @@ export default function MainLayout() {
     localStorage.clear()
     navigate('/login')
   }
-
-  const defaultOpenKeys =
-    location.pathname.startsWith('/ptms')
-      ? ['tasks-group']
-      : location.pathname.startsWith('/letters')
-      ? ['letters-group']
-      : location.pathname.startsWith('/forms')
-      ? ['forms-group']
-      : []
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -158,8 +153,9 @@ export default function MainLayout() {
         </div>
         <Menu
           theme="dark"
-          selectedKeys={[location.pathname]}
-          defaultOpenKeys={defaultOpenKeys}
+          selectedKeys={[location.pathname.startsWith('/settings')?settingsLanding:location.pathname]}
+          openKeys={openMenuKeys}
+          onOpenChange={keys=>setOpenMenuKeys(keys.length?[String(keys[keys.length-1])]:[])}
           mode="inline"
           items={menuItems}
           onClick={({ key }) => {

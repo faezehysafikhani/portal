@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Alert, Card, Tabs, Form, Select, Switch, Tag, Space, Row, Col, Divider, Upload, Button, Modal, Input, InputNumber, Table, Checkbox, message } from 'antd'
-import { PlusOutlined, EditOutlined, SettingOutlined, BankOutlined, UploadOutlined, DeleteOutlined, CalendarOutlined, RobotOutlined, ApiOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, SettingOutlined, BankOutlined, TeamOutlined, UploadOutlined, DeleteOutlined, CalendarOutlined, RobotOutlined, ApiOutlined } from '@ant-design/icons'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { usePermissionStore } from '../store/permissionStore'
 import { useSettingsStore } from '../store/settingsStore'
 import RegistrySettingsPage from './RegistrySettingsPage'
 import OrgChartPage from './OrgChartPage'
+import CompanyPage from './CompanyPage'
+import UsersPage from './UsersPage'
 
 interface CalendarItem {
   id: string
@@ -33,11 +36,20 @@ const PERMISSION_LABELS: Record<string, string> = {
 }
 
 export default function SettingsPage() {
+  const location=useLocation()
+  const navigate=useNavigate()
   const { companyMode, setCompanyMode } = usePermissionStore()
   const { departments, addDepartment, removeDepartment } = useSettingsStore()
   const signedInUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
-  const canManageAi=(Array.isArray(signedInUser.roles)&&signedInUser.roles.includes('Admin'))||grantedPermissions.includes('ai.settings')
+  const isAdmin=Array.isArray(signedInUser.roles)&&signedInUser.roles.includes('Admin')
+  const allowed=(code:string)=>isAdmin||grantedPermissions.includes(code)
+  const canManageAi=isAdmin||grantedPermissions.includes('ai.settings')
+  const canViewSettings=allowed('settings.view')
+  const resolveActiveTab=()=>location.pathname.endsWith('/company')?'company':location.pathname.endsWith('/users')?'users':new URLSearchParams(location.search).get('tab')||(canViewSettings?'1':allowed('company.view')?'company':'users')
+  const initialTab=resolveActiveTab()
+  const [activeTab,setActiveTab]=useState(initialTab)
+  useEffect(()=>{setActiveTab(resolveActiveTab())},[location.pathname,location.search])
   const [positions,setPositions]=useState<{id:string;title:string;isSystem:boolean}[]>([])
   const [calendars, setCalendars] = useState<CalendarItem[]>(INITIAL_CALENDARS)
   const [calendarModal, setCalendarModal] = useState(false)
@@ -95,7 +107,7 @@ export default function SettingsPage() {
     setLetterTemplates(data)
   }
   const loadPositions=async()=>{const r=await fetch(`${api}/positions`,{headers:headers()});if(r.ok)setPositions(await r.json());else message.error(`سمت‌ها دریافت نشدند — خطای ${r.status}`)}
-  useEffect(()=>{fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x)smsForm.setFieldsValue(x)}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[])
+  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x)smsForm.setFieldsValue(x)}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[canViewSettings])
   const createPosition=async()=>{const title=newPos.trim();if(!title)return;const r=await fetch(`${api}/positions`,{method:'POST',headers:headers(),body:JSON.stringify({title,parentId:null,color:'#1677ff'})});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'ثبت سمت ناموفق بود');return}setNewPos('');message.success('سمت در دیتابیس ذخیره شد');await loadPositions()}
   const deletePosition=async(id:string)=>{const r=await fetch(`${api}/positions/${id}`,{method:'DELETE',headers:headers()});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'حذف سمت ناموفق بود');return}await loadPositions()}
   const saveSms=async()=>{const v=await smsForm.validateFields();const r=await fetch(`${api}/sms-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(v)});r.ok?message.success('تنظیمات پیامک ذخیره شد'):message.error((await r.json()).message||'خطا')}
@@ -433,9 +445,22 @@ export default function SettingsPage() {
     }] : []),
   ]
 
+  const visibleTabItems = [
+    ...(allowed('company.view')?[{key:'company',label:<span><BankOutlined/> اطلاعات شرکت</span>,children:<CompanyPage/>}]:[]),
+    ...(allowed('users.view')?[{key:'users',label:<span><TeamOutlined/> مدیریت کاربران</span>,children:<UsersPage/>}]:[]),
+    ...(canViewSettings?tabItems:[]),
+  ]
+
+  const changeTab=(key:string)=>{
+    setActiveTab(key)
+    if(key==='company')navigate('/settings/company')
+    else if(key==='users')navigate('/settings/users')
+    else navigate(`/settings?tab=${key}`)
+  }
+
   return (
     <div>
-      <Tabs items={tabItems} />
+      <Tabs activeKey={activeTab} onChange={changeTab} items={visibleTabItems} />
 
       {/* Modal تقویم */}
       <Modal
