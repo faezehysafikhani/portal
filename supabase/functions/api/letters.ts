@@ -33,14 +33,14 @@ async function details(auth: AuthContext, letter: Obj): Promise<Obj> {
     trackingCode: letter.LetterCounter,
     senderPosition: sender.data?.Position, senderSignatureDataUrl: content?signer.data?.SignatureDataUrl:null,
     canEdit:auth.isAdmin||auth.permissions.includes('letters.edit'),canRevokeSignature:(auth.isAdmin||auth.permissions.includes('letters.sign.revoke'))&&letter.SignedByUserId===auth.userId,canCancel:auth.isAdmin||auth.permissions.includes('letters.cancel'),
-    recipients: rs, referrals: history?rs.filter((r) => r.recipientType === 'Referral'):[], template:content?camelize(template.data):null,
+    recipients: rs, referrals: content?rs.filter((r) => r.recipientType === 'Referral'):[], template:content?camelize(template.data):null,
     attachments: files?camelize(attachments.data):[], workflowSteps: history?(workflow.data ?? []).map((w) => ({ ...(camelize(w) as Obj), action: enumOut(w.Action, actions) })):[],
   }
 }
 
 async function addWorkflow(request:Request, auth: AuthContext, letterId: string, action: number, comment: string): Promise<void> {
   const count = await db.from('LetterWorkflowSteps').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('LetterId', letterId); check(count.error)
-  const result = await db.from('LetterWorkflowSteps').insert({ ...base(auth), LetterId: letterId, UserId: auth.userId, UserName: await fullName(auth), Action: action, Comment: comment, IpAddress:clientIp(request), StepOrder: (count.count ?? 0) + 1 }); check(result.error)
+  const result = await db.from('LetterWorkflowSteps').insert({ ...base(auth), LetterId: letterId, UserId: auth.userId, UserName: await fullName(auth), Action: action, Comment: comment, IpAddress:clientIp(request), DeviceId:request.headers.get('x-device-id')?.slice(0,100)||'unknown', StepOrder: (count.count ?? 0) + 1 }); check(result.error)
 }
 
 export async function handleLetters(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {

@@ -1,7 +1,12 @@
 export async function apiFetch(input: string, init: RequestInit = {}) {
+  let deviceId = localStorage.getItem('portal-device-id')
+  if (!deviceId) {
+    deviceId = crypto.randomUUID()
+    localStorage.setItem('portal-device-id', deviceId)
+  }
   const response = await fetch(input, {
     ...init,
-    headers: { ...(init.headers || {}), Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
+    headers: { ...(init.headers || {}), 'X-Device-Id': deviceId, Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
   })
   if (response.status === 401 && !input.includes('/auth/')) {
     localStorage.removeItem('token'); localStorage.removeItem('user'); localStorage.removeItem('permissions')
