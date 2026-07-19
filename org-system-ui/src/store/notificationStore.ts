@@ -11,6 +11,9 @@ export interface Notification {
   time: string
   isRead: boolean
   link?: string
+  actorUserId?: string
+  actorName?: string
+  entityType?: string
 }
 
 interface NotificationStore {

@@ -22,6 +22,7 @@ interface NotificationInput {
   actionUrl?: string | null
   entityId?: string | null
   entityType?: string | null
+  actorName?: string | null
 }
 
 export async function createNotification(db: SupabaseClient, auth: AuthContext, input: NotificationInput): Promise<void> {
@@ -33,6 +34,7 @@ export async function createNotification(db: SupabaseClient, auth: AuthContext, 
     UserId: input.userId, Title: input.title, Body: input.body ?? '', Type: input.type,
     IsRead: false, ReadAt: null, ActionUrl: input.actionUrl ?? null,
     RelatedEntityId: input.entityId ?? null, RelatedEntityType: input.entityType ?? null,
+    ActorUserId: auth.userId, ActorName: input.actorName ?? auth.username,
   })
   if (result.error) {
     console.error(result.error.message)

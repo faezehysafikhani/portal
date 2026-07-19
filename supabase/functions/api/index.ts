@@ -679,7 +679,7 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
     count('Users', (q) => q.eq('IsActive', true)), count('Contacts'),
     count('CalendarEvents',(q)=>q.gte('StartAt',tehranStart.toISOString()).lt('StartAt',tehranEnd.toISOString())),
     db.from('Letters').select('Id,Subject,FromUserName,Status,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(5),
-    db.from('Notifications').select('Id,Title,Body,Type,ActionUrl,CreatedAt,IsRead').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(5),
+    db.from('Notifications').select('Id,Title,Body,Type,ActionUrl,CreatedAt,IsRead,ActorUserId,ActorName,RelatedEntityType').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(20),
   ])
   failOnDb(recentLettersResult.error);failOnDb(recentNotifications.error)
   const recentTasksResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
@@ -688,7 +688,7 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
   return json(request, {
     unreadLetters,newLetters:unreadLetters,totalLetters,activeTasks,openTickets,todayEvents,
     users: usersCount, contacts: contactsCount, recentLetters:(recentLettersResult.data??[]).map(item=>({id:item.Id,subject:item.Subject,fromUserName:item.FromUserName,status:typeof item.Status==='number'?['Draft','Sent','Received','InReview','Signed','Referred','Archived','Cancelled'][item.Status]:item.Status,createdAt:item.CreatedAt})),
-    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead})),
+    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead,actorUserId:item.ActorUserId,actorName:item.ActorName,relatedEntityType:item.RelatedEntityType})),
     recentTasks: (recentTasksResult.data ?? []).map(taskDto),
   })
 }

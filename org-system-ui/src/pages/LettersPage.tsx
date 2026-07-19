@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox, Popconfirm } from 'antd'
-import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined, DeleteOutlined, SyncOutlined } from '@ant-design/icons'
+import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox, Popconfirm, List, Empty } from 'antd'
+import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined, DeleteOutlined, SyncOutlined, StopOutlined, PaperClipOutlined, HistoryOutlined } from '@ant-design/icons'
 import LetterComposePage from './LetterComposePage'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
@@ -412,6 +412,18 @@ export default function LettersPage() {
     }
   }
 
+  const refreshLetterDetail=async(id:string)=>{const response=await apiFetch(`${API}/letters/${id}`,{headers:authHeaders()});if(response.ok)setLetterDetail(await response.json());await fetchLetters(true)}
+  const handleRevokeSignature=async(id:string)=>{
+    const response=await apiFetch(`${API}/letters/${id}/revoke-signature`,{method:'PATCH',headers:authHeaders()});const data=await response.json().catch(()=>({}))
+    if(!response.ok){notification.error({message:data.message||'پس گرفتن امضا انجام نشد'});return}
+    notification.success({message:'امضای شما پس گرفته شد'});await refreshLetterDetail(id)
+  }
+  const handleCancelLetter=async(id:string)=>{
+    const response=await apiFetch(`${API}/letters/${id}/cancel`,{method:'PATCH',headers:authHeaders()});const data=await response.json().catch(()=>({}))
+    if(!response.ok){notification.error({message:data.message||'ابطال نامه انجام نشد'});return}
+    notification.success({message:'نامه ابطال شد'});await refreshLetterDetail(id)
+  }
+
   const handleDeleteLetter=async(id:string)=>{
     const response=await apiFetch(`${API}/letters/${id}`,{method:'DELETE',headers:authHeaders()})
     if(!response.ok){const error=await response.json().catch(()=>({}));notification.error({message:error.message||'حذف نامه انجام نشد'});return}
@@ -632,7 +644,7 @@ export default function LettersPage() {
         open={viewModal} onCancel={() => { setViewModal(false); setLetterDetail(null) }}
         footer={letterDetail ? (
           <Space>
-            {allowed('letters.edit') && letterDetail.status === 'Draft' && <Button type="primary" icon={<EditOutlined />} onClick={()=>{setEditingDraft(letterDetail);setViewModal(false);setComposing(true)}}>ادامه ویرایش</Button>}
+            {allowed('letters.edit') && letterDetail.status !== 'Cancelled' && <Button type="primary" icon={<EditOutlined />} onClick={()=>{setEditingDraft(letterDetail);setViewModal(false);setComposing(true)}}>{letterDetail.status === 'Draft'?'ادامه ویرایش':'ویرایش نامه'}</Button>}
             {allowed('letters.refer') && <Button
               icon={<SwapLeftOutlined />}
               style={{ background: '#fa8c16', color: 'white', borderColor: '#fa8c16' }}
@@ -643,6 +655,8 @@ export default function LettersPage() {
             {allowed('letters.sign') && letterDetail.status === 'Sent' && (
               <Button icon={<FileTextOutlined />} style={{ color: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleSign(letterDetail.id)}>امضا</Button>
             )}
+            {allowed('letters.sign.revoke') && letterDetail.canRevokeSignature && <Popconfirm title="امضای خود را پس می‌گیرید؟" okText="پس گرفتن" cancelText="انصراف" onConfirm={()=>handleRevokeSignature(letterDetail.id)}><Button danger icon={<FileTextOutlined/>}>پس گرفتن امضا</Button></Popconfirm>}
+            {allowed('letters.cancel') && letterDetail.status !== 'Cancelled' && <Popconfirm title="این نامه ابطال شود؟" okText="ابطال" cancelText="انصراف" onConfirm={()=>handleCancelLetter(letterDetail.id)}><Button danger icon={<StopOutlined/>}>ابطال نامه</Button></Popconfirm>}
             {allowed('letters.archive') && letterDetail.status !== 'Archived' && (
               <Button icon={<FolderOutlined />} onClick={() => handleArchive(letterDetail.id)}>بایگانی</Button>
             )}
@@ -659,40 +673,11 @@ export default function LettersPage() {
         {detailLoading ? (
           <div style={{ textAlign: 'center', padding: 40, color: '#8c8c8c' }}>در حال بارگذاری...</div>
         ) : letterDetail && (
-          <div>
-            <div style={{display:'grid',gridTemplateColumns:'230px minmax(0,1fr)',gap:12,alignItems:'start',direction:'ltr'}}>
-              <aside style={{direction:'rtl',position:'sticky',top:0,maxHeight:'75vh',overflowY:'auto',padding:12,background:'#fafafa',border:'1px solid #eee',borderRadius:10}}>
-                <ReferralMessages detail={letterDetail}/>
-              </aside>
-              <main style={{direction:'rtl',overflowX:'auto',padding:6,background:'#f5f5f5',borderRadius:10}}>
-                <SavedLetterPage detail={letterDetail} compact/>
-              </main>
-            </div>
-
-            <div style={{ background: '#f8f9fa', borderRadius: 8, padding: '10px 14px', margin:'16px 0', border: '1px solid #e8e8e8' }}>
-              <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}>
-                <span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span>
-                <span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span>
-                <span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>
-              </div>
-            </div>
-
-            {letterDetail.workflowSteps?.length > 0 && (
-              <div>
-                <div style={{ fontWeight: 600, marginBottom: 8 }}>تاریخچه گردش نامه:</div>
-                {letterDetail.workflowSteps.map((w: any) => (
-                  <div key={w.id} style={{ display: 'flex', gap: 10, padding: '6px 0', borderBottom: '1px solid #f5f5f5' }}>
-                    <Avatar size={24} style={{ background: '#8B1A6B', fontSize: 11 }}>{w.userName?.charAt(0) || '?'}</Avatar>
-                    <div>
-                      <span style={{ fontWeight: 500, fontSize: 12 }}>{w.userName}</span>
-                      <span style={{ fontSize: 11, color: '#8c8c8c', margin: '0 8px' }}>{w.comment}</span>
-                      <span style={{ fontSize: 10, color: '#bbb' }}>{w.createdAt ? new Intl.DateTimeFormat('fa-IR').format(new Date(w.createdAt)) : ''}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <Tabs items={[
+            allowed('letters.content.view')&&{key:'letter',label:<span><FileTextOutlined/> نامه</span>,children:<div><div style={{overflowX:'auto',padding:6,background:'#f5f5f5',borderRadius:10}}><SavedLetterPage detail={letterDetail} compact/></div><div style={{background:'#f8f9fa',borderRadius:8,padding:'10px 14px',marginTop:12,border:'1px solid #e8e8e8',display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}><span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span><span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span><span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>{letterDetail.signedByName&&<span><strong>امضاکننده:</strong> {letterDetail.signedByName}</span>}</div></div>},
+            allowed('letters.attachments.view')&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>},
+            allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه و رویدادها</span>,children:<div style={{display:'grid',gridTemplateColumns:'minmax(220px,30%) minmax(0,1fr)',gap:14,direction:'ltr'}}><aside style={{direction:'rtl'}}><ReferralMessages detail={letterDetail}/></aside><main style={{direction:'rtl'}}>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><span dir="ltr">IP: {w.ipAddress||'ثبت نشده'}</span></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</main></div>}
+          ].filter(Boolean) as any}/>
         )}
       </Modal>
 

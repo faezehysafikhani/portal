@@ -158,6 +158,8 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
   const grantedPermissions:string[] = (()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const isAdmin = Array.isArray(currentUser.roles) && currentUser.roles.includes('Admin')
   const allowed = (code:string) => isAdmin || grantedPermissions.includes(code)
+  const structuralFieldsLocked = Boolean(initialData)
+  const recipientsLocked = Boolean(initialData && initialData.status !== 'Draft')
 
   useEffect(() => {
     Promise.all([
@@ -220,6 +222,16 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     } catch(error) {
       Modal.warning({title:'اطلاعات نامه کامل نیست',content:error instanceof Error?error.message:'فیلدهای الزامی را کامل کنید'})
     } finally { setSaving(false) }
+  }
+
+  const handleCancelLetter = () => {
+    if (!initialData?.id) { onCancel(); return }
+    Modal.confirm({ title:'ابطال نامه', content:'این نامه ابطال شود؟ این عملیات در تاریخچه گردش ثبت می‌شود.', okText:'ابطال', cancelText:'انصراف', okButtonProps:{danger:true}, onOk:async()=>{
+      const response=await apiFetch(`${API}/letters/${initialData.id}/cancel`,{method:'PATCH',headers:authHeaders()})
+      const data=await response.json().catch(()=>({}))
+      if(!response.ok)throw new Error(data.message||'ابطال نامه انجام نشد')
+      onCancel()
+    }})
   }
 
   const getFileIcon = (name: string) => {
@@ -323,8 +335,8 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       title: 'عملیات', key: 'actions',
       render: (_: unknown, r: Recipient) => (
         <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => openRecipientModal(r)} />
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRecipients(p => p.filter(x => x.id !== r.id))} />
+          <Button disabled={recipientsLocked} size="small" icon={<EyeOutlined />} onClick={() => openRecipientModal(r)} />
+          <Button disabled={recipientsLocked} size="small" danger icon={<DeleteOutlined />} onClick={() => setRecipients(p => p.filter(x => x.id !== r.id))} />
         </Space>
       )
     }
@@ -336,9 +348,10 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       <div style={{ background: '#1e3a5f', padding: '8px 16px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderRadius: '8px 8px 0 0' }}>
         <Button icon={<ArrowRightOutlined />} size="small" onClick={onCancel} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>بازگشت</Button>
         <Divider type="vertical" style={{ background: 'rgba(255,255,255,0.2)', height: 20 }} />
-        {allowed('letters.send') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('sent')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ذخیره و ارسال</Button>}
-        {allowed('letters.sign') && <Button loading={saving} disabled={saving} icon={<CheckCircleOutlined />} size="small" onClick={() => handleAction('signed')} style={{ background: '#13c2c2', color: 'white', border: 'none' }}>تأیید و امضا</Button>}
-        {(initialData ? allowed('letters.edit') : allowed('letters.create')) && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('draft')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>ذخیره پیش‌نویس</Button>}
+        {allowed('letters.send') && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('sent')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ذخیره و ارسال</Button>}
+        {allowed('letters.sign') && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<CheckCircleOutlined />} size="small" onClick={() => handleAction('signed')} style={{ background: '#13c2c2', color: 'white', border: 'none' }}>تأیید و امضا</Button>}
+        {(initialData ? allowed('letters.edit') : allowed('letters.create')) && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('draft')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>ذخیره پیش‌نویس</Button>}
+        {initialData && initialData.status !== 'Draft' && initialData.status !== 'Cancelled' && allowed('letters.edit') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction(String(initialData.status).toLowerCase())} style={{ background:'#1677ff',color:'white',border:'none' }}>ذخیره ویرایش</Button>}
         {allowed('letters.refer') && <Button icon={<SwapLeftOutlined />} size="small" onClick={() => setReferralModal(true)} style={{ background: '#fa8c16', color: 'white', border: 'none' }}>ارجاع</Button>}
         {allowed('letters.print') && <Dropdown menu={{
           items: [
@@ -348,7 +361,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
         }}>
           <Button icon={<PrinterOutlined />} size="small" style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>چاپ <DownOutlined /></Button>
         </Dropdown>}
-        <Button icon={<StopOutlined />} size="small" danger onClick={() => handleAction('cancelled')} style={{ border: 'none' }}>ابطال</Button>
+        {allowed('letters.cancel') && initialData && initialData.status !== 'Cancelled' && <Button icon={<StopOutlined />} size="small" danger onClick={handleCancelLetter} style={{ border: 'none' }}>ابطال</Button>}
         <Tag color="purple" style={{ fontFamily: 'monospace', fontSize: 13, padding: '3px 10px' }}>{letterNumber}</Tag>
       </div>
 
@@ -358,7 +371,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
           <Row gutter={[8, 8]} style={{ width: '100%' }} align="middle">
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>نوع نامه</div>
-              <Radio.Group value={letterType} onChange={e => handleLetterTypeChange(e.target.value)} size="small" buttonStyle="solid">
+              <Radio.Group disabled={structuralFieldsLocked} value={letterType} onChange={e => handleLetterTypeChange(e.target.value)} size="small" buttonStyle="solid">
                 <Radio.Button value="outgoing">صادره</Radio.Button>
                 <Radio.Button value="internal">داخلی</Radio.Button>
                 <Radio.Button value="incoming">وارده</Radio.Button>
@@ -367,31 +380,31 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Divider type="vertical" style={{ height: 40 }} />
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>دبیرخانه</div>
-              <Select size="small" value={registry.id} popupMatchSelectWidth={260} style={{ width: 210 }} onChange={id => { const r = REGISTRIES.find(x => x.id === id); if (r) setRegistry(r) }}>
+              <Select disabled={structuralFieldsLocked} size="small" value={registry.id} popupMatchSelectWidth={260} style={{ width: 210 }} onChange={id => { const r = REGISTRIES.find(x => x.id === id); if (r) setRegistry(r) }}>
                 {REGISTRIES.filter(r=>r.type===letterType).map(r => <Select.Option key={r.id} value={r.id}>{r.name} — {r.type === 'outgoing' ? 'صادره' : r.type === 'internal' ? 'داخلی' : 'وارده'}</Select.Option>)}
               </Select>
             </Col>
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>تاریخ نامه</div>
               <Form.Item name="letterDate" style={{ margin: 0 }}>
-                <Input size="small" style={{ width: 110 }} placeholder="۱۴۰۳/۰۴/۱۵" />
+                <Input disabled={structuralFieldsLocked} size="small" style={{ width: 110 }} placeholder="۱۴۰۳/۰۴/۱۵" />
               </Form.Item>
             </Col>
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>طبقه‌بندی</div>
-              <Select size="small" value={classification} onChange={setClassification} style={{ width: 120 }}>
+              <Select disabled={structuralFieldsLocked} size="small" value={classification} onChange={setClassification} style={{ width: 120 }}>
                 {CLASSIFICATIONS.map(c => <Select.Option key={c.value} value={c.value}><span style={{ color: c.color }}>● </span>{c.label}</Select.Option>)}
               </Select>
             </Col>
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>فوریت</div>
-              <Select size="small" value={priority} onChange={setPriority} style={{ width: 110 }}>
+              <Select disabled={structuralFieldsLocked} size="small" value={priority} onChange={setPriority} style={{ width: 110 }}>
                 {PRIORITIES.map(p => <Select.Option key={p.value} value={p.value}><span style={{ color: p.color }}>● </span>{p.value}</Select.Option>)}
               </Select>
             </Col>
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>قالب</div>
-              <Select size="small" style={{ width: 180 }} placeholder="انتخاب قالب آپلودشده" allowClear
+              <Select disabled={structuralFieldsLocked} size="small" style={{ width: 180 }} placeholder="انتخاب قالب آپلودشده" allowClear
                 onChange={id => { const t = availableTemplates.find((x:any) => x.id === id); setSelectedTemplate(t); if (t) { setPaperSize(t.size); setHasHeader(t.hasHeader); setHasFooter(t.hasFooter) } }}>
                 {availableTemplates.map((t:any) => <Select.Option key={t.id} value={t.id}>{t.name}{t.imageData?' ✓':''}</Select.Option>)}
               </Select>
@@ -399,9 +412,9 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Col style={{ marginRight: 'auto' }}>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>نمایش</div>
               <Space size={4}>
-                <span style={{ fontSize: 11 }}>سربرگ</span> <Switch size="small" checked={hasHeader} onChange={setHasHeader} />
-                <span style={{ fontSize: 11 }}>ته‌برگ</span> <Switch size="small" checked={hasFooter} onChange={setHasFooter} />
-                <span style={{ fontSize: 11 }}>امضا</span> <Switch size="small" checked={hasSignature} onChange={setHasSignature} />
+                <span style={{ fontSize: 11 }}>سربرگ</span> <Switch disabled={structuralFieldsLocked} size="small" checked={hasHeader} onChange={setHasHeader} />
+                <span style={{ fontSize: 11 }}>ته‌برگ</span> <Switch disabled={structuralFieldsLocked} size="small" checked={hasFooter} onChange={setHasFooter} />
+                <span style={{ fontSize: 11 }}>امضا</span> <Switch disabled={structuralFieldsLocked} size="small" checked={hasSignature} onChange={setHasSignature} />
               </Space>
             </Col>
           </Row>
@@ -428,17 +441,17 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
               </div>
               {letterType === 'internal' ? (
                 <Form.Item name="toUser" style={{ margin: 0 }} rules={[{ required: true, message: 'الزامی' }]}>
-                  <Select size="small" style={{ width: '100%' }} placeholder="انتخاب گیرنده" showSearch>
+                  <Select disabled={recipientsLocked} size="small" style={{ width: '100%' }} placeholder="انتخاب گیرنده" showSearch>
                     {users.map(u => <Select.Option key={u.id} value={u.id}>{u.fullName}</Select.Option>)}
                   </Select>
                 </Form.Item>
               ) : (
                 <Space.Compact style={{ width: '100%' }}>
                   <Form.Item name="toExternal" style={{ margin: 0, width: '55%' }} rules={[{ required: true, message: 'الزامی' }]}>
-                    <Select size="small" showSearch optionFilterProp="label" placeholder="انتخاب مخاطب" options={contacts.map(c=>({value:c.id,label:`${c.fullName} — ${c.companyName||'مخاطب'}`}))}/>
+                    <Select disabled={recipientsLocked} size="small" showSearch optionFilterProp="label" placeholder="انتخاب مخاطب" options={contacts.map(c=>({value:c.id,label:`${c.fullName} — ${c.companyName||'مخاطب'}`}))}/>
                   </Form.Item>
                   <Form.Item name="toExternalOrg" style={{ margin: 0, width: '45%' }}>
-                    <Input size="small" placeholder="سازمان" />
+                    <Input disabled={recipientsLocked} size="small" placeholder="سازمان" />
                   </Form.Item>
                 </Space.Compact>
               )}
@@ -519,8 +532,8 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
               <div style={{ padding: '12px 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <Space>
-                    <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => openRecipientModal()}>درج گیرنده</Button>
-                    <Button size="small" onClick={() => {
+                    <Button disabled={recipientsLocked} size="small" type="primary" icon={<PlusOutlined />} onClick={() => openRecipientModal()}>درج گیرنده</Button>
+                    <Button disabled={recipientsLocked} size="small" onClick={() => {
                       users.forEach(u => {
                         setRecipients(prev => [...prev, { id: Date.now().toString() + Math.random(), name: u.fullName, type: 'internal', referralType: 'جهت اطلاع' }])
                       })

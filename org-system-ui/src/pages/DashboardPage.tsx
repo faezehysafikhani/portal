@@ -401,8 +401,22 @@ export default function DashboardPage() {
   const notificationVisual=(type:string)=>({
     letter:{color:'#8B1A6B',icon:<MailOutlined/>},task:{color:'#1677ff',icon:<CheckSquareOutlined/>},ticket:{color:'#fa8c16',icon:<CustomerServiceOutlined/>},form:{color:'#52c41a',icon:<FileTextOutlined/>},calendar:{color:'#722ed1',icon:<CalendarOutlined/>},project:{color:'#2f54eb',icon:<TeamOutlined/>},chat:{color:'#13c2c2',icon:<MessageOutlined/>},warning:{color:'#f5222d',icon:<BellOutlined/>}
   }[type]||{color:'#8B1A6B',icon:<BellOutlined/>})
-  const notifications: {id:string;text:string;time:string;color:string;icon:React.ReactNode;link?:string;isRead:boolean}[] = (storedNotifications.length?storedNotifications:(summary.notifications||[]).map((n:any)=>({id:n.id,type:String(n.type).toLowerCase(),title:n.title,description:n.body,time:new Date(n.createdAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),link:n.actionUrl,isRead:n.isRead}))).slice(0,8).map((n:any)=>{const visual=notificationVisual(String(n.type).toLowerCase());return{id:n.id,text:`${n.title}${n.description?` — ${n.description}`:''}`,time:n.time||'',color:visual.color,icon:visual.icon,link:n.link,isRead:Boolean(n.isRead)}})
-  const openNotification=(item:{id:string;link?:string})=>{markAsRead(item.id);void fetch(`${API}/notifications/${item.id}/read`,{method:'PATCH',headers:authHeaders()});if(item.link)navigate(item.link)}
+  const rawNotifications:any[] = storedNotifications.length?storedNotifications:(summary.notifications||[]).map((n:any)=>({id:n.id,type:String(n.type).toLowerCase(),title:n.title,description:n.body,time:new Date(n.createdAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),link:n.actionUrl,isRead:n.isRead,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}))
+  const notificationGroups = new Map<string,any>()
+  rawNotifications.forEach(n=>{
+    const actor=n.actorName||String(n.title||'').match(/(?:از|توسط)\s+(.+)$/)?.[1]?.trim()||'سامانه'
+    const category=n.entityType==='LetterReferral'?'referral':String(n.type||'warning').toLowerCase()
+    const key=`${category}|${n.actorUserId||actor}`
+    const current=notificationGroups.get(key)
+    if(current){current.ids.push(n.id);current.count+=1;current.isRead=current.isRead&&Boolean(n.isRead)}
+    else notificationGroups.set(key,{...n,actor,category,ids:[n.id],count:1})
+  })
+  const notifications: {id:string;ids:string[];text:string;time:string;color:string;icon:React.ReactNode;link?:string;isRead:boolean}[] = Array.from(notificationGroups.values()).slice(0,8).map((n:any)=>{
+    const visual=notificationVisual(n.category==='referral'?'letter':String(n.type).toLowerCase())
+    const labels:Record<string,string>={chat:'پیام جدید',letter:'نامه جدید',referral:'ارجاع جدید',task:'وظیفه جدید',ticket:'تیکت جدید',form:'فرم جدید',calendar:'رویداد جدید',project:'پروژه جدید'}
+    return{id:n.id,ids:n.ids,text:`${labels[n.category]||'اعلان جدید'} از ${n.actor}${n.count>1?` (${n.count} مورد)`:''}`,time:n.time||'',color:visual.color,icon:visual.icon,link:n.link,isRead:Boolean(n.isRead)}
+  })
+  const openNotification=(item:{id:string;ids:string[];link?:string})=>{item.ids.forEach(id=>{markAsRead(id);void fetch(`${API}/notifications/${id}/read`,{method:'PATCH',headers:authHeaders()})});if(item.link)navigate(item.link)}
 
   const recentLetters = summary.recentLetters.map((l:any)=>({id:l.id,subject:l.subject,from:l.fromUserName||'—',date:new Date(l.createdAt).toLocaleDateString('fa-IR'),status:String(l.status).toLowerCase(),color:'#8B1A6B'}))
 
