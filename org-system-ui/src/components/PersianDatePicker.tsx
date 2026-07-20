@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Popover } from 'antd'
+import { Button, Popover, Select } from 'antd'
 import { CalendarOutlined, RightOutlined, LeftOutlined } from '@ant-design/icons'
 import { currentJalali, isLeapJalali, jalaliToDate } from '../utils/jalali'
 import { getIranHoliday } from '../utils/iranHolidays'
@@ -25,13 +25,26 @@ interface PersianDatePickerProps {
   value?: string
   onChange?: (date: string) => void
   placeholder?: string
+  style?: React.CSSProperties
+  disabled?: boolean
 }
 
-export default function PersianDatePicker({ value, onChange, placeholder }: PersianDatePickerProps) {
+export default function PersianDatePicker({ value, onChange, placeholder, style, disabled }: PersianDatePickerProps) {
   const today = currentJalali()
   const [year, setYear] = useState(today.year)
   const [month, setMonth] = useState(today.month)
   const [open, setOpen] = useState(false)
+
+  const handleOpenChange = (next: boolean) => {
+    if (disabled) { setOpen(false); return }
+    if (next && value) {
+      const parts = value.split('/').map(Number)
+      if (parts.length === 3 && parts[0] > 1200 && parts[1] >= 1 && parts[1] <= 12) { setYear(parts[0]); setMonth(parts[1]) }
+    }
+    setOpen(next)
+  }
+
+  const YEARS = Array.from({ length: today.year + 10 - 1299 }, (_, i) => today.year + 10 - i)
 
   const daysInMonth = getDaysInMonth(month, year)
   const firstDay = getFirstDayOfMonth(month, year)
@@ -68,11 +81,19 @@ export default function PersianDatePicker({ value, onChange, placeholder }: Pers
   const calendar = (
     <div style={{ width: 294, userSelect: 'none', direction: 'rtl', padding: 2 }}>
       {/* هدر */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 4 }}>
         <Button size="small" icon={<LeftOutlined />} onClick={nextMonth} type="text" />
-        <span style={{ fontWeight: 700, fontSize: 14 }}>
-          {PERSIAN_MONTHS[month - 1]} {year}
-        </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <Select
+            size="small" value={month} onChange={setMonth} style={{ width: 104 }} popupMatchSelectWidth={false}
+            options={PERSIAN_MONTHS.map((m, i) => ({ value: i + 1, label: m }))}
+          />
+          <Select
+            size="small" value={year} onChange={setYear} style={{ width: 84 }} popupMatchSelectWidth={false}
+            showSearch optionFilterProp="label"
+            options={YEARS.map(y => ({ value: y, label: String(y) }))}
+          />
+        </div>
         <Button size="small" icon={<RightOutlined />} onClick={prevMonth} type="text" />
       </div>
 
@@ -131,13 +152,13 @@ export default function PersianDatePicker({ value, onChange, placeholder }: Pers
   )
 
   return (
-    <Popover content={calendar} trigger="click" open={open} onOpenChange={setOpen} placement="bottomRight" overlayStyle={{ maxWidth: 330 }}>
+    <Popover content={calendar} trigger="click" open={open} onOpenChange={handleOpenChange} placement="bottomRight" overlayStyle={{ maxWidth: 330 }}>
       <div style={{
         border: '1px solid #d9d9d9', borderRadius: 6, padding: '4px 11px',
-        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: 'white', minHeight: 32
+        cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: disabled ? '#f5f5f5' : 'white', minHeight: 32, ...style
       }}>
-        <span style={{ color: value ? '#333' : '#bfbfbf', fontSize: 14 }}>
+        <span style={{ color: disabled ? '#bfbfbf' : value ? '#333' : '#bfbfbf', fontSize: 14 }}>
           {value || placeholder || 'انتخاب تاریخ...'}
         </span>
         <CalendarOutlined style={{ color: '#8c8c8c', marginRight: 8 }} />

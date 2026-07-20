@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons'
 import type { UploadFile } from 'antd'
 import { apiFetch } from '../utils/api'
+import PersianDatePicker from '../components/PersianDatePicker'
 
 const API = 'http://localhost:5043/api/v1'
 const getToken = () => localStorage.getItem('token') || ''
@@ -387,7 +388,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>تاریخ نامه</div>
               <Form.Item name="letterDate" style={{ margin: 0 }}>
-                <Input disabled={structuralFieldsLocked} size="small" style={{ width: 110 }} placeholder="۱۴۰۳/۰۴/۱۵" />
+                <PersianDatePicker disabled={structuralFieldsLocked} style={{ width: 130, minHeight: 24, padding: '0 8px', fontSize: 12 }} placeholder="۱۴۰۳/۰۴/۱۵" />
               </Form.Item>
             </Col>
             <Col>
@@ -476,7 +477,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
               <Col xs={24} md={5}>
                 <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>تاریخ نامه وارده</div>
                 <Form.Item name="incomingDate" style={{ margin: 0 }}>
-                  <Input size="small" placeholder="۱۴۰۳/۰۴/۱۰" />
+                  <PersianDatePicker style={{ minHeight: 24, padding: '0 8px', fontSize: 12 }} placeholder="۱۴۰۳/۰۴/۱۰" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={4}>

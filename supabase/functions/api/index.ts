@@ -487,6 +487,7 @@ function profileDto(user: JsonObject): JsonObject {
     fullName: `${user.FirstName ?? ''} ${user.LastName ?? ''}`.trim(),
     firstName: user.FirstName, lastName: user.LastName, email: user.Email,
     phoneNumber: user.PhoneNumber, fixedPhone: user.FixedPhone, address: user.Address,
+    birthDate: user.BirthDate ?? null,
     department: user.Department, position: user.Position, avatarUrl: user.AvatarUrl,
     signatureDataUrl: user.SignatureDataUrl, signatureText: user.SignatureText,
   }
@@ -599,7 +600,7 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     const result = await db.from('Users').select('*').eq('TenantId', auth.tenantId).eq('Id', userMatch[1]).eq('IsDeleted', false).maybeSingle()
     failOnDb(result.error); if (!result.data) throw new HttpError(404, 'کاربر یافت نشد'); return json(request, profileDto(result.data))
   }
-  const userFields = ['Username', 'Email', 'FirstName', 'LastName', 'PhoneNumber', 'Department', 'Position', 'DirectManager', 'HrManager', 'SignatureDataUrl', 'SignatureText'] as const
+  const userFields = ['Username', 'Email', 'FirstName', 'LastName', 'PhoneNumber', 'BirthDate', 'Department', 'Position', 'DirectManager', 'HrManager', 'SignatureDataUrl', 'SignatureText'] as const
   if (request.method === 'POST' && !userMatch) {
     requirePermission(auth, 'users.create')
     const input = await body<JsonObject>(request)

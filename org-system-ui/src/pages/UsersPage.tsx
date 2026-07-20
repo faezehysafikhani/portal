@@ -3,6 +3,7 @@ import { Table, Button, Tag, Modal, Form, Input, Select, Space, Avatar, Switch, 
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, LockOutlined, UploadOutlined, CheckOutlined } from '@ant-design/icons'
 import { useSettingsStore } from '../store/settingsStore'
 import { PERMISSION_GROUPS } from '../store/permissionsConfig'
+import PersianDatePicker from '../components/PersianDatePicker'
 
 const API = 'http://localhost:5043/api/v1'
 const getToken = () => localStorage.getItem('token') || ''
@@ -18,6 +19,7 @@ interface User {
   lastName: string
   fullName: string
   phoneNumber?: string
+  birthDate?: string
   email?: string
   username: string
   isActive: boolean
@@ -85,6 +87,7 @@ export default function UsersPage() {
           lastName: user.lastName,
           email: user.email,
           mobile: user.phoneNumber,
+          birthDate: user.birthDate,
           department: user.department,
           position: user.position,
           directManager: user.directManager,
@@ -140,6 +143,7 @@ export default function UsersPage() {
             lastName: values.lastName,
             email: values.email,
             phoneNumber: values.mobile,
+            birthDate: values.birthDate,
             department: values.department,
             position: values.position,
             directManager: values.directManager,
@@ -174,6 +178,7 @@ export default function UsersPage() {
             firstName: values.firstName,
             lastName: values.lastName,
             phoneNumber: values.mobile,
+            birthDate: values.birthDate,
             department: values.department,
             position: values.position,
             directManager: values.directManager,
@@ -334,7 +339,8 @@ export default function UsersPage() {
                   <Row gutter={16}>
                     <Col xs={24} md={12}><Form.Item name="firstName" label="نام" rules={[{ required: true }]}><Input /></Form.Item></Col>
                     <Col xs={24} md={12}><Form.Item name="lastName" label="نام خانوادگی" rules={[{ required: true }]}><Input /></Form.Item></Col>
-                    <Col xs={24} md={12}><Form.Item name="mobile" label="موبایل"><Input /></Form.Item></Col>
+                    <Col xs={24} md={12}><Form.Item name="mobile" label="موبایل" rules={[{pattern:/^09\d{9}$/,message:'شماره موبایل باید ۱۱ رقم و با 09 شروع شود'}]}><Input dir="ltr" maxLength={11} placeholder="09121234567" /></Form.Item></Col>
+                    <Col xs={24} md={12}><Form.Item name="birthDate" label="تاریخ تولد"><PersianDatePicker placeholder="مثلاً 1370/05/12" /></Form.Item></Col>
                     <Col xs={24} md={12}><Form.Item name="email" label="ایمیل"><Input /></Form.Item></Col>
                   </Row>
                 )
