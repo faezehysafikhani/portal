@@ -5,6 +5,11 @@ import { corsHeaders } from '../_shared/cors.ts'
 type Obj = Record<string, any>
 const db = adminClient(); const now = () => new Date().toISOString()
 const base = (auth: AuthContext): Obj => ({ Id: crypto.randomUUID(), TenantId: auth.tenantId, CreatedAt: now(), UpdatedAt: null, CreatedByUserId: auth.userId, IsDeleted: false, DeletedAt: null })
+const isKavenegarProvider = (provider: unknown, apiUrl?: unknown): boolean => {
+  const normalized = String(provider ?? '').trim().replace(/[\s_-]/g, '').toLowerCase()
+  if (normalized === 'kavenegar') return true
+  try { return new URL(String(apiUrl ?? '')).hostname.toLowerCase() === 'api.kavenegar.com' } catch { return false }
+}
 function check(error: { message: string } | null): void { if (error) { console.error(error.message); throw new HttpError(500, 'خطا در پایگاه داده') } }
 
 async function key(): Promise<CryptoKey> {
@@ -59,9 +64,9 @@ async function ai(request: Request, auth: AuthContext, path: string): Promise<Re
 
 async function sms(request: Request, auth: AuthContext, path: string): Promise<Response> {
   requirePermission(auth, 'sms.settings'); const current = async () => { const r = await db.from('SmsProviderSettings').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle(); check(r.error); return r.data }
-  if (request.method === 'GET') { const s = await current(); return json(request, s ? { id: s.Id, providerName: s.ProviderName, apiUrl: s.ApiUrl, senderNumber: s.SenderNumber, username: s.Username, hasPassword: String(s.EncryptedPassword ?? '').startsWith('edge:v1:'), hasApiKey: String(s.EncryptedApiKey ?? '').startsWith('edge:v1:'), isActive: s.IsActive, letterTemplate: s.LetterTemplate, referralTemplate: s.ReferralTemplate, meetingTemplate: s.MeetingTemplate } : null) }
+  if (request.method === 'GET') { const s = await current(); return json(request, s ? { id: s.Id, providerName: isKavenegarProvider(s.ProviderName, s.ApiUrl) ? 'Kavenegar' : s.ProviderName, apiUrl: isKavenegarProvider(s.ProviderName, s.ApiUrl) ? 'https://api.kavenegar.com/v1/' : s.ApiUrl, senderNumber: s.SenderNumber, username: s.Username, hasPassword: String(s.EncryptedPassword ?? '').startsWith('edge:v1:'), hasApiKey: String(s.EncryptedApiKey ?? '').startsWith('edge:v1:'), isActive: s.IsActive, letterTemplate: s.LetterTemplate, referralTemplate: s.ReferralTemplate, meetingTemplate: s.MeetingTemplate } : null) }
   if (request.method === 'PUT' && path === '/sms-settings') {
-    const input = await body<Obj>(request); const provider=String(input.providerName??'').trim(); const isKavenegar=provider.toLowerCase()==='kavenegar'
+    const input = await body<Obj>(request); const provider=String(input.providerName??'').trim(); const isKavenegar=isKavenegarProvider(provider,input.apiUrl)
     let uri: URL; try { uri = new URL(isKavenegar?'https://api.kavenegar.com/v1/':String(input.apiUrl)) } catch { throw new HttpError(400, 'آدرس API معتبر نیست') }
     if (uri.protocol !== 'https:' || ['localhost', '127.0.0.1'].includes(uri.hostname)) throw new HttpError(400, 'آدرس API باید HTTPS عمومی باشد')
     if(isKavenegar&&uri.hostname!=='api.kavenegar.com')throw new HttpError(400,'آدرس سرویس کاوه‌نگار معتبر نیست')
@@ -74,7 +79,7 @@ async function sms(request: Request, auth: AuthContext, path: string): Promise<R
   if (request.method === 'POST' && path === '/sms-settings/test') {
     const input=await body<Obj>(request),phone=String(input.phone??'').trim(),message=String(input.message??'').trim();if(!/^09\d{9}$/.test(phone))throw new HttpError(400,'شماره گیرنده معتبر نیست');if(!message)throw new HttpError(400,'متن پیام الزامی است')
     const s=await current();if(!s?.IsActive)throw new HttpError(400,'سرویس پیامک فعال نیست');const token=s.EncryptedApiKey?await unprotect(s.EncryptedApiKey):'';if(!token)throw new HttpError(400,'API Key ذخیره نشده است')
-    const isKavenegar=String(s.ProviderName).toLowerCase()==='kavenegar';let response:Response
+    const isKavenegar=isKavenegarProvider(s.ProviderName,s.ApiUrl);let response:Response
     if(isKavenegar){const endpoint=`https://api.kavenegar.com/v1/${encodeURIComponent(token)}/sms/send.json`;const params=new URLSearchParams({receptor:phone,message});if(s.SenderNumber)params.set('sender',String(s.SenderNumber));response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:params.toString()})}
     else response=await fetch(s.ApiUrl,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({to:phone,message,sender:s.SenderNumber,username:s.Username})})
     const raw=await response.text();let payload:Obj={};try{payload=JSON.parse(raw)}catch{}const apiStatus=isKavenegar?Number(payload.return?.status??0):response.status;const success=response.ok&&(!isKavenegar||apiStatus===200);const entry=Array.isArray(payload.entries)?payload.entries[0]:null;const errorMessage=success?null:String(payload.return?.message||raw||`خطای ${response.status}`).slice(0,500)
