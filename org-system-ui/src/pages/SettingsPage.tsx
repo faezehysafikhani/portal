@@ -58,6 +58,8 @@ export default function SettingsPage() {
   const [newDept, setNewDept] = useState('')
   const [newPos, setNewPos] = useState('')
   const [smsForm]=Form.useForm(),[smsTestForm]=Form.useForm()
+  const smsProvider=Form.useWatch('providerName',smsForm)||'Kavenegar'
+  const [smsHasApiKey,setSmsHasApiKey]=useState(false)
   const [aiForm]=Form.useForm()
   const [aiHasKey,setAiHasKey]=useState(false)
   const [aiTesting,setAiTesting]=useState(false)
@@ -107,11 +109,11 @@ export default function SettingsPage() {
     setLetterTemplates(data)
   }
   const loadPositions=async()=>{const r=await fetch(`${api}/positions`,{headers:headers()});if(r.ok)setPositions(await r.json());else message.error(`سمت‌ها دریافت نشدند — خطای ${r.status}`)}
-  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x)smsForm.setFieldsValue(x)}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[canViewSettings])
+  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){smsForm.setFieldsValue(x);setSmsHasApiKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[canViewSettings])
   const createPosition=async()=>{const title=newPos.trim();if(!title)return;const r=await fetch(`${api}/positions`,{method:'POST',headers:headers(),body:JSON.stringify({title,parentId:null,color:'#1677ff'})});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'ثبت سمت ناموفق بود');return}setNewPos('');message.success('سمت در دیتابیس ذخیره شد');await loadPositions()}
   const deletePosition=async(id:string)=>{const r=await fetch(`${api}/positions/${id}`,{method:'DELETE',headers:headers()});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'حذف سمت ناموفق بود');return}await loadPositions()}
-  const saveSms=async()=>{const v=await smsForm.validateFields();const r=await fetch(`${api}/sms-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(v)});r.ok?message.success('تنظیمات پیامک ذخیره شد'):message.error((await r.json()).message||'خطا')}
-  const testSms=async()=>{const v=await smsTestForm.validateFields();const r=await fetch(`${api}/sms-settings/test`,{method:'POST',headers:headers(),body:JSON.stringify(v)});r.ok?message.success('پیامک آزمایشی ارسال شد'):message.error((await r.json()).message||'ارسال ناموفق')}
+  const saveSms=async()=>{const v=await smsForm.validateFields();const r=await fetch(`${api}/sms-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(v)});const result=await r.json().catch(()=>({}));if(!r.ok){message.error(result.message||'خطا در ذخیره تنظیمات');return}setSmsHasApiKey(previous=>previous||!!v.apiKey);smsForm.setFieldValue('apiKey','');message.success(result.message||'تنظیمات پیامک ذخیره شد')}
+  const testSms=async()=>{const v=await smsTestForm.validateFields();const r=await fetch(`${api}/sms-settings/test`,{method:'POST',headers:headers(),body:JSON.stringify(v)});const result=await r.json().catch(()=>({}));r.ok?message.success(result.message||'پیامک آزمایشی ارسال شد'):message.error(result.message||'ارسال ناموفق')}
   const saveAi=async()=>{const v=await aiForm.validateFields();const r=await fetch(`${api}/ai-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(v)});const result=await r.json().catch(()=>({}));if(!r.ok){message.error(result.message||'ذخیره تنظیمات AI انجام نشد');return}setAiHasKey(previous=>previous||!!v.apiKey);aiForm.setFieldValue('apiKey','');message.success(result.message)}
   const testAi=async()=>{setAiTesting(true);const r=await fetch(`${api}/ai-settings/test`,{method:'POST',headers:headers()});const result=await r.json().catch(()=>({}));setAiTesting(false);r.ok?message.success(result.response||result.message):message.error(result.message||'اتصال برقرار نشد')}
 
@@ -413,15 +415,16 @@ export default function SettingsPage() {
     },
     {
       key:'8',label:<span>📱 پنل پیامکی</span>,children:<Card title="تنظیمات پنل پیامکی">
-        <Form form={smsForm} layout="vertical" initialValues={{providerName:'generic',isActive:false,letterTemplate:'نامه شماره {number} مورخ {date} با موضوع «{subject}»',referralTemplate:'نامه با موضوع «{subject}» مورخ {date} با ارجاع «{referralType}»',meetingTemplate:'دعوت جلسه: {title} - {date} {time}'}}>
-          <Row gutter={16}><Col span={8}><Form.Item name="providerName" label="نام سرویس‌دهنده" rules={[{required:true}]}><Input/></Form.Item></Col>
-          <Col span={16}><Form.Item name="apiUrl" label="آدرس HTTPS ارسال پیامک" rules={[{required:true,type:'url'}]}><Input placeholder="https://sms-provider.example/api/send"/></Form.Item></Col>
-          <Col span={8}><Form.Item name="senderNumber" label="شماره پیامکی"><Input inputMode="numeric"/></Form.Item></Col>
-          <Col span={8}><Form.Item name="username" label="نام کاربری وب‌سرویس"><Input autoComplete="off"/></Form.Item></Col>
-          <Col span={8}><Form.Item name="password" label="رمز عبور وب‌سرویس"><Input.Password autoComplete="new-password"/></Form.Item></Col>
+        <Alert type="info" showIcon style={{marginBottom:16}} message="اتصال امن کاوه‌نگار" description="کاوه‌نگار نام کاربری و رمز عبور نمی‌خواهد. فقط API Key را وارد کنید؛ کلید در بک‌اند به‌صورت رمزنگاری‌شده نگهداری می‌شود و در Git یا مرورگر ذخیره نمی‌شود."/>
+        <Form form={smsForm} layout="vertical" initialValues={{providerName:'Kavenegar',apiUrl:'https://api.kavenegar.com/v1/',isActive:false,letterTemplate:'نامه شماره {number} مورخ {date} با موضوع «{subject}»',referralTemplate:'نامه با موضوع «{subject}» مورخ {date} با ارجاع «{referralType}»',meetingTemplate:'دعوت جلسه: {title} - {date} {time}'}}>
+          <Row gutter={16}><Col xs={24} md={8}><Form.Item name="providerName" label="سرویس‌دهنده" rules={[{required:true}]}><Select onChange={value=>{if(value==='Kavenegar')smsForm.setFieldsValue({apiUrl:'https://api.kavenegar.com/v1/',username:undefined,password:undefined})}} options={[{value:'Kavenegar',label:'کاوه‌نگار'},{value:'generic',label:'سرویس عمومی'}]}/></Form.Item></Col>
+          <Col xs={24} md={16}><Form.Item name="apiUrl" label={smsProvider==='Kavenegar'?'آدرس پایه رسمی کاوه‌نگار':'آدرس HTTPS ارسال پیامک'} rules={[{required:true,type:'url'}]}><Input dir="ltr" disabled={smsProvider==='Kavenegar'} placeholder="https://api.kavenegar.com/v1/"/></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="apiKey" label={`API Key ${smsHasApiKey?'(قبلاً ذخیره شده؛ برای تغییر کلید جدید وارد کنید)':''}`} rules={smsHasApiKey?[]:[{required:true,message:'API Key را وارد کنید'}]}><Input.Password dir="ltr" autoComplete="new-password" placeholder={smsHasApiKey?'••••••••••••••••':'API Key جدید کاوه‌نگار'}/></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="senderNumber" label="شماره خط فرستنده (اختیاری)"><Input dir="ltr" inputMode="numeric" placeholder="اگر خالی باشد خط پیش‌فرض کاوه‌نگار استفاده می‌شود"/></Form.Item></Col>
+          {smsProvider!=='Kavenegar'&&<><Col span={12}><Form.Item name="username" label="نام کاربری وب‌سرویس"><Input autoComplete="off"/></Form.Item></Col><Col span={12}><Form.Item name="password" label="رمز عبور وب‌سرویس"><Input.Password autoComplete="new-password"/></Form.Item></Col></>}
           <Col span={24}><Form.Item name="isActive" valuePropName="checked"><Switch checkedChildren="فعال" unCheckedChildren="غیرفعال"/> فعال‌سازی ارسال پیامک</Form.Item></Col>
           <Col span={24}><Form.Item name="letterTemplate" label="متن پیامک نامه"><Input/></Form.Item></Col><Col span={24}><Form.Item name="referralTemplate" label="متن پیامک ارجاع"><Input/></Form.Item></Col><Col span={24}><Form.Item name="meetingTemplate" label="متن پیامک جلسه"><Input/></Form.Item></Col></Row>
-          <Button type="primary" onClick={()=>void saveSms()}>ذخیره تنظیمات</Button>
+          <Space><Button type="primary" onClick={()=>void saveSms()}>ذخیره تنظیمات</Button>{smsHasApiKey&&<Tag color="green">API Key رمزنگاری‌شده ذخیره شده</Tag>}</Space>
         </Form><Divider>ارسال آزمایشی</Divider><Form form={smsTestForm} layout="inline"><Form.Item name="phone" rules={[{required:true,pattern:/^09\d{9}$/}]}><Input placeholder="09123456789" inputMode="numeric"/></Form.Item><Form.Item name="message" rules={[{required:true,max:500}]}><Input placeholder="متن آزمایشی"/></Form.Item><Button onClick={()=>void testSms()}>ارسال تست</Button></Form>
       </Card>
     },
