@@ -1,128 +1,199 @@
-import { useState } from 'react'
-import { Table, Button, Tag, Modal, Form, Input, Select, Space, Card, Statistic, Row, Col } from 'antd'
-import { PlusOutlined, SendOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Table, Button, Tag, Form, Input, Select, Space, Card, Statistic, Row, Col, Alert, Tooltip, message } from 'antd'
+import { SendOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, TeamOutlined, ContactsOutlined, ReloadOutlined, MessageOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 
-interface SmsMessage {
-  id: string
-  to: string
-  body: string
-  status: 'pending' | 'sent' | 'delivered' | 'failed'
-  sentAt?: string
-  scheduledAt?: string
-  cost?: number
+interface SmsMessage { id: string; to: string; body: string; status: number; provider?: string; messageId?: string; errorMessage?: string; sentAt?: string; createdAt?: string; cost?: number }
+interface DirectoryUser { id: string; fullName: string; phoneNumber?: string; department?: string; position?: string }
+interface DirectoryContact { id: string; fullName: string; companyName?: string; jobTitle?: string; mobile?: string; phone?: string }
+
+const STATUS_CONFIG: Record<number, { label: string; color: string; icon: ReactNode }> = {
+  0: { label: 'در انتظار', color: 'default', icon: <ClockCircleOutlined /> },
+  1: { label: 'ارسال شده', color: 'blue', icon: <SendOutlined /> },
+  2: { label: 'تحویل شده', color: 'green', icon: <CheckCircleOutlined /> },
+  3: { label: 'ناموفق', color: 'red', icon: <CloseCircleOutlined /> },
 }
 
-const STATUS_CONFIG = {
-  pending: { label: 'در انتظار', color: 'default', icon: <ClockCircleOutlined /> },
-  sent: { label: 'ارسال شده', color: 'blue', icon: <SendOutlined /> },
-  delivered: { label: 'تحویل داده شده', color: 'green', icon: <CheckCircleOutlined /> },
-  failed: { label: 'ناموفق', color: 'red', icon: <CloseCircleOutlined /> },
+const normalizePhone = (value: string): string => {
+  const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩'
+  return value.trim().replace(/[۰-۹٠-٩]/g, (d) => String(fa.indexOf(d) >= 0 ? fa.indexOf(d) : ar.indexOf(d))).replace(/[\s\-()]/g, '')
 }
-
-const INITIAL_SMS: SmsMessage[] = [
-  { id: '1', to: '09121234567', body: 'نامه جدید در کارتابل شما ثبت شد', status: 'delivered', sentAt: '۱۴۰۳/۰۴/۱۵ ۱۰:۳۰', cost: 120 },
-  { id: '2', to: '09351234567', body: 'وظیفه جدید به شما محول شد', status: 'delivered', sentAt: '۱۴۰۳/۰۴/۱۵ ۱۱:۰۰', cost: 120 },
-  { id: '3', to: '09121111111', body: 'تیکت شما بررسی شد', status: 'sent', sentAt: '۱۴۰۳/۰۴/۱۵ ۱۲:۰۰', cost: 120 },
-  { id: '4', to: '09122222222', body: 'فرم مرخصی شما تأیید شد', status: 'failed', sentAt: '۱۴۰۳/۰۴/۱۵ ۱۳:۰۰' },
-  { id: '5', to: '09123333333', body: 'یادآوری جلسه فردا ساعت ۱۰', status: 'pending', scheduledAt: '۱۴۰۳/۰۴/۱۶ ۰۸:۰۰' },
-]
-
-const TEMPLATES = [
-  'نامه جدید در کارتابل شما ثبت شد',
-  'وظیفه جدید به شما محول شد',
-  'تیکت شما بررسی شد',
-  'فرم {نوع} شما {وضعیت} شد',
-  'یادآوری جلسه فردا ساعت {ساعت}',
-]
+const isValidPhone = (value: string): boolean => /^09\d{9}$/.test(value)
+const smsParts = (text: string): number => (text.length === 0 ? 0 : text.length <= 70 ? 1 : Math.ceil(text.length / 67))
 
 export default function SmsPage() {
-  const [messages, setMessages] = useState<SmsMessage[]>(INITIAL_SMS)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [form] = Form.useForm()
+  const toast = message
+  const navigate = useNavigate()
+  const api = 'http://localhost:5043/api/v1'
+  const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token') || ''}` })
+  const [messages, setMessages] = useState<SmsMessage[]>([])
+  const [users, setUsers] = useState<DirectoryUser[]>([])
+  const [contacts, setContacts] = useState<DirectoryContact[]>([])
+  const [serviceActive, setServiceActive] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [recipients, setRecipients] = useState<string[]>([])
+  const [text, setText] = useState('')
 
-  const handleSend = () => {
-    form.validateFields().then(values => {
-      const newSms: SmsMessage = {
-        id: Date.now().toString(),
-        status: values.scheduledAt ? 'pending' : 'sent',
-        sentAt: values.scheduledAt ? undefined : new Date().toLocaleString('fa-IR'),
-        scheduledAt: values.scheduledAt,
-        cost: 120,
-        ...values
-      }
-      setMessages(prev => [newSms, ...prev])
-      setModalOpen(false)
-      form.resetFields()
-    })
+  const loadMessages = async () => {
+    setLoading(true)
+    try {
+      const r = await fetch(`${api}/sms/messages`, { headers: headers() })
+      if (r.ok) setMessages(await r.json())
+    } finally { setLoading(false) }
   }
 
+  useEffect(() => {
+    void loadMessages()
+    fetch(`${api}/directory`, { headers: headers() }).then(r => r.ok ? r.json() : null).then(d => { if (d) { setUsers(d.users || []); setContacts(d.contacts || []) } }).catch(() => {})
+    fetch(`${api}/sms-settings`, { headers: headers() }).then(r => r.ok ? r.json() : null).then(s => { if (s) setServiceActive(!!s.isActive) }).catch(() => {})
+  }, [])
+
+  const { userOptions, contactOptions } = useMemo(() => {
+    const seen = new Set<string>()
+    const userOptions = users.flatMap(u => {
+      const phone = normalizePhone(u.phoneNumber || '')
+      if (!isValidPhone(phone) || seen.has(phone)) return []
+      seen.add(phone)
+      return [{ value: phone, label: `${u.fullName}${u.position ? ` — ${u.position}` : ''} (${phone})`, name: u.fullName }]
+    })
+    const contactOptions = contacts.flatMap(c => {
+      const phone = normalizePhone(c.mobile || c.phone || '')
+      if (!isValidPhone(phone) || seen.has(phone)) return []
+      seen.add(phone)
+      return [{ value: phone, label: `${c.fullName}${c.companyName ? ` — ${c.companyName}` : ''} (${phone})`, name: c.fullName }]
+    })
+    return { userOptions, contactOptions }
+  }, [users, contacts])
+
+  const invalidRecipients = recipients.filter(r => !isValidPhone(normalizePhone(r)))
+
+  const selectAll = (options: { value: string }[]) => setRecipients(prev => [...new Set([...prev, ...options.map(o => o.value)])])
+
+  const send = async () => {
+    const cleaned = [...new Set(recipients.map(normalizePhone))]
+    const invalid = cleaned.filter(r => !isValidPhone(r))
+    if (!cleaned.length) { toast.warning('حداقل یک شماره گیرنده انتخاب کنید'); return }
+    if (invalid.length) { toast.error(`این شماره‌ها معتبر نیستند: ${invalid.slice(0, 3).join('، ')}`); return }
+    if (!text.trim()) { toast.warning('متن پیامک را بنویسید'); return }
+    setSending(true)
+    try {
+      const r = await fetch(`${api}/sms/send`, { method: 'POST', headers: headers(), body: JSON.stringify({ recipients: cleaned, message: text.trim() }) })
+      const result = await r.json().catch(() => ({}))
+      if (r.ok) {
+        toast.success(result.message || 'پیامک ارسال شد')
+        setRecipients([]); setText('')
+        await loadMessages()
+      } else {
+        toast.error(result.message || 'ارسال پیامک ناموفق بود')
+      }
+    } finally { setSending(false) }
+  }
+
+  const stats = useMemo(() => ({
+    total: messages.length,
+    sent: messages.filter(m => m.status === 1 || m.status === 2).length,
+    failed: messages.filter(m => m.status === 3).length,
+    cost: messages.reduce((a, m) => a + (Number(m.cost) || 0), 0),
+  }), [messages])
+
   const columns = [
-    { title: 'شماره', dataIndex: 'to', key: 'to', width: 130 },
-    { title: 'متن پیامک', dataIndex: 'body', key: 'body' },
-    { title: 'وضعیت', dataIndex: 'status', key: 'status', width: 150,
-      render: (s: string) => (
-        <Tag color={STATUS_CONFIG[s as keyof typeof STATUS_CONFIG].color} icon={STATUS_CONFIG[s as keyof typeof STATUS_CONFIG].icon}>
-          {STATUS_CONFIG[s as keyof typeof STATUS_CONFIG].label}
-        </Tag>
-      )},
-    { title: 'زمان ارسال', key: 'time', width: 160,
-      render: (_: unknown, r: SmsMessage) => r.scheduledAt ? `زمان‌بندی: ${r.scheduledAt}` : r.sentAt || '-' },
-    { title: 'هزینه (ریال)', dataIndex: 'cost', key: 'cost', width: 110,
-      render: (c: number) => c ? c.toLocaleString('fa-IR') : '-' },
+    { title: 'شماره', dataIndex: 'to', key: 'to', width: 130, render: (v: string) => <span dir="ltr">{v}</span> },
+    { title: 'متن پیامک', dataIndex: 'body', key: 'body', ellipsis: true },
+    { title: 'وضعیت', dataIndex: 'status', key: 'status', width: 130,
+      render: (s: number, r: SmsMessage) => {
+        const config = STATUS_CONFIG[s] ?? STATUS_CONFIG[0]
+        const tag = <Tag color={config.color} icon={config.icon}>{config.label}</Tag>
+        return r.errorMessage ? <Tooltip title={r.errorMessage}>{tag}</Tooltip> : tag
+      } },
+    { title: 'زمان', key: 'time', width: 160,
+      render: (_: unknown, r: SmsMessage) => { const t = r.sentAt || r.createdAt; return t ? new Date(t).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short' }) : '-' } },
+    { title: 'هزینه (ریال)', dataIndex: 'cost', key: 'cost', width: 110, render: (c: number) => c ? Number(c).toLocaleString('fa-IR') : '-' },
   ]
+
+  const parts = smsParts(text.trim().length ? text.trim() : '')
 
   return (
     <div>
+      <Card style={{ marginBottom: 16, border: 'none', background: 'linear-gradient(120deg, #831843 0%, #be185d 55%, #7c3aed 100%)' }} styles={{ body: { padding: '20px 24px' } }}>
+        <Row align="middle" justify="space-between" gutter={[16, 16]}>
+          <Col>
+            <Space direction="vertical" size={2}>
+              <span style={{ color: '#fff', fontSize: 20, fontWeight: 700 }}><MessageOutlined /> ارسال پیامک گروهی</span>
+              <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>ارسال به کاربران سامانه، مخاطبین یا هر شماره دلخواه — متصل به پنل پیامکی کاوه‌نگار</span>
+            </Space>
+          </Col>
+          <Col>
+            {serviceActive === false
+              ? <Button ghost icon={<SettingOutlined />} onClick={() => navigate('/settings')}>سرویس غیرفعال است — تنظیمات</Button>
+              : serviceActive === true && <Tag color="green" style={{ fontSize: 13, padding: '4px 10px' }}><CheckCircleOutlined /> سرویس پیامک فعال</Tag>}
+          </Col>
+        </Row>
+      </Card>
+
+      {serviceActive === false && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+          message="سرویس پیامک غیرفعال است"
+          description="برای ارسال پیامک ابتدا از بخش تنظیمات ← پنل پیامکی، سرویس را فعال کنید."
+          action={<Button size="small" type="primary" onClick={() => navigate('/settings')}>رفتن به تنظیمات</Button>} />
+      )}
+
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="کل ارسال‌ها" value={messages.length} valueStyle={{ color: '#1677ff' }} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="تحویل داده شده" value={messages.filter(m => m.status === 'delivered').length} valueStyle={{ color: '#52c41a' }} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="ناموفق" value={messages.filter(m => m.status === 'failed').length} valueStyle={{ color: '#f5222d' }} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="هزینه کل (ریال)" value={messages.reduce((a, m) => a + (m.cost || 0), 0)} valueStyle={{ color: '#fa8c16' }} /></Card>
-        </Col>
+        <Col xs={12} sm={6}><Card><Statistic title="کل ارسال‌ها" value={stats.total} valueStyle={{ color: '#be185d' }} prefix={<SendOutlined />} /></Card></Col>
+        <Col xs={12} sm={6}><Card><Statistic title="موفق" value={stats.sent} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
+        <Col xs={12} sm={6}><Card><Statistic title="ناموفق" value={stats.failed} valueStyle={{ color: '#f5222d' }} prefix={<CloseCircleOutlined />} /></Card></Col>
+        <Col xs={12} sm={6}><Card><Statistic title="هزینه کل (ریال)" value={stats.cost} valueStyle={{ color: '#fa8c16' }} /></Card></Col>
       </Row>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Space>
-          {Object.entries(STATUS_CONFIG).map(([key, val]) => (
-            <Tag key={key} color={val.color}>{val.label}: {messages.filter(m => m.status === key).length}</Tag>
-          ))}
-        </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>پیامک جدید</Button>
-      </div>
-
-      <Table columns={columns} dataSource={messages} rowKey="id" />
-
-      <Modal title="ارسال پیامک" open={modalOpen} onOk={handleSend} onCancel={() => setModalOpen(false)} okText="ارسال" cancelText="انصراف">
-        <Form form={form} layout="vertical">
-          <Form.Item name="sendType" label="نوع ارسال" initialValue="single">
-            <Select>
-              <Select.Option value="single">تکی</Select.Option>
-              <Select.Option value="group">گروهی</Select.Option>
-            </Select>
+      <Card title={<span><SendOutlined style={{ color: '#be185d' }} /> پیامک جدید</span>} style={{ marginBottom: 16 }}>
+        <Form layout="vertical">
+          <Form.Item
+            label="گیرندگان"
+            help={invalidRecipients.length ? <span style={{ color: '#f5222d' }}>شماره‌های نامعتبر: {invalidRecipients.slice(0, 3).join('، ')}</span> : 'از فهرست انتخاب کنید یا شماره را تایپ کرده و Enter بزنید (مثلاً 09121234567)'}
+            validateStatus={invalidRecipients.length ? 'error' : undefined}>
+            <Select
+              mode="tags"
+              value={recipients}
+              onChange={(values: string[]) => setRecipients(values.map(normalizePhone))}
+              placeholder="انتخاب از کاربران و مخاطبین یا تایپ شماره جدید…"
+              optionFilterProp="label"
+              maxTagCount="responsive"
+              tokenSeparators={[',', '،', ' ', '\n']}
+              options={[
+                { label: <span><TeamOutlined /> کاربران سامانه</span>, title: 'users', options: userOptions },
+                { label: <span><ContactsOutlined /> مخاطبین و افراد مرتبط</span>, title: 'contacts', options: contactOptions },
+              ]}
+            />
           </Form.Item>
-          <Form.Item name="to" label="شماره موبایل" rules={[{ required: true, message: 'شماره را وارد کنید' }]}>
-            <Input placeholder="09121234567" />
+          <Space wrap style={{ marginBottom: 16 }}>
+            <Button size="small" icon={<TeamOutlined />} onClick={() => selectAll(userOptions)} disabled={!userOptions.length}>افزودن همه کاربران ({userOptions.length})</Button>
+            <Button size="small" icon={<ContactsOutlined />} onClick={() => selectAll(contactOptions)} disabled={!contactOptions.length}>افزودن همه مخاطبین ({contactOptions.length})</Button>
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRecipients([])} disabled={!recipients.length}>پاک کردن</Button>
+            {recipients.length > 0 && <Tag color="magenta">{recipients.length.toLocaleString('fa-IR')} گیرنده</Tag>}
+          </Space>
+          <Form.Item label="متن پیامک" style={{ marginBottom: 8 }}>
+            <Input.TextArea rows={4} value={text} onChange={e => setText(e.target.value)} showCount maxLength={500} placeholder="متن پیامک را بنویسید…" />
           </Form.Item>
-          <Form.Item name="template" label="قالب پیامک">
-            <Select placeholder="انتخاب قالب" onChange={val => form.setFieldValue('body', val)} allowClear>
-              {TEMPLATES.map(t => <Select.Option key={t} value={t}>{t}</Select.Option>)}
-            </Select>
-          </Form.Item>
-          <Form.Item name="body" label="متن پیامک" rules={[{ required: true, message: 'متن را وارد کنید' }]}>
-            <Input.TextArea rows={4} showCount maxLength={160} />
-          </Form.Item>
-          <Form.Item name="scheduledAt" label="زمان‌بندی ارسال (اختیاری)">
-            <Input placeholder="مثلاً ۱۴۰۳/۰۴/۲۰ ۱۰:۰۰" />
-          </Form.Item>
+          <Row justify="space-between" align="middle">
+            <Col>
+              {parts > 0 && <Tag color={parts > 1 ? 'orange' : 'green'}>{parts.toLocaleString('fa-IR')} بخش پیامکی</Tag>}
+            </Col>
+            <Col>
+              <Button type="primary" size="large" icon={<SendOutlined />} loading={sending}
+                disabled={sending || serviceActive === false || !recipients.length || !text.trim()}
+                onClick={() => void send()}>
+                ارسال به {recipients.length ? recipients.length.toLocaleString('fa-IR') : '۰'} شماره
+              </Button>
+            </Col>
+          </Row>
         </Form>
-      </Modal>
+      </Card>
+
+      <Card title="تاریخچه ارسال‌ها" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadMessages()} loading={loading}>به‌روزرسانی</Button>}>
+        <Table columns={columns} dataSource={messages} rowKey="id" loading={loading} size="middle"
+          pagination={{ pageSize: 10, showTotal: total => `${total.toLocaleString('fa-IR')} پیامک` }} />
+      </Card>
     </div>
   )
 }

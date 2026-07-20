@@ -88,9 +88,58 @@ async function sms(request: Request, auth: AuthContext, path: string): Promise<R
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
 
+async function smsMessaging(request: Request, auth: AuthContext, path: string): Promise<Response> {
+  requirePermission(auth, 'sms.view')
+  if (request.method === 'GET' && path === '/sms/messages') {
+    const r = await db.from('SmsMessages').select('Id,To,Body,Status,Provider,MessageId,ErrorMessage,SentAt,CreatedAt,Cost').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(200)
+    check(r.error); return json(request, camelize(r.data))
+  }
+  if (request.method === 'POST' && path === '/sms/send') {
+    const input = await body<Obj>(request)
+    const fa = '۰۱۲۳۴۵۶۷۸۹', ar = '٠١٢٣٤٥٦٧٨٩'
+    const normalize = (v: unknown) => String(v ?? '').trim().replace(/[۰-۹٠-٩]/g, (d) => String(fa.indexOf(d) >= 0 ? fa.indexOf(d) : ar.indexOf(d)))
+    const message = String(input.message ?? '').trim()
+    if (!message || message.length > 500) throw new HttpError(400, 'متن پیام باید بین ۱ تا ۵۰۰ کاراکتر باشد')
+    const recipients = [...new Set(((Array.isArray(input.recipients) ? input.recipients : []) as unknown[]).map(normalize).filter(Boolean))]
+    if (!recipients.length) throw new HttpError(400, 'حداقل یک شماره گیرنده انتخاب کنید')
+    if (recipients.length > 100) throw new HttpError(400, 'در هر ارسال حداکثر ۱۰۰ شماره مجاز است')
+    const invalid = recipients.filter((p) => !/^09\d{9}$/.test(p))
+    if (invalid.length) throw new HttpError(400, `این شماره‌ها معتبر نیستند: ${invalid.slice(0, 5).join('، ')}`)
+    const settings = await db.from('SmsProviderSettings').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
+    check(settings.error); const s = settings.data
+    if (!s?.IsActive) throw new HttpError(400, 'سرویس پیامک فعال نیست؛ ابتدا از تنظیمات، پنل پیامکی را فعال کنید')
+    const token = s.EncryptedApiKey ? await unprotect(s.EncryptedApiKey) : ''
+    if (!token) throw new HttpError(400, 'API Key ذخیره نشده است')
+    const isKavenegar = isKavenegarProvider(s.ProviderName, s.ApiUrl)
+    let response: Response
+    if (isKavenegar) {
+      const endpoint = `https://api.kavenegar.com/v1/${encodeURIComponent(token)}/sms/send.json`
+      const params = new URLSearchParams({ receptor: recipients.join(','), message })
+      if (s.SenderNumber) params.set('sender', String(s.SenderNumber))
+      response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body: params.toString() })
+    } else {
+      response = await fetch(s.ApiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ to: recipients, message, sender: s.SenderNumber, username: s.Username }) })
+    }
+    const raw = await response.text(); let payload: Obj = {}; try { payload = JSON.parse(raw) } catch { /* non-JSON body is kept in raw */ }
+    const apiStatus = isKavenegar ? Number(payload.return?.status ?? 0) : response.status
+    const success = response.ok && (!isKavenegar || apiStatus === 200)
+    const entries: Obj[] = Array.isArray(payload.entries) ? payload.entries : []
+    const errorMessage = success ? null : String(payload.return?.message || raw || `خطای ${response.status}`).slice(0, 500)
+    const rows = recipients.map((phone, index) => {
+      const entry = entries.find((e) => String(e.receptor) === phone) ?? entries[index] ?? null
+      return { ...base(auth), To: phone, Body: message, Status: success ? 1 : 3, Provider: s.ProviderName, MessageId: entry?.messageid ? String(entry.messageid) : null, ErrorMessage: errorMessage, SentAt: success ? now() : null, ScheduledAt: null, Cost: entry?.cost ?? null, TemplateId: null, SentByUserId: auth.userId }
+    })
+    const log = await db.from('SmsMessages').insert(rows); check(log.error)
+    if (!success) throw new HttpError(400, errorMessage || 'ارسال پیامک ناموفق بود')
+    return json(request, { message: recipients.length === 1 ? 'پیامک ارسال شد' : `پیامک برای ${recipients.length} شماره ارسال شد`, sent: recipients.length })
+  }
+  throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
+}
+
 export async function handleIntegrations(request: Request, auth: AuthContext, path: string): Promise<Response | null> {
   if (path.startsWith('/ai-settings')) return aiSettings(request, auth, path)
   if (path.startsWith('/ai')) return ai(request, auth, path)
   if (path.startsWith('/sms-settings')) return sms(request, auth, path)
+  if (path.startsWith('/sms')) return smsMessaging(request, auth, path)
   return null
 }
