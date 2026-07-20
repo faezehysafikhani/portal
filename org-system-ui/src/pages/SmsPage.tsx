@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Table, Button, Tag, Form, Input, Select, Space, Card, Statistic, Row, Col, Alert, Tooltip, message } from 'antd'
-import { SendOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, TeamOutlined, ContactsOutlined, ReloadOutlined, MessageOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
+import { Table, Button, Tag, Form, Input, Select, Space, Card, Statistic, Row, Col, Alert, Tooltip, message, Tabs, Popconfirm } from 'antd'
+import { SendOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, TeamOutlined, ContactsOutlined, ReloadOutlined, MessageOutlined, DeleteOutlined, SettingOutlined, SearchOutlined, RedoOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
 interface SmsMessage { id: string; to: string; body: string; status: number; provider?: string; messageId?: string; errorMessage?: string; sentAt?: string; createdAt?: string; cost?: number }
@@ -35,6 +35,9 @@ export default function SmsPage() {
   const [sending, setSending] = useState(false)
   const [recipients, setRecipients] = useState<string[]>([])
   const [text, setText] = useState('')
+  const [activeTab, setActiveTab] = useState('send')
+  const [search, setSearch] = useState('')
+  const [resendingId, setResendingId] = useState<string | null>(null)
 
   const loadMessages = async () => {
     setLoading(true)
@@ -95,6 +98,22 @@ export default function SmsPage() {
     } finally { setSending(false) }
   }
 
+  const resend = async (m: SmsMessage) => {
+    setResendingId(m.id)
+    try {
+      const r = await fetch(`${api}/sms/send`, { method: 'POST', headers: headers(), body: JSON.stringify({ recipients: [m.to], message: m.body }) })
+      const result = await r.json().catch(() => ({}))
+      if (r.ok) { toast.success(result.message || 'پیامک دوباره ارسال شد'); await loadMessages() }
+      else toast.error(result.message || 'ارسال مجدد ناموفق بود')
+    } finally { setResendingId(null) }
+  }
+
+  const filteredMessages = useMemo(() => {
+    const q = normalizePhone(search) || search.trim()
+    if (!q) return messages
+    return messages.filter(m => String(m.to || '').includes(q) || String(m.body || '').includes(search.trim()))
+  }, [messages, search])
+
   const stats = useMemo(() => ({
     total: messages.length,
     sent: messages.filter(m => m.status === 1 || m.status === 2).length,
@@ -114,6 +133,14 @@ export default function SmsPage() {
     { title: 'زمان', key: 'time', width: 160,
       render: (_: unknown, r: SmsMessage) => { const t = r.sentAt || r.createdAt; return t ? new Date(t).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short' }) : '-' } },
     { title: 'هزینه (ریال)', dataIndex: 'cost', key: 'cost', width: 110, render: (c: number) => c ? Number(c).toLocaleString('fa-IR') : '-' },
+    { title: 'ارسال مجدد', key: 'resend', width: 130,
+      render: (_: unknown, r: SmsMessage) => (
+        <Popconfirm title="این پیامک دوباره به همین شماره ارسال شود؟" okText="ارسال" cancelText="انصراف"
+          onConfirm={() => void resend(r)} disabled={serviceActive === false || !r.body}>
+          <Button size="small" icon={<RedoOutlined />} loading={resendingId === r.id}
+            disabled={serviceActive === false || !r.body || (resendingId !== null && resendingId !== r.id)}>ارسال مجدد</Button>
+        </Popconfirm>
+      ) },
   ]
 
   const parts = smsParts(text.trim().length ? text.trim() : '')
@@ -150,7 +177,9 @@ export default function SmsPage() {
         <Col xs={12} sm={6}><Card><Statistic title="هزینه کل (ریال)" value={stats.cost} valueStyle={{ color: '#fa8c16' }} /></Card></Col>
       </Row>
 
-      <Card title={<span><SendOutlined style={{ color: '#be185d' }} /> پیامک جدید</span>} style={{ marginBottom: 16 }}>
+      <Card>
+        <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
+          { key: 'send', label: <span><SendOutlined /> ارسال پیامک</span>, children: (
         <Form layout="vertical">
           <Form.Item
             label="گیرندگان"
@@ -192,11 +221,24 @@ export default function SmsPage() {
             </Col>
           </Row>
         </Form>
-      </Card>
-
-      <Card title="تاریخچه ارسال‌ها" extra={<Button icon={<ReloadOutlined />} onClick={() => void loadMessages()} loading={loading}>به‌روزرسانی</Button>}>
-        <Table columns={columns} dataSource={messages} rowKey="id" loading={loading} size="middle"
-          pagination={{ pageSize: 10, showTotal: total => `${total.toLocaleString('fa-IR')} پیامک` }} />
+          ) },
+          { key: 'history', label: <span><HistoryOutlined /> پیام‌های ارسال‌شده ({messages.length.toLocaleString('fa-IR')})</span>, children: (
+            <div>
+              <Row gutter={[12, 12]} align="middle" style={{ marginBottom: 16 }}>
+                <Col flex="auto">
+                  <Input allowClear prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />} placeholder="جستجو بر اساس شماره یا متن پیامک…"
+                    value={search} onChange={e => setSearch(e.target.value)} />
+                </Col>
+                <Col>
+                  <Button icon={<ReloadOutlined />} onClick={() => void loadMessages()} loading={loading}>به‌روزرسانی</Button>
+                </Col>
+              </Row>
+              {search.trim() && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`${filteredMessages.length.toLocaleString('fa-IR')} پیامک با جستجوی شما مطابقت دارد`} />}
+              <Table columns={columns} dataSource={filteredMessages} rowKey="id" loading={loading} size="middle"
+                pagination={{ pageSize: 10, showTotal: total => `${total.toLocaleString('fa-IR')} پیامک` }} />
+            </div>
+          ) },
+        ]} />
       </Card>
     </div>
   )
