@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Card, Tabs, Form, Select, Switch, Tag, Space, Row, Col, Divider, Upload, Button, Modal, Input, InputNumber, Table, Checkbox, message } from 'antd'
+import { Alert, AutoComplete, Card, Tabs, Form, Select, Switch, Tag, Space, Row, Col, Divider, Upload, Button, Modal, Input, InputNumber, Table, Checkbox, message } from 'antd'
 import { PlusOutlined, EditOutlined, SettingOutlined, BankOutlined, TeamOutlined, UploadOutlined, DeleteOutlined, CalendarOutlined, RobotOutlined, ApiOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePermissionStore } from '../store/permissionStore'
@@ -64,6 +64,9 @@ export default function SettingsPage() {
   const [aiForm]=Form.useForm()
   const [aiHasKey,setAiHasKey]=useState(false)
   const [aiTesting,setAiTesting]=useState(false)
+  const [aiModels,setAiModels]=useState<string[]>([])
+  const [aiModelsLoading,setAiModelsLoading]=useState(false)
+  const loadAiModels=async()=>{setAiModelsLoading(true);try{const r=await fetch(`${api}/ai-settings/models`,{headers:headers()});const result=await r.json().catch(()=>({}));if(!r.ok){message.error(result.message||'دریافت فهرست مدل‌ها ناموفق بود');return}setAiModels(result.models||[]);message.success(`${(result.models||[]).length} مدل موجود دریافت شد`)}finally{setAiModelsLoading(false)}}
   const [letterTemplates, setLetterTemplates] = useState<any[]>([])
   const saveLetterTemplateFile = (file: File, index: number) => {
     if (!file.type.startsWith('image/')) { message.error('برای قالب قابل تایپ، فایل PNG یا JPG انتخاب کنید'); return false }
@@ -432,11 +435,11 @@ export default function SettingsPage() {
     ...(canManageAi ? [{
       key:'9',label:<span><RobotOutlined/> هوش مصنوعی</span>,children:<Card title={<Space><RobotOutlined style={{color:'#722ed1'}}/><span>تنظیمات سرویس هوش مصنوعی</span></Space>}>
         <Alert type="info" showIcon style={{marginBottom:18}} message="API Key فقط در بک‌اند و به‌صورت رمزنگاری‌شده ذخیره می‌شود" description="برای شروع Groq را انتخاب کنید. بعداً می‌توانید بدون تغییر نرم‌افزار، OpenRouter را جایگزین کنید."/>
-        <Form form={aiForm} layout="vertical" initialValues={{providerName:'Groq',baseUrl:'https://api.groq.com/openai/v1',model:'qwen/qwen3-32b',maxTokens:1200,temperature:0.3,isActive:false,systemPrompt:'همیشه فارسی، دقیق، کوتاه و ساختارمند پاسخ بده.'}}>
+        <Form form={aiForm} layout="vertical" initialValues={{providerName:'Groq',baseUrl:'https://api.groq.com/openai/v1',model:'llama-3.3-70b-versatile',maxTokens:1200,temperature:0.3,isActive:false,systemPrompt:'همیشه فارسی، دقیق، کوتاه و ساختارمند پاسخ بده.'}}>
           <Row gutter={16}>
-            <Col xs={24} md={8}><Form.Item name="providerName" label="سرویس‌دهنده" rules={[{required:true}]}><Select onChange={v=>{if(v==='Groq')aiForm.setFieldsValue({baseUrl:'https://api.groq.com/openai/v1',model:'qwen/qwen3-32b'});else aiForm.setFieldsValue({baseUrl:'https://openrouter.ai/api/v1',model:'openrouter/free'})}} options={[{value:'Groq',label:'Groq'},{value:'OpenRouter',label:'OpenRouter'}]}/></Form.Item></Col>
+            <Col xs={24} md={8}><Form.Item name="providerName" label="سرویس‌دهنده" rules={[{required:true}]}><Select onChange={v=>{if(v==='Groq')aiForm.setFieldsValue({baseUrl:'https://api.groq.com/openai/v1',model:'llama-3.3-70b-versatile'});else aiForm.setFieldsValue({baseUrl:'https://openrouter.ai/api/v1',model:'openrouter/free'})}} options={[{value:'Groq',label:'Groq'},{value:'OpenRouter',label:'OpenRouter'}]}/></Form.Item></Col>
             <Col xs={24} md={16}><Form.Item name="baseUrl" label="آدرس پایه API" rules={[{required:true,type:'url'}]}><Input prefix={<ApiOutlined/>} dir="ltr"/></Form.Item></Col>
-            <Col xs={24} md={12}><Form.Item name="model" label="نام مدل" rules={[{required:true},{pattern:/^[A-Za-z0-9._:/-]{2,150}$/,message:'نام مدل معتبر نیست'}]}><Input dir="ltr" placeholder="qwen/qwen3-32b"/></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="model" label={<Space>نام مدل<Button size="small" type="link" loading={aiModelsLoading} disabled={!aiHasKey} onClick={()=>void loadAiModels()} style={{padding:0}}>دریافت مدل‌های موجود</Button></Space>} rules={[{required:true},{pattern:/^[A-Za-z0-9._:/-]{2,150}$/,message:'نام مدل معتبر نیست'}]}><AutoComplete style={{direction:'ltr'}} options={aiModels.map(m=>({value:m}))} filterOption={(input,option)=>String(option?.value??'').toLowerCase().includes(input.toLowerCase())} placeholder="llama-3.3-70b-versatile"/></Form.Item></Col>
             <Col xs={24} md={12}><Form.Item name="apiKey" label={`API Key ${aiHasKey?'(قبلاً ذخیره شده؛ برای تغییر مقدار جدید وارد کنید)':''}`} rules={aiHasKey?[]:[{required:true,message:'API Key را وارد کنید'}]}><Input.Password dir="ltr" autoComplete="new-password" placeholder={aiHasKey?'••••••••••••••••':'gsk_...'}/></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="maxTokens" label="حداکثر توکن خروجی" rules={[{required:true}]}><InputNumber min={100} max={4000} step={100} style={{width:'100%'}}/></Form.Item></Col>
             <Col xs={24} md={8}><Form.Item name="temperature" label="خلاقیت پاسخ (Temperature)" rules={[{required:true}]}><InputNumber min={0} max={1.5} step={0.1} style={{width:'100%'}}/></Form.Item></Col>

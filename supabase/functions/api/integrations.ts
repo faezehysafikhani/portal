@@ -22,6 +22,14 @@ async function unprotect(value: string): Promise<string> { if (!value.startsWith
 async function aiSettings(request: Request, auth: AuthContext, path: string): Promise<Response> {
   requirePermission(auth, 'ai.settings')
   const current = async () => { const r = await db.from('AiProviderSettings').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle(); check(r.error); return r.data }
+  if (request.method === 'GET' && path === '/ai-settings/models') {
+    const item = await current(); if (!item || !String(item.EncryptedApiKey ?? '').startsWith('edge:v1:')) throw new HttpError(400, 'ابتدا API Key را ذخیره کنید')
+    const apiKey = await unprotect(String(item.EncryptedApiKey))
+    const response = await fetch(`${String(item.BaseUrl).replace(/\/$/, '')}/models`, { headers: { Authorization: `Bearer ${apiKey}` } })
+    const data = await response.json() as Obj; if (!response.ok) throw new HttpError(400, String(data.error?.message ?? 'دریافت فهرست مدل‌ها ناموفق بود'))
+    const models = (Array.isArray(data.data) ? data.data : []).map((m: Obj) => String(m.id)).sort()
+    return json(request, { models })
+  }
   if (request.method === 'GET') { const item = await current(); return json(request, item ? { providerName: item.ProviderName, baseUrl: item.BaseUrl, model: item.Model, maxTokens: item.MaxTokens, temperature: item.Temperature, systemPrompt: item.SystemPrompt, isActive: item.IsActive, hasApiKey: String(item.EncryptedApiKey ?? '').startsWith('edge:v1:') } : null) }
   if (request.method === 'PUT' && path === '/ai-settings') {
     const input = await body<Obj>(request); let uri: URL; try { uri = new URL(String(input.baseUrl)) } catch { throw new HttpError(400, 'آدرس API معتبر نیست') }
