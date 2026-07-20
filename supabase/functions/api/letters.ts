@@ -79,6 +79,7 @@ export async function handleLetters(request: Request, auth: AuthContext, path: s
   }
   if (request.method === 'POST' && path === '/letters') {
     requirePermission(auth, 'letters.create'); const input = await body<Obj>(request); const type = enumIn(input.type, types); const status = enumIn(input.status, statuses)
+    if (type === 1) requirePermission(auth, 'letters.type.incoming'); if (type === 2) requirePermission(auth, 'letters.type.outgoing')
     const requestId=String(input.clientRequestId??'').trim();if(requestId){const existing=await db.from('Letters').select('Id,LetterNumber,LetterCounter,Status').eq('TenantId',auth.tenantId).eq('FromUserId',auth.userId).eq('ClientRequestId',requestId).maybeSingle();check(existing.error);if(existing.data)return json(request,{message:'این نامه قبلاً ثبت شده است',id:existing.data.Id,letterNumber:existing.data.LetterNumber,trackingCode:existing.data.LetterCounter,status:enumOut(existing.data.Status,statuses),duplicate:true})}
     const recipients = Array.isArray(input.recipients) ? input.recipients : []
     if (status !== 0 && recipients.length === 0 && !input.toExternalName) throw new HttpError(400, 'برای ارسال نامه انتخاب گیرنده الزامی است')

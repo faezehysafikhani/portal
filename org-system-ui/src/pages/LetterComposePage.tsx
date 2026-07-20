@@ -126,8 +126,8 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
   const clientRequestId=useRef(crypto.randomUUID())
   const [users, setUsers] = useState<ApiUser[]>([])
   const [contacts, setContacts] = useState<ApiContact[]>([])
-  const [letterType, setLetterType] = useState<'internal' | 'incoming' | 'outgoing'>('incoming')
-  const [registry, setRegistry] = useState(REGISTRIES[1])
+  const [letterType, setLetterType] = useState<'internal' | 'incoming' | 'outgoing'>('internal')
+  const [registry, setRegistry] = useState(REGISTRIES[0])
   const [paperSize, setPaperSize] = useState('A4')
   const [hasHeader, setHasHeader] = useState(true)
   const [hasFooter, setHasFooter] = useState(true)
@@ -372,9 +372,9 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Col>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>نوع نامه</div>
               <Radio.Group disabled={structuralFieldsLocked} value={letterType} onChange={e => handleLetterTypeChange(e.target.value)} size="small" buttonStyle="solid">
-                <Radio.Button value="outgoing">صادره</Radio.Button>
+                {(allowed('letters.type.outgoing') || letterType === 'outgoing') && <Radio.Button value="outgoing" disabled={!allowed('letters.type.outgoing')}>صادره</Radio.Button>}
                 <Radio.Button value="internal">داخلی</Radio.Button>
-                <Radio.Button value="incoming">وارده</Radio.Button>
+                {(allowed('letters.type.incoming') || letterType === 'incoming') && <Radio.Button value="incoming" disabled={!allowed('letters.type.incoming')}>وارده</Radio.Button>}
               </Radio.Group>
             </Col>
             <Divider type="vertical" style={{ height: 40 }} />
@@ -409,16 +409,10 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
                 {availableTemplates.map((t:any) => <Select.Option key={t.id} value={t.id}>{t.name}{t.imageData?' ✓':''}</Select.Option>)}
               </Select>
             </Col>
-            <Col style={{ marginRight: 'auto' }}>
-              <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>نمایش</div>
-              <Space size={4}>
-                <span style={{ fontSize: 11 }}>سربرگ</span> <Switch disabled={structuralFieldsLocked} size="small" checked={hasHeader} onChange={setHasHeader} />
-                <span style={{ fontSize: 11 }}>ته‌برگ</span> <Switch disabled={structuralFieldsLocked} size="small" checked={hasFooter} onChange={setHasFooter} />
-                <span style={{ fontSize: 11 }}>امضا</span> <Switch disabled={structuralFieldsLocked} size="small" checked={hasSignature} onChange={setHasSignature} />
-              </Space>
+            <Col style={{ marginRight: 'auto', alignSelf: 'center' }}>
+              <Form.Item name="sendPrimarySms" valuePropName="checked" style={{ margin: 0 }}><Checkbox>برای گیرنده اصلی پیامک ارسال شود</Checkbox></Form.Item>
             </Col>
           </Row>
-          <Form.Item name="sendPrimarySms" valuePropName="checked" style={{marginTop:8,marginBottom:0}}><Checkbox>برای گیرنده اصلی پیامک ارسال شود</Checkbox></Form.Item>
         </Form>
       </div>
 

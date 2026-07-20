@@ -54,22 +54,26 @@ export default function SmsPage() {
     const seen = new Set<string>()
     const userOptions = users.flatMap(u => {
       const phone = normalizePhone(u.phoneNumber || '')
-      if (!isValidPhone(phone) || seen.has(phone)) return []
+      if (!phone) return []
+      if (!isValidPhone(phone)) return [{ value: `invalid-user-${u.id}`, label: `${u.fullName} — ⚠️ شماره نامعتبر (${phone}) — در مدیریت کاربران اصلاح کنید`, name: u.fullName, disabled: true }]
+      if (seen.has(phone)) return []
       seen.add(phone)
-      return [{ value: phone, label: `${u.fullName}${u.position ? ` — ${u.position}` : ''} (${phone})`, name: u.fullName }]
+      return [{ value: phone, label: `${u.fullName}${u.position ? ` — ${u.position}` : ''} (${phone})`, name: u.fullName, disabled: false }]
     })
     const contactOptions = contacts.flatMap(c => {
       const phone = normalizePhone(c.mobile || c.phone || '')
-      if (!isValidPhone(phone) || seen.has(phone)) return []
+      if (!phone) return []
+      if (!isValidPhone(phone)) return [{ value: `invalid-contact-${c.id}`, label: `${c.fullName} — ⚠️ شماره نامعتبر (${phone})`, name: c.fullName, disabled: true }]
+      if (seen.has(phone)) return []
       seen.add(phone)
-      return [{ value: phone, label: `${c.fullName}${c.companyName ? ` — ${c.companyName}` : ''} (${phone})`, name: c.fullName }]
+      return [{ value: phone, label: `${c.fullName}${c.companyName ? ` — ${c.companyName}` : ''} (${phone})`, name: c.fullName, disabled: false }]
     })
     return { userOptions, contactOptions }
   }, [users, contacts])
 
   const invalidRecipients = recipients.filter(r => !isValidPhone(normalizePhone(r)))
 
-  const selectAll = (options: { value: string }[]) => setRecipients(prev => [...new Set([...prev, ...options.map(o => o.value)])])
+  const selectAll = (options: { value: string; disabled?: boolean }[]) => setRecipients(prev => [...new Set([...prev, ...options.filter(o => !o.disabled).map(o => o.value)])])
 
   const send = async () => {
     const cleaned = [...new Set(recipients.map(normalizePhone))]
@@ -167,8 +171,8 @@ export default function SmsPage() {
             />
           </Form.Item>
           <Space wrap style={{ marginBottom: 16 }}>
-            <Button size="small" icon={<TeamOutlined />} onClick={() => selectAll(userOptions)} disabled={!userOptions.length}>افزودن همه کاربران ({userOptions.length})</Button>
-            <Button size="small" icon={<ContactsOutlined />} onClick={() => selectAll(contactOptions)} disabled={!contactOptions.length}>افزودن همه مخاطبین ({contactOptions.length})</Button>
+            <Button size="small" icon={<TeamOutlined />} onClick={() => selectAll(userOptions)} disabled={!userOptions.some(o => !o.disabled)}>افزودن همه کاربران ({userOptions.filter(o => !o.disabled).length})</Button>
+            <Button size="small" icon={<ContactsOutlined />} onClick={() => selectAll(contactOptions)} disabled={!contactOptions.some(o => !o.disabled)}>افزودن همه مخاطبین ({contactOptions.filter(o => !o.disabled).length})</Button>
             <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRecipients([])} disabled={!recipients.length}>پاک کردن</Button>
             {recipients.length > 0 && <Tag color="magenta">{recipients.length.toLocaleString('fa-IR')} گیرنده</Tag>}
           </Space>
