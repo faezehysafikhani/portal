@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons'
 import type { UploadFile } from 'antd'
 import { apiFetch } from '../utils/api'
+import { sanitizeRichHtml } from '../utils/sanitizeHtml'
 import PersianDatePicker from '../components/PersianDatePicker'
 
 const API = 'http://localhost:5043/api/v1'
@@ -300,7 +301,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
         </div>
         <div style={{fontSize:paperSize==='A5'?10:12,position:'absolute',top:receiverTop,right:pageMetrics.x}}><strong>گیرنده:</strong> {receiverText || '—'}</div>
         <div style={{position:'absolute',top:subjectTop,right:pageMetrics.x,left:pageMetrics.x,fontWeight:700,textAlign:'right',fontSize:paperSize==='A5'?12:15}}>{v.subject && <>موضوع: {v.subject}</>}</div>
-        <div style={{ minHeight:paperSize==='A5'?120:200, fontSize:paperSize==='A5'?11:13, lineHeight:2.1, flex:'1 0 auto' }} dangerouslySetInnerHTML={{ __html: bodyHtml || 'متن نامه...' }} />
+        <div style={{ minHeight:paperSize==='A5'?120:200, fontSize:paperSize==='A5'?11:13, lineHeight:2.1, flex:'1 0 auto' }} dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(bodyHtml || 'متن نامه...') }} />
         {attachments.length > 0 && <div style={{ marginTop: 12, fontSize: 12 }}><strong>پیوست:</strong><ul style={{ paddingRight: 16 }}>{attachments.map((f, i) => <li key={i}>{getFileIcon(f.name)} {f.name}</li>)}</ul></div>}
         {hasSignature && <div style={{ marginTop:paperSize==='A5'?'12mm':'18mm', marginRight:'auto', width:paperSize==='A5'?'44mm':'58mm', textAlign:'center',fontSize:paperSize==='A5'?10:12,breakInside:'avoid',pageBreakInside:'avoid' }}><p style={{ fontWeight:600, marginBottom:4 }}>{signerName}</p>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
         {!showTemplate && hasFooter && <div style={{position:'absolute',bottom:'8mm',left:pageMetrics.x,right:pageMetrics.x,borderTop:'1px solid #eee',paddingTop:8,textAlign:'center',fontSize:9,color:'#999'}}>این نامه با سیستم مدیریت اسناد سازمانی صادر شده است</div>}

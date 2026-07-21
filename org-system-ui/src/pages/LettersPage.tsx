@@ -4,6 +4,7 @@ import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlin
 import LetterComposePage from './LetterComposePage'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
+import { sanitizeRichHtml } from '../utils/sanitizeHtml'
 
 const API = 'http://localhost:5043/api/v1'
 const getToken = () => localStorage.getItem('token') || ''
@@ -66,16 +67,6 @@ const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
 
 const REFERRAL_TYPES = ['اصل', 'رونوشت', 'تصویر', 'جهت اطلاع', 'جهت اقدام', 'جهت بایگانی', 'جهت تأیید']
 
-const sanitizeRichHtml=(html:string)=>{
-  const doc=new DOMParser().parseFromString(html||'','text/html')
-  doc.querySelectorAll('script,iframe,object,embed,link,meta').forEach(x=>x.remove())
-  doc.body.querySelectorAll('*').forEach(element=>{
-    for(const attribute of Array.from(element.attributes)){
-      if(attribute.name.toLowerCase().startsWith('on') || /javascript:/i.test(attribute.value)) element.removeAttribute(attribute.name)
-    }
-  })
-  return doc.body.innerHTML
-}
 
 function SavedLetterPage({detail,compact=false}:{detail:any;compact?:boolean}){
   const paper=detail.paperSize==='A5'?'A5':'A4'

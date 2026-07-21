@@ -113,6 +113,19 @@ async function smsMessaging(request: Request, auth: AuthContext, path: string): 
     if (recipients.length > 100) throw new HttpError(400, 'در هر ارسال حداکثر ۱۰۰ شماره مجاز است')
     const invalid = recipients.filter((p) => !/^09\d{9}$/.test(p))
     if (invalid.length) throw new HttpError(400, `این شماره‌ها معتبر نیستند: ${invalid.slice(0, 5).join('، ')}`)
+    // محدودیت نرخ: جلوگیری از تخلیه اعتبار پیامک توسط حساب لو رفته یا اسکریپت
+    try {
+      const since = new Date(Date.now() - 60 * 60_000).toISOString()
+      const recent = await db.from('SmsMessages').select('Id', { count: 'exact', head: true })
+        .eq('TenantId', auth.tenantId).gte('CreatedAt', since)
+      const sentLastHour = recent.count ?? 0
+      if (sentLastHour + recipients.length > 300) {
+        throw new HttpError(429, `سقف ارسال پیامک در یک ساعت گذشته پر شده است (${sentLastHour} پیامک). لطفاً بعداً دوباره تلاش کنید.`)
+      }
+    } catch (e) {
+      if (e instanceof HttpError) throw e   // خطای سقف را عبور بده
+      console.error('sms rate-limit check failed', e)  // خطای پایگاه داده نباید ارسال مجاز را قطع کند
+    }
     const settings = await db.from('SmsProviderSettings').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
     check(settings.error); const s = settings.data
     if (!s?.IsActive) throw new HttpError(400, 'سرویس پیامک فعال نیست؛ ابتدا از تنظیمات، پنل پیامکی را فعال کنید')
