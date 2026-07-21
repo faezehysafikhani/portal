@@ -1,3 +1,21 @@
+/* فونت محلی B Nazanin — فایل‌ها در public/fonts/ قرار می‌گیرند و از اینترنت خوانده نمی‌شوند */
+@font-face {
+  font-family: 'BNazanin';
+  src: url('/fonts/BNazanin.woff2') format('woff2'),
+       url('/fonts/BNazanin.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'BNazanin';
+  src: url('/fonts/BNazanin-Bold.woff2') format('woff2'),
+       url('/fonts/BNazanin-Bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -5,8 +23,8 @@
 }
 
 body {
-  font-family: 'IRANSans', Tahoma, sans-serif;
-  font-size: 10px;
+  font-family: 'BNazanin', 'IRANSans', Tahoma, sans-serif;
+  font-size: 11px;
   direction: rtl;
 }
 
@@ -22,6 +40,7 @@ body {
   background: #c1c1c1;
   border-radius: 3px;
 }
+
 :root {
   --primary: #8B1A6B;
   --primary-light: #B5226F;
@@ -60,36 +79,39 @@ body {
   background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
 }
 
-:root {
-  --primary: #8B1A6B;
-  --primary-light: #B5226F;
-  --primary-dark: #5C0F47;
-  --primary-gradient: linear-gradient(135deg, #5C0F47 0%, #B5226F 50%, #E91E8C 100%);
-  --primary-bg: #8B1A6B11;
-  --primary-border: #8B1A6B33;
+/* کارت‌های آمار داشبورد — افکت هاور */
+.stat-card {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12) !important;
 }
 
-.ant-layout-sider {
-  background: linear-gradient(180deg, #3D0A2E 0%, #5C0F47 100%) !important;
+/* صفحه ورود */
+@keyframes floatOrb {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(20px, -24px) scale(1.08); }
 }
-
-.ant-btn-primary {
-  background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
-  border: none !important;
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-.ant-btn-primary:hover {
-  background: linear-gradient(135deg, #7A1560, #A01E63) !important;
+.login-card {
+  animation: fadeUp 0.5s ease both;
 }
-
-.ant-tabs-tab-active .ant-tabs-tab-btn {
-  color: #8B1A6B !important;
+.login-feature {
+  transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
 }
-
-.ant-tabs-ink-bar {
-  background: #8B1A6B !important;
+.login-feature:hover {
+  transform: translateX(-4px);
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
 }
-
-.ant-menu-dark .ant-menu-item-selected {
-  background: linear-gradient(135deg, #8B1A6B, #B5226F) !important;
+.login-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  pointer-events: none;
+  animation: floatOrb 9s ease-in-out infinite;
 }

@@ -167,6 +167,7 @@ export default function MainLayout() {
       <Layout>
         <Header style={{
           background: '#fff', padding: '0 24px',
+          height: 54, lineHeight: '54px',
           display: 'flex', alignItems: 'center',
           justifyContent: 'space-between',
           boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
@@ -193,7 +194,7 @@ export default function MainLayout() {
           </div>
         </Header>
 
-        <Content style={{ margin: 24 }}>
+        <Content style={{ margin: '14px 16px 16px' }}>
           <Outlet />
         </Content>
       </Layout>

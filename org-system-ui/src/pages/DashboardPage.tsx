@@ -95,24 +95,27 @@ function DashboardHeader() {
 
   return (
     <Card
-      style={{ borderRadius: 16, background: 'linear-gradient(135deg, #ad2185 0%, #963c7c 50%, #bd579f 100%)', border: 'none' }}
-      styles={{ body: { padding: '16px 24px' } }}
+      style={{ borderRadius: 12, background: 'linear-gradient(120deg, #8B1A6B 0%, #ad2185 45%, #bd579f 100%)', border: 'none', boxShadow: '0 4px 18px rgba(139,26,107,0.25)' }}
+      styles={{ body: { padding: '10px 20px' } }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.3)' }}>
-            <UserOutlined style={{ fontSize: 24, color: 'white' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.35)', flexShrink: 0 }}>
+            <UserOutlined style={{ fontSize: 20, color: 'white' }} />
           </div>
-          <div>
-            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>خوش آمدید</div>
-            <div style={{ color: 'white', fontWeight: 700, fontSize: 18 }}>{user.fullName || 'مدیر سیستم'}</div>
-            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{user.position || 'مدیرعامل'}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>خوش آمدید،</span>
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>{user.fullName || 'مدیر سیستم'}</span>
+            <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>({user.position || 'مدیرعامل'})</span>
           </div>
         </div>
-        <div style={{ textAlign: 'left' }}>
-          <div style={{ color: 'white', fontWeight: 700, fontSize: 22, direction: 'rtl' }}>{persianTime}</div>
-          <div style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, fontWeight: 500 }}>{persianDate}</div>
-          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{gregorianDate}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}>
+          <span style={{ color: 'white', fontWeight: 700, fontSize: 20, direction: 'rtl', letterSpacing: 1 }}>{persianTime}</span>
+          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,0.25)' }} />
+          <div>
+            <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: 500 }}>{persianDate}</div>
+            <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{gregorianDate}</div>
+          </div>
         </div>
       </div>
     </Card>
@@ -446,14 +449,18 @@ export default function DashboardPage() {
       <Row gutter={[12, 12]}>
         {stats.map((s, i) => (
           <Col xs={12} md={8} lg={4} key={i}>
-            <Card style={{ background: s.bg, border: 'none', borderRadius: 10, borderTop: `3px solid ${s.color}` }} styles={{ body: { padding: '10px 14px' } }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                  <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>{s.label}</div>
-                  <div style={{ fontSize: 10, color: '#8c8c8c' }}>{s.change}</div>
+            <Card
+              style={{ background: s.bg, border: 'none', borderRadius: 10, borderRight: `3px solid ${s.color}`, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}
+              styles={{ body: { padding: '8px 12px' } }}
+              className="stat-card"
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
+                  <div style={{ fontSize: 12, color: '#444', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: '#999', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.change}</div>
                 </div>
-                <div style={{ width: 36, height: 36, borderRadius: 10, background: `${s.color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: s.color }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: `${s.color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: s.color, flexShrink: 0 }}>
                   {s.icon}
                 </div>
               </div>

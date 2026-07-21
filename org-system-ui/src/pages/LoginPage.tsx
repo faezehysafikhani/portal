@@ -68,19 +68,28 @@ export default function LoginPage() {
       gridTemplateColumns: '1fr 1fr',
       background: 'linear-gradient(135deg, #1a0533 0%, #3D0A2E 40%, #8B1A6B 100%)',
       direction: 'rtl',
+      position: 'relative',
+      overflow: 'hidden',
     }}>
+      {/* حباب‌های تزئینی پس‌زمینه */}
+      <div className="login-orb" style={{ width: 320, height: 320, background: 'rgba(233,30,140,0.35)', top: '-80px', right: '-60px' }} />
+      <div className="login-orb" style={{ width: 280, height: 280, background: 'rgba(122,21,96,0.45)', bottom: '-90px', left: '-70px', animationDelay: '3s' }} />
+
       {/* ستون راست — فرم */}
       <div style={{
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         padding: '48px 52px',
         borderLeft: '1px solid rgba(255,255,255,0.1)',
+        position: 'relative', zIndex: 1,
       }}>
-        <div style={{
+        <div className="login-card" style={{
           width: '100%', maxWidth: 440,
           background: 'white', borderRadius: 20,
-          padding: 36, boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+          padding: 36, boxShadow: '0 24px 70px rgba(0,0,0,0.45)',
+          overflow: 'hidden',
         }}>
+          <div style={{ height: 4, margin: '-36px -36px 28px', background: 'linear-gradient(90deg, #8B1A6B, #E91E8C, #8B1A6B)' }} />
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #8B1A6B, #A83585)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
               <UserOutlined style={{ fontSize: 28, color: 'white' }} />
@@ -123,6 +132,7 @@ export default function LoginPage() {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         padding: 48, color: 'white', direction: 'rtl',
+        position: 'relative', zIndex: 1,
       }}>
         <div style={{ width: 96, height: 96, borderRadius: 18, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '2px solid rgba(255,255,255,0.25)', padding: 8 }}>
           {company.logoUrl ? <img src={company.logoUrl} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 38 }}>🏢</span>}
@@ -139,7 +149,7 @@ export default function LoginPage() {
             { icon: '🎫', title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
             { icon: '📋', title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
           ].map((item, i) => (
-            <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', background: 'rgba(255,255,255,0.08)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div key={i} className="login-feature" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', background: 'rgba(255,255,255,0.08)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)' }}>
               <span style={{ fontSize: 22 }}>{item.icon}</span>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{item.title}</div>
