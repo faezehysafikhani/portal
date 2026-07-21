@@ -289,8 +289,6 @@ export default function LettersPage() {
   const [editingDraft, setEditingDraft] = useState<any>(null)
   const [printSettingsOpen,setPrintSettingsOpen]=useState(false)
   const [printSettings,setPrintSettings]=useState<{paperSize:'auto'|'A4'|'A5';orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true}}})
-  const [computerNameOpen,setComputerNameOpen]=useState(()=>!localStorage.getItem('portal-computer-name'))
-  const [computerName,setComputerName]=useState(()=>localStorage.getItem('portal-computer-name')||'')
 
   const isRegistry = location.pathname === '/letters/registry'
   const isReferrals=location.pathname==='/letters/referrals'
@@ -679,29 +677,9 @@ export default function LettersPage() {
           <Tabs items={[
             allowed('letters.content.view')&&{key:'letter',label:<span><FileTextOutlined/> نامه و ارجاعات</span>,children:<div><div style={{display:'grid',gridTemplateColumns:'360px minmax(0,1fr)',gap:16,alignItems:'start',direction:'ltr'}}><aside style={{direction:'rtl',padding:14,background:'#fafafa',border:'1px solid #eee',borderRadius:10,minWidth:0}}><ReferralMessages detail={letterDetail}/></aside><main style={{direction:'rtl',overflowX:'auto',padding:8,background:'#f5f5f5',borderRadius:10}}><SavedLetterPage detail={letterDetail} compact/></main></div><div style={{background:'#f8f9fa',borderRadius:8,padding:'10px 14px',marginTop:12,border:'1px solid #e8e8e8',display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}><span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span><span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span><span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>{letterDetail.signedByName&&<span><strong>امضاکننده:</strong> {letterDetail.signedByName}</span>}</div></div>},
             allowed('letters.attachments.view')&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>},
-            allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه</span>,children:<div><div style={{display:'flex',justifyContent:'flex-end'}}><Button type="link" size="small" onClick={()=>setComputerNameOpen(true)}>تغییر نام کامپیوتر</Button></div>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} wrap style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><span dir="ltr">IP: {w.ipAddress||'ثبت نشده'}</span><span dir="ltr">COMPUTER NAME: {w.deviceId||'ثبت نشده'}</span></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</div>}
+            allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه</span>,children:<div>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} wrap style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><Tag color="blue" style={{fontSize:10,margin:0}} dir="ltr">IP: {w.ipAddress&&w.ipAddress!=='unknown'?w.ipAddress:'ثبت نشده'}</Tag></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</div>}
           ].filter(Boolean) as any}/>
         )}
-      </Modal>
-
-      <Modal
-        title="نام کامپیوتر این سیستم"
-        open={computerNameOpen}
-        closable={false}
-        maskClosable={false}
-        cancelButtonProps={{style:{display:'none'}}}
-        okText="ذخیره نام کامپیوتر"
-        onOk={()=>{
-          const value=computerName.trim()
-          if(!value){notification.warning({message:'نام کامپیوتر را وارد کنید'});return}
-          localStorage.setItem('portal-computer-name',value.slice(0,100))
-          setComputerName(value.slice(0,100))
-          setComputerNameOpen(false)
-          notification.success({message:'نام کامپیوتر روی این مرورگر ذخیره شد'})
-        }}
-      >
-        <p style={{color:'#666',lineHeight:1.9}}>به‌دلیل محدودیت امنیتی مرورگر، نام ویندوز قابل خواندن خودکار نیست. نام نمایش‌داده‌شده در Windows را یک‌بار وارد کنید؛ از این پس همین مقدار ثابت در گردش نامه ثبت می‌شود.</p>
-        <Input value={computerName} onChange={event=>setComputerName(event.target.value)} maxLength={100} placeholder="مثلاً: ACCOUNTING-PC-01" dir="ltr" autoFocus />
       </Modal>
 
       <Modal title={<Space><PrinterOutlined/><span>تنظیمات چاپ</span></Space>} open={printSettingsOpen} onCancel={()=>setPrintSettingsOpen(false)} onOk={()=>{localStorage.setItem('letter-print-settings',JSON.stringify(printSettings));setPrintSettingsOpen(false);notification.success({message:'تنظیمات چاپ ذخیره شد'})}} okText="ذخیره تنظیمات" cancelText="انصراف" width={480}>

@@ -3,7 +3,7 @@ import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, 
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import PersianDatePicker from '../components/PersianDatePicker'
-import { currentJalali, isLeapJalali, jalaliToDate } from '../utils/jalali'
+import { currentJalali, isLeapJalali, jalaliToDate, formatJalaliDate } from '../utils/jalali'
 import { getIranHoliday } from '../utils/iranHolidays'
 import { useNavigate } from 'react-router-dom'
 import { useNotificationStore } from '../store/notificationStore'
@@ -84,9 +84,7 @@ function EnhancedEventModal(props: any) {
 // ── هدر داشبورد ──────────────────────────────────────
 function DashboardHeader() {
   const now = new Date()
-  const persianDate = new Intl.DateTimeFormat('fa-IR', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  }).format(now)
+  const persianDate = formatJalaliDate(now, true)
   const persianTime = now.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' })
   const gregorianDate = now.toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -109,13 +107,10 @@ function DashboardHeader() {
             <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>({user.position || 'مدیرعامل'})</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}>
-          <span style={{ color: 'white', fontWeight: 700, fontSize: 20, direction: 'rtl', letterSpacing: 1 }}>{persianTime}</span>
-          <div style={{ width: 1, height: 26, background: 'rgba(255,255,255,0.25)' }} />
-          <div>
-            <div style={{ color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: 500 }}>{persianDate}</div>
-            <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>{gregorianDate}</div>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', direction: 'rtl', lineHeight: 1.3 }}>
+          <span style={{ color: 'white', fontWeight: 700, fontSize: 20, letterSpacing: 1 }}>{persianTime}</span>
+          <span style={{ color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: 500 }}>{persianDate}</span>
+          <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, direction: 'ltr' }}>{gregorianDate}</span>
         </div>
       </div>
     </Card>
