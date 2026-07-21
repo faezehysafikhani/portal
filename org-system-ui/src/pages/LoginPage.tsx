@@ -21,16 +21,24 @@ function PersianClock() {
   )
 }
 
+// حروف و اعداد بدون کاراکترهای گیج‌کننده (O/0 و I/1/l)
+const CAPTCHA_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+function makeCaptcha(length = 5) {
+  let value = ''
+  for (let i = 0; i < length; i++) value += CAPTCHA_CHARS[Math.floor(Math.random() * CAPTCHA_CHARS.length)]
+  return value
+}
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [company, setCompany] = useState<{ name?: string; logoUrl?: string | null; captchaAfterAttempts?: number }>({ name: 'موسسه مدیریت پروژه پارس' })
   const [failedAttempts, setFailedAttempts] = useState(0)
-  const [captcha, setCaptcha] = useState(() => ({ a: 1 + Math.floor(Math.random() * 8), b: 1 + Math.floor(Math.random() * 8) }))
+  const [captcha, setCaptcha] = useState(() => makeCaptcha())
   const [captchaInput, setCaptchaInput] = useState('')
   const captchaThreshold = company.captchaAfterAttempts ?? 3
   const captchaRequired = failedAttempts >= captchaThreshold
-  const newCaptcha = () => { setCaptcha({ a: 1 + Math.floor(Math.random() * 8), b: 1 + Math.floor(Math.random() * 8) }); setCaptchaInput('') }
+  const newCaptcha = () => { setCaptcha(makeCaptcha()); setCaptchaInput('') }
 
   useEffect(() => {
     fetch('http://localhost:5043/api/v1/company/public?tenantId=00000000-0000-0000-0000-000000000001')
@@ -40,8 +48,8 @@ export default function LoginPage() {
   }, [])
 
   const handleLogin = async (values: { username: string; password: string }) => {
-    if (captchaRequired && Number(captchaInput) !== captcha.a + captcha.b) {
-      setError('پاسخ عبارت امنیتی نادرست است')
+    if (captchaRequired && captchaInput.trim().toUpperCase() !== captcha.toUpperCase()) {
+      setError('کد امنیتی وارد شده درست نیست')
       newCaptcha()
       return
     }
@@ -71,7 +79,7 @@ export default function LoginPage() {
       sessionStorage.setItem('welcome-user', data.user?.fullName || `${data.user?.firstName || ''} ${data.user?.lastName || ''}`.trim() || data.user?.username || values.username)
       if (data.mustChangePassword) {
         localStorage.setItem('force-password-change', '1')
-        window.location.assign('/profile')
+        window.location.assign('/change-password')
         return
       }
       window.location.assign('/dashboard')
@@ -139,12 +147,17 @@ export default function LoginPage() {
               />
             </Form.Item>
             {captchaRequired && (
-              <Form.Item label="عبارت امنیتی" required>
+              <Form.Item label="کد امنیتی" required help="بزرگی و کوچکی حروف اهمیتی ندارد">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ fontWeight: 700, fontSize: 18, background: '#f5f0f3', borderRadius: 8, padding: '10px 14px', letterSpacing: 2, userSelect: 'none', direction: 'ltr', minWidth: 92, textAlign: 'center' }}>
-                    {captcha.a} + {captcha.b} =
-                  </div>
-                  <Input value={captchaInput} onChange={e => setCaptchaInput(e.target.value)} placeholder="پاسخ" size="large" style={{ height: 50, flex: 1 }} inputMode="numeric" />
+                  <div style={{
+                    fontWeight: 800, fontSize: 22, letterSpacing: 6, userSelect: 'none', direction: 'ltr',
+                    minWidth: 130, textAlign: 'center', padding: '9px 12px', borderRadius: 8, color: '#5C0F47',
+                    fontFamily: 'monospace', textDecoration: 'line-through', textDecorationColor: '#8B1A6B55',
+                    background: 'repeating-linear-gradient(45deg, #f7eef4, #f7eef4 6px, #efe0ea 6px, #efe0ea 12px)',
+                  }}>{captcha}</div>
+                  <Input value={captchaInput} onChange={e => setCaptchaInput(e.target.value)} placeholder="کد بالا را وارد کنید"
+                    size="large" style={{ height: 50, flex: 1 }} maxLength={8} autoComplete="off" />
+                  <Button type="text" onClick={newCaptcha} title="کد جدید" style={{ height: 50, fontSize: 18 }}>⟳</Button>
                 </div>
               </Form.Item>
             )}

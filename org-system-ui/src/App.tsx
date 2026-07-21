@@ -19,6 +19,7 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const MainLayout = lazy(() => import('./layouts/MainLayout'))
+const ForcePasswordChangePage = lazy(() => import('./pages/ForcePasswordChangePage'))
 const CustomerLoginPage = lazy(() => import('./pages/CustomerLoginPage'))
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage'))
 const PTMSDashboardPage = lazy(() => import('./pages/ptms/PTMSDashboardPage'))
@@ -36,6 +37,7 @@ const PTMSDocumentsPage = lazy(() => import('./pages/ptms/PTMSDocumentsPage'))
 
 function App() {
   const token = localStorage.getItem('token')
+  const mustChangePassword = !!token && localStorage.getItem('force-password-change') === '1'
 
   return (
     <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'sans-serif' }}>در حال بارگذاری...</div>}>
@@ -47,7 +49,12 @@ function App() {
       {/* مسیرهای سیستم داخلی */}
       <Route path="/login" element={<LoginPage />} />
 
-      {token ? (
+      {token && mustChangePassword ? (
+        <>
+          <Route path="/change-password" element={<ForcePasswordChangePage />} />
+          <Route path="*" element={<Navigate to="/change-password" replace />} />
+        </>
+      ) : token ? (
         <Route element={<MainLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/tasks" element={<TasksPage />} />
