@@ -61,6 +61,8 @@ export default function SettingsPage() {
   const smsProvider=Form.useWatch('providerName',smsForm)||'Kavenegar'
   const [smsHasApiKey,setSmsHasApiKey]=useState(false)
   const [smsTesting,setSmsTesting]=useState(false)
+  const [securityForm]=Form.useForm()
+  const saveSecurity=async()=>{const v=await securityForm.validateFields();const r=await fetch(`${api}/security-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(v)});const result=await r.json().catch(()=>({}));r.ok?message.success(result.message||'تنظیمات امنیتی ذخیره شد'):message.error(result.message||'ذخیره تنظیمات امنیتی انجام نشد')}
   const [aiForm]=Form.useForm()
   const [aiHasKey,setAiHasKey]=useState(false)
   const [aiTesting,setAiTesting]=useState(false)
@@ -113,7 +115,7 @@ export default function SettingsPage() {
     setLetterTemplates(data)
   }
   const loadPositions=async()=>{const r=await fetch(`${api}/positions`,{headers:headers()});if(r.ok)setPositions(await r.json());else message.error(`سمت‌ها دریافت نشدند — خطای ${r.status}`)}
-  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){const isKavenegar=String(x.apiUrl||'').includes('api.kavenegar.com')||String(x.providerName||'').toLowerCase()==='kavenegar';smsForm.setFieldsValue({...x,providerName:isKavenegar?'Kavenegar':x.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':x.apiUrl});setSmsHasApiKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[canViewSettings])
+  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){const isKavenegar=String(x.apiUrl||'').includes('api.kavenegar.com')||String(x.providerName||'').toLowerCase()==='kavenegar';smsForm.setFieldsValue({...x,providerName:isKavenegar?'Kavenegar':x.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':x.apiUrl});setSmsHasApiKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/security-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x)securityForm.setFieldsValue(x)}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[canViewSettings])
   const createPosition=async()=>{const title=newPos.trim();if(!title)return;const r=await fetch(`${api}/positions`,{method:'POST',headers:headers(),body:JSON.stringify({title,parentId:null,color:'#1677ff'})});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'ثبت سمت ناموفق بود');return}setNewPos('');message.success('سمت در دیتابیس ذخیره شد');await loadPositions()}
   const deletePosition=async(id:string)=>{const r=await fetch(`${api}/positions/${id}`,{method:'DELETE',headers:headers()});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'حذف سمت ناموفق بود');return}await loadPositions()}
   const saveSms=async(showSuccess=true)=>{const v=await smsForm.validateFields();const isKavenegar=String(v.apiUrl||'').includes('api.kavenegar.com')||String(v.providerName||'').toLowerCase()==='kavenegar';const normalized={...v,providerName:isKavenegar?'Kavenegar':v.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':v.apiUrl};const r=await fetch(`${api}/sms-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(normalized)});const result=await r.json().catch(()=>({}));if(!r.ok){message.error(result.message||'خطا در ذخیره تنظیمات');return false}setSmsHasApiKey(previous=>previous||!!v.apiKey);smsForm.setFieldsValue({providerName:isKavenegar?'Kavenegar':v.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':v.apiUrl,apiKey:''});if(showSuccess)message.success(result.message||'تنظیمات پیامک ذخیره شد');return true}
@@ -297,26 +299,21 @@ export default function SettingsPage() {
             </Card>
           </Col>
 
-          <Col xs={24} md={12}>
-            <Card title="امنیت">
-              <Form layout="vertical">
-                <Form.Item label="حداقل طول رمز عبور">
-                  <Select defaultValue="8">
-                    <Select.Option value="6">۶ کاراکتر</Select.Option>
-                    <Select.Option value="8">۸ کاراکتر</Select.Option>
-                    <Select.Option value="12">۱۲ کاراکتر</Select.Option>
-                  </Select>
-                </Form.Item>
-                <Form.Item label="تعداد تلاش ناموفق">
-                  <Select defaultValue="5">
-                    <Select.Option value="3">۳ بار</Select.Option>
-                    <Select.Option value="5">۵ بار</Select.Option>
-                    <Select.Option value="10">۱۰ بار</Select.Option>
-                  </Select>
-                </Form.Item>
-                <Form.Item label="احراز هویت دو مرحله‌ای">
-                  <Switch />
-                </Form.Item>
+          <Col xs={24}>
+            <Card title={<span>🔒 سیاست امنیتی</span>}>
+              <Alert type="info" showIcon style={{marginBottom:16}} message="تنظیمات با مقادیر امن پیش‌فرض شروع می‌شوند" description="انقضای رمز و محدودیت نشست به‌صورت پیش‌فرض خاموش‌اند (۰). هر گزینه را که فعال کردید، حتماً یک‌بار ورود را آزمایش کنید."/>
+              <Form form={securityForm} layout="vertical" initialValues={{passwordMinLength:8,requireComplexity:false,maxFailedAttempts:5,lockoutMinutes:30,captchaAfterAttempts:3,passwordExpiryDays:0,maxConcurrentSessions:0,twoFactorRequired:false}}>
+                <Row gutter={16}>
+                  <Col xs={24} md={8}><Form.Item name="passwordMinLength" label="حداقل طول رمز عبور" tooltip="بین ۶ تا ۶۴ کاراکتر"><InputNumber min={6} max={64} style={{width:'100%'}} addonAfter="کاراکتر"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="maxFailedAttempts" label="تعداد تلاش ناموفق تا قفل شدن"><InputNumber min={3} max={20} style={{width:'100%'}} addonAfter="بار"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="lockoutMinutes" label="مدت قفل ماندن حساب"><InputNumber min={1} max={1440} style={{width:'100%'}} addonAfter="دقیقه"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="captchaAfterAttempts" label="نمایش کپچا بعد از چند تلاش ناموفق"><InputNumber min={1} max={20} style={{width:'100%'}} addonAfter="بار"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="passwordExpiryDays" label="انقضای دوره‌ای رمز عبور" tooltip="۰ یعنی هیچ‌وقت منقضی نمی‌شود"><InputNumber min={0} max={3650} style={{width:'100%'}} addonAfter="روز (۰=غیرفعال)"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="maxConcurrentSessions" label="حداکثر نشست همزمان هر کاربر" tooltip="۰ یعنی نامحدود"><InputNumber min={0} max={100} style={{width:'100%'}} addonAfter="دستگاه (۰=نامحدود)"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="requireComplexity" label="اجبار رمز پیچیده (حروف بزرگ، کوچک و عدد)" valuePropName="checked"><Switch checkedChildren="فعال" unCheckedChildren="غیرفعال"/></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="twoFactorRequired" label="اجبار احراز هویت دو مرحله‌ای" valuePropName="checked"><Switch checkedChildren="فعال" unCheckedChildren="غیرفعال"/></Form.Item></Col>
+                </Row>
+                <Button type="primary" onClick={()=>void saveSecurity()}>ذخیره سیاست امنیتی</Button>
               </Form>
             </Card>
           </Col>

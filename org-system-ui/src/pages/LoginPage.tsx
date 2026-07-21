@@ -24,7 +24,13 @@ function PersianClock() {
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [company, setCompany] = useState<{ name?: string; logoUrl?: string | null }>({ name: 'موسسه مدیریت پروژه پارس' })
+  const [company, setCompany] = useState<{ name?: string; logoUrl?: string | null; captchaAfterAttempts?: number }>({ name: 'موسسه مدیریت پروژه پارس' })
+  const [failedAttempts, setFailedAttempts] = useState(0)
+  const [captcha, setCaptcha] = useState(() => ({ a: 1 + Math.floor(Math.random() * 8), b: 1 + Math.floor(Math.random() * 8) }))
+  const [captchaInput, setCaptchaInput] = useState('')
+  const captchaThreshold = company.captchaAfterAttempts ?? 3
+  const captchaRequired = failedAttempts >= captchaThreshold
+  const newCaptcha = () => { setCaptcha({ a: 1 + Math.floor(Math.random() * 8), b: 1 + Math.floor(Math.random() * 8) }); setCaptchaInput('') }
 
   useEffect(() => {
     fetch('http://localhost:5043/api/v1/company/public?tenantId=00000000-0000-0000-0000-000000000001')
@@ -34,6 +40,11 @@ export default function LoginPage() {
   }, [])
 
   const handleLogin = async (values: { username: string; password: string }) => {
+    if (captchaRequired && Number(captchaInput) !== captcha.a + captcha.b) {
+      setError('پاسخ عبارت امنیتی نادرست است')
+      newCaptcha()
+      return
+    }
     setLoading(true)
     setError('')
     try {
@@ -47,12 +58,22 @@ export default function LoginPage() {
         })
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.message || 'نام کاربری یا رمز عبور اشتباه است'); return }
+      if (!res.ok) {
+        setError(data.message || 'نام کاربری یا رمز عبور اشتباه است')
+        setFailedAttempts(n => n + 1)
+        newCaptcha()
+        return
+      }
       localStorage.setItem('token', data.accessToken)
       localStorage.setItem('user', JSON.stringify(data.user))
       localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
       if (data.company) localStorage.setItem('company', JSON.stringify(data.company))
       sessionStorage.setItem('welcome-user', data.user?.fullName || `${data.user?.firstName || ''} ${data.user?.lastName || ''}`.trim() || data.user?.username || values.username)
+      if (data.mustChangePassword) {
+        localStorage.setItem('force-password-change', '1')
+        window.location.assign('/profile')
+        return
+      }
       window.location.assign('/dashboard')
     } catch {
       setError('خطا در اتصال به سرور')
@@ -117,6 +138,16 @@ export default function LoginPage() {
                 style={{ height: 50 }}
               />
             </Form.Item>
+            {captchaRequired && (
+              <Form.Item label="عبارت امنیتی" required>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 18, background: '#f5f0f3', borderRadius: 8, padding: '10px 14px', letterSpacing: 2, userSelect: 'none', direction: 'ltr', minWidth: 92, textAlign: 'center' }}>
+                    {captcha.a} + {captcha.b} =
+                  </div>
+                  <Input value={captchaInput} onChange={e => setCaptchaInput(e.target.value)} placeholder="پاسخ" size="large" style={{ height: 50, flex: 1 }} inputMode="numeric" />
+                </div>
+              </Form.Item>
+            )}
             <Button
               type="primary" htmlType="submit" block size="large" loading={loading}
               style={{ background: 'linear-gradient(135deg, #8B1A6B, #A83585)', border: 'none', borderRadius: 12, height: 54, fontWeight: 700, fontSize: 16, marginTop: 8 }}

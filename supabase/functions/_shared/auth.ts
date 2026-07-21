@@ -20,7 +20,7 @@ export function adminClient(): SupabaseClient {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 }
 
-export async function issueToken(context: AuthContext): Promise<string> {
+export async function issueToken(context: AuthContext, jti: string = crypto.randomUUID()): Promise<string> {
   if (!secret) throw new Error('EDGE_JWT_SECRET is not configured')
   return await new SignJWT({
     user_id: context.userId,
@@ -34,8 +34,14 @@ export async function issueToken(context: AuthContext): Promise<string> {
     .setAudience('org-system-web')
     .setIssuedAt()
     .setExpirationTime('12h')
-    .setJti(crypto.randomUUID())
+    .setJti(jti)
     .sign(secret)
+}
+
+let sharedClient: SupabaseClient | null = null
+function sessionClient(): SupabaseClient {
+  if (!sharedClient) sharedClient = adminClient()
+  return sharedClient
 }
 
 export async function authenticate(request: Request): Promise<AuthContext> {
@@ -57,6 +63,21 @@ export async function authenticate(request: Request): Promise<AuthContext> {
     const permissions = Array.isArray(payload.permission)
       ? payload.permission.map(String)
       : payload.permission ? [String(payload.permission)] : []
+
+    // Session-limit enforcement: reject only sessions explicitly revoked (fail-open on any error).
+    let sessionRevoked = false
+    try {
+      const jti = String(payload.jti ?? '')
+      if (jti) {
+        const { data } = await sessionClient().from('UserSessions')
+          .select('IsRevoked').eq('Jti', jti).eq('IsRevoked', true).maybeSingle()
+        sessionRevoked = !!data
+      }
+    } catch {
+      sessionRevoked = false
+    }
+    if (sessionRevoked) throw new HttpError(401, 'این نشست به‌دلیل محدودیت تعداد دستگاه‌ها خاتمه یافته است')
+
     return {
       userId,
       tenantId,

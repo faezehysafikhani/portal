@@ -63,12 +63,46 @@ function asCamel(value: unknown): unknown {
   return camelize(value)
 }
 
+interface SecurityPolicy {
+  passwordMinLength: number; requireComplexity: boolean; maxFailedAttempts: number; lockoutMinutes: number
+  captchaAfterAttempts: number; passwordExpiryDays: number; maxConcurrentSessions: number; twoFactorRequired: boolean
+}
+const DEFAULT_SECURITY: SecurityPolicy = {
+  passwordMinLength: 8, requireComplexity: false, maxFailedAttempts: 5, lockoutMinutes: 30,
+  captchaAfterAttempts: 3, passwordExpiryDays: 0, maxConcurrentSessions: 0, twoFactorRequired: false,
+}
+async function loadSecurity(tenantId: string): Promise<SecurityPolicy> {
+  try {
+    const r = await db.from('SecuritySettings').select('*').eq('TenantId', tenantId).eq('IsDeleted', false).maybeSingle()
+    if (r.error || !r.data) return DEFAULT_SECURITY
+    const d = r.data
+    return {
+      passwordMinLength: Number(d.PasswordMinLength ?? 8),
+      requireComplexity: Boolean(d.RequireComplexity),
+      maxFailedAttempts: Number(d.MaxFailedAttempts ?? 5),
+      lockoutMinutes: Number(d.LockoutMinutes ?? 30),
+      captchaAfterAttempts: Number(d.CaptchaAfterAttempts ?? 3),
+      passwordExpiryDays: Number(d.PasswordExpiryDays ?? 0),
+      maxConcurrentSessions: Number(d.MaxConcurrentSessions ?? 0),
+      twoFactorRequired: Boolean(d.TwoFactorRequired),
+    }
+  } catch { return DEFAULT_SECURITY }
+}
+function passwordProblem(pw: string, policy: SecurityPolicy): string | null {
+  if (pw.length < policy.passwordMinLength) return `رمز عبور باید حداقل ${policy.passwordMinLength} کاراکتر باشد`
+  if (policy.requireComplexity && (!/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw))) {
+    return 'رمز عبور باید شامل حروف کوچک و بزرگ انگلیسی و عدد باشد'
+  }
+  return null
+}
+
 async function login(request: Request): Promise<Response> {
   const input = await body<{ username?: string; password?: string; tenantId?: string }>(request)
   const username = String(input.username ?? '').trim().toLowerCase()
   const password = String(input.password ?? '')
   const tenantId = String(input.tenantId ?? tenantDefault)
   if (!username || !password) throw new HttpError(400, 'نام کاربری و رمز عبور الزامی است')
+  const policy = await loadSecurity(tenantId)
 
   const { data: user, error } = await db.from('Users').select('*')
     .eq('TenantId', tenantId).eq('Username', username).eq('IsDeleted', false).maybeSingle()
@@ -78,7 +112,7 @@ async function login(request: Request): Promise<Response> {
       const failed = Number(user.FailedLoginCount ?? 0) + 1
       await db.from('Users').update({
         FailedLoginCount: failed,
-        LockoutEnd: failed >= 5 ? new Date(Date.now() + 30 * 60_000).toISOString() : null,
+        LockoutEnd: failed >= policy.maxFailedAttempts ? new Date(Date.now() + policy.lockoutMinutes * 60_000).toISOString() : null,
       }).eq('Id', user.Id).eq('TenantId', tenantId)
     }
     throw new HttpError(401, 'نام کاربری یا رمز عبور اشتباه است')
@@ -103,11 +137,45 @@ async function login(request: Request): Promise<Response> {
     userId: user.Id, tenantId, username: user.Username,
     permissions, isAdmin: String(user.Username).toLowerCase() === 'admin',
   }
-  const accessToken = await issueToken(auth)
+  const jti = crypto.randomUUID()
+  const accessToken = await issueToken(auth, jti)
   const companyResult = await db.from('Tenants').select('Id,Name,LogoUrl,Website').eq('Id', tenantId).maybeSingle()
   failOnDb(companyResult.error)
   await db.from('Users').update({ FailedLoginCount: 0, LockoutEnd: null, LastLoginAt: now() })
     .eq('Id', user.Id).eq('TenantId', tenantId)
+
+  // Enforce concurrent-session limit only when enabled (fail-safe: never blocks login on error).
+  if (policy.maxConcurrentSessions > 0) {
+    try {
+      const active = await db.from('UserSessions').select('Id')
+        .eq('TenantId', tenantId).eq('UserId', user.Id).eq('IsRevoked', false)
+        .order('LastSeenAt', { ascending: true })
+      const rows = active.data ?? []
+      const overflow = rows.length - (policy.maxConcurrentSessions - 1)
+      if (overflow > 0) {
+        const revokeIds = rows.slice(0, overflow).map((r) => r.Id)
+        await db.from('UserSessions').update({ IsRevoked: true }).in('Id', revokeIds)
+      }
+      await db.from('UserSessions').insert({
+        Id: uuid(), TenantId: tenantId, UserId: user.Id, Jti: jti,
+        UserAgent: String(request.headers.get('user-agent') ?? '').slice(0, 300),
+        Ip: request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
+        CreatedAt: now(), LastSeenAt: now(), IsRevoked: false,
+      })
+    } catch (e) {
+      console.error('session tracking failed', e)
+    }
+  }
+
+  // Password expiry: flag (does not block) when enabled and password is older than the limit.
+  let mustChangePassword = false
+  if (policy.passwordExpiryDays > 0) {
+    const changedAt = user.PasswordChangedAt ?? user.CreatedAt
+    if (changedAt) {
+      const ageDays = (Date.now() - new Date(changedAt).getTime()) / 86_400_000
+      mustChangePassword = ageDays >= policy.passwordExpiryDays
+    }
+  }
 
   return json(request, {
     accessToken,
@@ -120,6 +188,7 @@ async function login(request: Request): Promise<Response> {
     },
     permissions,
     company: asCamel(companyResult.data),
+    mustChangePassword,
     expiresIn: 43200,
   })
 }
@@ -129,7 +198,8 @@ async function publicCompany(request: Request, url: URL): Promise<Response> {
   const result = await db.from('Tenants').select('Id,Name,LogoUrl,Website').eq('Id', tenantId).eq('IsActive', true).maybeSingle()
   failOnDb(result.error)
   if (!result.data) throw new HttpError(404, 'اطلاعات شرکت یافت نشد')
-  return json(request, asCamel(result.data))
+  const policy = await loadSecurity(tenantId)
+  return json(request, { ...asCamel(result.data) as JsonObject, captchaAfterAttempts: policy.captchaAfterAttempts })
 }
 
 async function company(request: Request, auth: AuthContext): Promise<Response> {
@@ -269,15 +339,17 @@ async function registries(request: Request, auth: AuthContext, path: string, url
 
 async function changePassword(request: Request, auth: AuthContext): Promise<Response> {
   const input = await body<{ currentPassword?: string; newPassword?: string }>(request)
-  if (!input.newPassword || input.newPassword.length < 8) throw new HttpError(400, 'رمز جدید حداقل باید ۸ کاراکتر باشد')
+  const policy = await loadSecurity(auth.tenantId)
+  const problem = passwordProblem(String(input.newPassword ?? ''), policy)
+  if (problem) throw new HttpError(400, problem)
   const { data: user, error } = await db.from('Users').select('PasswordHash')
     .eq('Id', auth.userId).eq('TenantId', auth.tenantId).single()
   failOnDb(error)
   if (!await bcrypt.compare(String(input.currentPassword ?? ''), user.PasswordHash)) {
     throw new HttpError(400, 'رمز عبور فعلی اشتباه است')
   }
-  const PasswordHash = await bcrypt.hash(input.newPassword, 12)
-  const result = await db.from('Users').update({ PasswordHash, UpdatedAt: now() })
+  const PasswordHash = await bcrypt.hash(String(input.newPassword), 12)
+  const result = await db.from('Users').update({ PasswordHash, PasswordChangedAt: now(), UpdatedAt: now() })
     .eq('Id', auth.userId).eq('TenantId', auth.tenantId)
   failOnDb(result.error)
   return json(request, { message: 'رمز عبور با موفقیت تغییر کرد' })
@@ -568,8 +640,10 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
   if (resetMatch && request.method === 'POST') {
     requirePermission(auth, 'users.password.reset')
     const input = await body<{ newPassword?: string }>(request)
-    if (!input.newPassword || input.newPassword.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
-    const result = await db.from('Users').update({ PasswordHash: await bcrypt.hash(input.newPassword, 12), UpdatedAt: now() })
+    const policy = await loadSecurity(auth.tenantId)
+    const problem = passwordProblem(String(input.newPassword ?? ''), policy)
+    if (problem) throw new HttpError(400, problem)
+    const result = await db.from('Users').update({ PasswordHash: await bcrypt.hash(String(input.newPassword), 12), PasswordChangedAt: now(), UpdatedAt: now() })
       .eq('TenantId', auth.tenantId).eq('Id', resetMatch[1])
     failOnDb(result.error); return json(request, { message: 'رمز عبور تغییر کرد' })
   }
@@ -604,8 +678,11 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
   if (request.method === 'POST' && !userMatch) {
     requirePermission(auth, 'users.create')
     const input = await body<JsonObject>(request)
-    const row = { ...baseInsert(auth), ...pascalize(input, userFields), PasswordHash: await bcrypt.hash(String(input.password ?? ''), 12), IsActive: true, FailedLoginCount: 0, IsTwoFactorEnabled: false }
-    if (!row.Username || String(input.password ?? '').length < 8) throw new HttpError(400, 'نام کاربری و رمز حداقل ۸ کاراکتری الزامی است')
+    const policy = await loadSecurity(auth.tenantId)
+    if (!String(input.username ?? '').trim()) throw new HttpError(400, 'نام کاربری الزامی است')
+    const pwProblem = passwordProblem(String(input.password ?? ''), policy)
+    if (pwProblem) throw new HttpError(400, pwProblem)
+    const row = { ...baseInsert(auth), ...pascalize(input, userFields), PasswordHash: await bcrypt.hash(String(input.password ?? ''), 12), PasswordChangedAt: now(), IsActive: true, FailedLoginCount: 0, IsTwoFactorEnabled: false }
     const result = await db.from('Users').insert(row).select().single()
     failOnDb(result.error, 'نام کاربری یا ایمیل تکراری است'); return json(request, profileDto(result.data), 201)
   }
@@ -694,6 +771,36 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
   })
 }
 
+async function securitySettings(request: Request, auth: AuthContext): Promise<Response> {
+  requireAdmin(auth)
+  if (request.method === 'GET') return json(request, await loadSecurity(auth.tenantId))
+  if (request.method === 'PUT') {
+    const input = await body<JsonObject>(request)
+    const clamp = (v: unknown, min: number, max: number, def: number) => {
+      const n = Number(v); return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : def
+    }
+    const values = {
+      PasswordMinLength: clamp(input.passwordMinLength, 6, 64, 8),
+      RequireComplexity: Boolean(input.requireComplexity),
+      MaxFailedAttempts: clamp(input.maxFailedAttempts, 3, 20, 5),
+      LockoutMinutes: clamp(input.lockoutMinutes, 1, 1440, 30),
+      CaptchaAfterAttempts: clamp(input.captchaAfterAttempts, 1, 20, 3),
+      PasswordExpiryDays: clamp(input.passwordExpiryDays, 0, 3650, 0),
+      MaxConcurrentSessions: clamp(input.maxConcurrentSessions, 0, 100, 0),
+      TwoFactorRequired: Boolean(input.twoFactorRequired),
+      UpdatedAt: now(),
+    }
+    const existing = await db.from('SecuritySettings').select('Id').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
+    failOnDb(existing.error)
+    const result = existing.data
+      ? await db.from('SecuritySettings').update(values).eq('Id', existing.data.Id)
+      : await db.from('SecuritySettings').insert({ Id: uuid(), TenantId: auth.tenantId, IsDeleted: false, CreatedAt: now(), ...values })
+    failOnDb(result.error)
+    return json(request, { message: 'تنظیمات امنیتی ذخیره شد' })
+  }
+  throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
+}
+
 async function dispatch(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) })
   const url = new URL(request.url)
@@ -707,6 +814,7 @@ async function dispatch(request: Request): Promise<Response> {
   const auth = await authenticate(request)
   if (path === '/auth/logout' && request.method === 'POST') return json(request, { message: 'خروج موفق' })
   if (path === '/auth/change-password' && request.method === 'POST') return await changePassword(request, auth)
+  if (path === '/security-settings') return await securitySettings(request, auth)
   if (path.startsWith('/contacts')) return await contacts(request, auth, path, url)
   if (path === '/directory' && request.method === 'GET') return await directory(request, auth)
   if (path.startsWith('/tasks')) return await tasks(request, auth, path, url)
