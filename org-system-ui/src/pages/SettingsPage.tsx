@@ -46,7 +46,7 @@ export default function SettingsPage() {
   const allowed=(code:string)=>isAdmin||grantedPermissions.includes(code)
   const canManageAi=isAdmin||grantedPermissions.includes('ai.settings')
   const canViewSettings=allowed('settings.view')
-  const resolveActiveTab=()=>location.pathname.endsWith('/company')?'company':location.pathname.endsWith('/users')?'users':new URLSearchParams(location.search).get('tab')||(canViewSettings?'1':allowed('company.view')?'company':'users')
+  const resolveActiveTab=()=>{const p=new URLSearchParams(location.search).get('tab');if(location.pathname.endsWith('/users'))return 'users';if(location.pathname.endsWith('/company'))return 'general';if(p&&['general','registry','users'].includes(p))return p;return (canViewSettings||allowed('company.view')||canManageAi)?'general':'users'}
   const initialTab=resolveActiveTab()
   const [activeTab,setActiveTab]=useState(initialTab)
   useEffect(()=>{setActiveTab(resolveActiveTab())},[location.pathname,location.search])
@@ -231,7 +231,7 @@ export default function SettingsPage() {
     },
     {
       key: '2',
-      label: <span><SettingOutlined /> تنظیمات عمومی</span>,
+      label: <span><SettingOutlined /> عناوین، دپارتمان و امنیت</span>,
       children: (
         <Row gutter={[16, 16]}>
           <Col xs={24} md={12}>
@@ -452,16 +452,34 @@ export default function SettingsPage() {
     }] : []),
   ]
 
+  const byKey: Record<string, any> = Object.fromEntries(tabItems.map(t => [t.key, t]))
+  const generalInner = [
+    ...(allowed('company.view') ? [{ key: 'company', label: <span><BankOutlined/> اطلاعات شرکت</span>, children: <CompanyPage/> }] : []),
+    ...(canViewSettings && byKey['1'] ? [byKey['1']] : []),
+    ...(canManageAi && byKey['9'] ? [byKey['9']] : []),
+    ...(canViewSettings && byKey['8'] ? [byKey['8']] : []),
+    ...(canViewSettings && byKey['2'] ? [byKey['2']] : []),
+    ...(canViewSettings && byKey['5'] ? [byKey['5']] : []),
+  ]
+  const registryInner = [
+    ...(byKey['3'] ? [byKey['3']] : []),
+    ...(byKey['4'] ? [byKey['4']] : []),
+  ]
+  const usersInner = [
+    { key: 'users-list', label: <span><TeamOutlined/> مدیریت کاربران</span>, children: <UsersPage/> },
+    ...(canViewSettings && byKey['6'] ? [byKey['6']] : []),
+  ]
+
   const visibleTabItems = [
-    ...(allowed('company.view')?[{key:'company',label:<span><BankOutlined/> اطلاعات شرکت</span>,children:<CompanyPage/>}]:[]),
-    ...(allowed('users.view')?[{key:'users',label:<span><TeamOutlined/> مدیریت کاربران</span>,children:<UsersPage/>}]:[]),
-    ...(canViewSettings?tabItems:[]),
+    ...((canViewSettings || allowed('company.view') || canManageAi) ? [{ key: 'general', label: <span><SettingOutlined/> تنظیمات عمومی</span>, children: <Tabs defaultActiveKey={allowed('company.view') ? 'company' : '1'} items={generalInner}/> }] : []),
+    ...(canViewSettings ? [{ key: 'registry', label: <span>📮 دبیرخانه</span>, children: <Tabs items={registryInner}/> }] : []),
+    ...(allowed('users.view') ? [{ key: 'users', label: <span><TeamOutlined/> مدیریت کاربران</span>, children: <Tabs items={usersInner}/> }] : []),
   ]
 
   const changeTab=(key:string)=>{
     setActiveTab(key)
-    if(key==='company')navigate('/settings/company')
-    else if(key==='users')navigate('/settings/users')
+    if(key==='users')navigate('/settings/users')
+    else if(key==='general')navigate('/settings/company')
     else navigate(`/settings?tab=${key}`)
   }
 
