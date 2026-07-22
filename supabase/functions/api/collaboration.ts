@@ -204,7 +204,10 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     requirePermission(auth, 'forms.approve'); const input = await body<Obj>(request)
     if(input.action==='return'&&!String(input.note??'').trim())throw new HttpError(400,'ثبت دلیل برگشت برای اصلاح الزامی است')
     const current = await db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('Id', action[1]).eq('IsDeleted', false).single(); check(current.error)
-    const form = current.data; const isManager = form.ManagerUserId === auth.userId && form.Status === 'manager_pending'; const isHr = form.HrUserId === auth.userId && form.Status === 'hr_pending'
+    const form = current.data
+    // تفکیک وظایف: هیچ‌کس (حتی مدیر سیستم) نمی‌تواند فرم ثبت‌شده توسط خودش را تأیید/رد کند.
+    if (form.SubmitterUserId === auth.userId) throw new HttpError(403, 'شما نمی‌توانید فرمی را که خودتان ثبت کرده‌اید تأیید یا رد کنید')
+    const isManager = form.ManagerUserId === auth.userId && form.Status === 'manager_pending'; const isHr = form.HrUserId === auth.userId && form.Status === 'hr_pending'
     if (!isManager && !isHr && !auth.isAdmin) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
     const personnel=form.FormType==='personnel'
     let status = form.Status
