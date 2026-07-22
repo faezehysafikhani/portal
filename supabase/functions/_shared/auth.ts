@@ -8,6 +8,7 @@ export interface AuthContext {
   username: string
   permissions: string[]
   isAdmin: boolean
+  jti?: string
 }
 
 const jwtSecret = Deno.env.get('EDGE_JWT_SECRET')
@@ -76,7 +77,7 @@ export async function authenticate(request: Request): Promise<AuthContext> {
     } catch {
       sessionRevoked = false
     }
-    if (sessionRevoked) throw new HttpError(401, 'این نشست به‌دلیل محدودیت تعداد دستگاه‌ها خاتمه یافته است')
+    if (sessionRevoked) throw new HttpError(401, 'نشست شما خاتمه یافته است؛ لطفاً دوباره وارد شوید')
 
     return {
       userId,
@@ -84,6 +85,7 @@ export async function authenticate(request: Request): Promise<AuthContext> {
       username,
       permissions,
       isAdmin: payload.role === 'Admin' || username.toLowerCase() === 'admin',
+      jti: String(payload.jti ?? ''),
     }
   } catch {
     throw new HttpError(401, 'نشست شما نامعتبر یا منقضی شده است')

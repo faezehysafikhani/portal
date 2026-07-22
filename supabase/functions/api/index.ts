@@ -104,6 +104,18 @@ async function recordLogin(tenantId: string, user: JsonObject | null, username: 
     console.error('login audit failed', e)
   }
 }
+// Revoke a user's active sessions so their existing JWTs stop working on the next request.
+async function revokeUserSessions(tenantId: string, userId: string, exceptJti?: string): Promise<void> {
+  try {
+    let q = db.from('UserSessions').update({ IsRevoked: true })
+      .eq('TenantId', tenantId).eq('UserId', userId).eq('IsRevoked', false)
+    if (exceptJti) q = q.neq('Jti', exceptJti)
+    await q
+  } catch (e) {
+    console.error('revoke sessions failed', e)
+  }
+}
+
 function passwordProblem(pw: string, policy: SecurityPolicy): string | null {
   if (pw.length < policy.passwordMinLength) return `رمز عبور باید حداقل ${policy.passwordMinLength} کاراکتر باشد`
   if (policy.requireComplexity && (!/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw))) {
@@ -162,9 +174,10 @@ async function login(request: Request): Promise<Response> {
     .eq('Id', user.Id).eq('TenantId', tenantId)
   await recordLogin(tenantId, user, username, true, request)
 
-  // Enforce concurrent-session limit only when enabled (fail-safe: never blocks login on error).
-  if (policy.maxConcurrentSessions > 0) {
-    try {
+  // Always record the session so it can be revoked on block/delete/password-change.
+  // Concurrent-session limiting only kicks in when enabled. Fail-safe: never blocks login on error.
+  try {
+    if (policy.maxConcurrentSessions > 0) {
       const active = await db.from('UserSessions').select('Id')
         .eq('TenantId', tenantId).eq('UserId', user.Id).eq('IsRevoked', false)
         .order('LastSeenAt', { ascending: true })
@@ -174,15 +187,18 @@ async function login(request: Request): Promise<Response> {
         const revokeIds = rows.slice(0, overflow).map((r) => r.Id)
         await db.from('UserSessions').update({ IsRevoked: true }).in('Id', revokeIds)
       }
-      await db.from('UserSessions').insert({
-        Id: uuid(), TenantId: tenantId, UserId: user.Id, Jti: jti,
-        UserAgent: String(request.headers.get('user-agent') ?? '').slice(0, 300),
-        Ip: request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
-        CreatedAt: now(), LastSeenAt: now(), IsRevoked: false,
-      })
-    } catch (e) {
-      console.error('session tracking failed', e)
     }
+    await db.from('UserSessions').insert({
+      Id: uuid(), TenantId: tenantId, UserId: user.Id, Jti: jti,
+      UserAgent: String(request.headers.get('user-agent') ?? '').slice(0, 300),
+      Ip: requestIp(request),
+      CreatedAt: now(), LastSeenAt: now(), IsRevoked: false,
+    })
+    // Bound table growth: drop this user's sessions whose tokens have certainly expired (>2 days).
+    await db.from('UserSessions').delete().eq('TenantId', tenantId).eq('UserId', user.Id)
+      .lt('CreatedAt', new Date(Date.now() - 2 * 86_400_000).toISOString())
+  } catch (e) {
+    console.error('session tracking failed', e)
   }
 
   // Password expiry: flag (does not block) when enabled and password is older than the limit.
@@ -370,7 +386,8 @@ async function changePassword(request: Request, auth: AuthContext): Promise<Resp
   const result = await db.from('Users').update({ PasswordHash, PasswordChangedAt: now(), UpdatedAt: now() })
     .eq('Id', auth.userId).eq('TenantId', auth.tenantId)
   failOnDb(result.error)
-  return json(request, { message: 'رمز عبور با موفقیت تغییر کرد' })
+  await revokeUserSessions(auth.tenantId, auth.userId, auth.jti)
+  return json(request, { message: 'رمز عبور با موفقیت تغییر کرد؛ سایر دستگاه‌ها از حساب خارج شدند' })
 }
 
 const contactFields = [
@@ -663,7 +680,7 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     if (problem) throw new HttpError(400, problem)
     const result = await db.from('Users').update({ PasswordHash: await bcrypt.hash(String(input.newPassword), 12), PasswordChangedAt: now(), UpdatedAt: now() })
       .eq('TenantId', auth.tenantId).eq('Id', resetMatch[1])
-    failOnDb(result.error); return json(request, { message: 'رمز عبور تغییر کرد' })
+    failOnDb(result.error); await revokeUserSessions(auth.tenantId, resetMatch[1]); return json(request, { message: 'رمز عبور تغییر کرد و کاربر از همه دستگاه‌ها خارج شد' })
   }
   const toggleMatch = path.match(/^\/users\/([0-9a-f-]+)\/toggle-active$/i)
   if (toggleMatch && request.method === 'PATCH') {
@@ -671,7 +688,9 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     const current = await db.from('Users').select('IsActive').eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).single()
     failOnDb(current.error)
     const result = await db.from('Users').update({ IsActive: !current.data.IsActive, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).select().single()
-    failOnDb(result.error); return json(request, asCamel(result.data))
+    failOnDb(result.error)
+    if (!result.data.IsActive) await revokeUserSessions(auth.tenantId, toggleMatch[1])
+    return json(request, asCamel(result.data))
   }
   const userMatch = path.match(/^\/users\/([0-9a-f-]+)$/i)
   if (request.method === 'GET' && !userMatch) {
@@ -714,7 +733,7 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     requirePermission(auth, 'users.delete')
     if (userMatch[1] === auth.userId) throw new HttpError(400, 'حذف حساب جاری مجاز نیست')
     const result = await db.from('Users').update({ IsDeleted: true, IsActive: false, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', userMatch[1])
-    failOnDb(result.error); return new Response(null, { status: 204, headers: corsHeaders(request) })
+    failOnDb(result.error); await revokeUserSessions(auth.tenantId, userMatch[1]); return new Response(null, { status: 204, headers: corsHeaders(request) })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
