@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Alert, AutoComplete, Card, Tabs, Form, Select, Switch, Tag, Space, Row, Col, Divider, Upload, Button, Modal, Input, InputNumber, Table, Checkbox, message } from 'antd'
-import { PlusOutlined, EditOutlined, SettingOutlined, BankOutlined, TeamOutlined, UploadOutlined, DeleteOutlined, CalendarOutlined, RobotOutlined, ApiOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, SettingOutlined, BankOutlined, TeamOutlined, UploadOutlined, DeleteOutlined, CalendarOutlined, RobotOutlined, ApiOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePermissionStore } from '../store/permissionStore'
 import { useSettingsStore } from '../store/settingsStore'
@@ -8,6 +8,7 @@ import RegistrySettingsPage from './RegistrySettingsPage'
 import OrgChartPage from './OrgChartPage'
 import CompanyPage from './CompanyPage'
 import UsersPage from './UsersPage'
+import LoginAuditPage from './LoginAuditPage'
 
 interface CalendarItem {
   id: string
@@ -464,6 +465,7 @@ export default function SettingsPage() {
   ]
   const usersInner = [
     { key: 'users-list', label: <span><TeamOutlined/> مدیریت کاربران</span>, children: <UsersPage/> },
+    ...(isAdmin ? [{ key: 'login-audit', label: <span><HistoryOutlined/> تاریخچه ورود</span>, children: <LoginAuditPage/> }] : []),
     ...(canViewSettings && byKey['6'] ? [byKey['6']] : []),
   ]
 

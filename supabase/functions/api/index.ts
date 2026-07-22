@@ -88,6 +88,22 @@ async function loadSecurity(tenantId: string): Promise<SecurityPolicy> {
     }
   } catch { return DEFAULT_SECURITY }
 }
+const requestIp = (request: Request): string | null =>
+  request.headers.get('x-forwarded-for')?.split(',')[0].trim() || request.headers.get('cf-connecting-ip') || null
+async function recordLogin(tenantId: string, user: JsonObject | null, username: string, success: boolean, request: Request): Promise<void> {
+  try {
+    await db.from('LoginAudit').insert({
+      Id: uuid(), TenantId: tenantId, UserId: user?.Id ?? null, Username: username,
+      FullName: user ? `${user.FirstName ?? ''} ${user.LastName ?? ''}`.trim() : null,
+      Success: success, Ip: requestIp(request),
+      UserAgent: String(request.headers.get('user-agent') ?? '').slice(0, 300), CreatedAt: now(),
+    })
+    // Best-effort 30-day retention.
+    await db.from('LoginAudit').delete().eq('TenantId', tenantId).lt('CreatedAt', new Date(Date.now() - 30 * 86_400_000).toISOString())
+  } catch (e) {
+    console.error('login audit failed', e)
+  }
+}
 function passwordProblem(pw: string, policy: SecurityPolicy): string | null {
   if (pw.length < policy.passwordMinLength) return `رمز عبور باید حداقل ${policy.passwordMinLength} کاراکتر باشد`
   if (policy.requireComplexity && (!/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw))) {
@@ -114,6 +130,7 @@ async function login(request: Request): Promise<Response> {
         FailedLoginCount: failed,
         LockoutEnd: failed >= policy.maxFailedAttempts ? new Date(Date.now() + policy.lockoutMinutes * 60_000).toISOString() : null,
       }).eq('Id', user.Id).eq('TenantId', tenantId)
+      await recordLogin(tenantId, user, username, false, request)
     }
     throw new HttpError(401, 'نام کاربری یا رمز عبور اشتباه است')
   }
@@ -143,6 +160,7 @@ async function login(request: Request): Promise<Response> {
   failOnDb(companyResult.error)
   await db.from('Users').update({ FailedLoginCount: 0, LockoutEnd: null, LastLoginAt: now() })
     .eq('Id', user.Id).eq('TenantId', tenantId)
+  await recordLogin(tenantId, user, username, true, request)
 
   // Enforce concurrent-session limit only when enabled (fail-safe: never blocks login on error).
   if (policy.maxConcurrentSessions > 0) {
@@ -801,6 +819,19 @@ async function securitySettings(request: Request, auth: AuthContext): Promise<Re
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
 
+async function loginAudit(request: Request, auth: AuthContext, url: URL): Promise<Response> {
+  requireAdmin(auth)
+  if (request.method !== 'GET') throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
+  const userId = url.searchParams.get('userId')
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString()
+  let query = db.from('LoginAudit').select('Id,UserId,Username,FullName,Success,Ip,UserAgent,CreatedAt')
+    .eq('TenantId', auth.tenantId).gte('CreatedAt', since).order('CreatedAt', { ascending: false }).limit(500)
+  if (userId) query = query.eq('UserId', userId)
+  const result = await query
+  failOnDb(result.error)
+  return json(request, asCamel(result.data))
+}
+
 async function dispatch(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) })
   const url = new URL(request.url)
@@ -815,6 +846,7 @@ async function dispatch(request: Request): Promise<Response> {
   if (path === '/auth/logout' && request.method === 'POST') return json(request, { message: 'خروج موفق' })
   if (path === '/auth/change-password' && request.method === 'POST') return await changePassword(request, auth)
   if (path === '/security-settings') return await securitySettings(request, auth)
+  if (path === '/login-audit') return await loginAudit(request, auth, url)
   if (path.startsWith('/contacts')) return await contacts(request, auth, path, url)
   if (path === '/directory' && request.method === 'GET') return await directory(request, auth)
   if (path.startsWith('/tasks')) return await tasks(request, auth, path, url)
