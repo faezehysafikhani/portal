@@ -77,7 +77,7 @@ export interface LetterComposeProps {
 
 function RichEditor({ onChange, initialHtml = '' }: { onChange: (html: string) => void; initialHtml?: string }) {
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (ref.current && ref.current.innerHTML !== initialHtml) ref.current.innerHTML = initialHtml }, [initialHtml])
+  useEffect(() => { const safe = sanitizeRichHtml(initialHtml); if (ref.current && ref.current.innerHTML !== safe) ref.current.innerHTML = safe }, [initialHtml])
   const exec = (cmd: string, val?: string) => {
     ref.current?.focus()
     document.execCommand(cmd, false, val)
