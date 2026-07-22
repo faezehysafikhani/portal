@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Avatar, Button, Card, Col, Form, Input, message, Row, Space, Tabs, Tag, Upload } from 'antd'
-import { EditOutlined, LockOutlined, SaveOutlined, UploadOutlined, UserOutlined } from '@ant-design/icons'
+import { EditOutlined, LockOutlined, SaveOutlined, UploadOutlined, UserOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { apiFetch } from '../utils/api'
+import TwoFactorSettings from '../components/TwoFactorSettings'
 
 const API = 'http://localhost:5043/api/v1'
 const codePattern = /<[^>]*>|javascript\s*:|--|\/\*|\*\/|;\s*(select|insert|update|delete|drop|alter|exec)|\bunion\s+select/i
@@ -131,6 +132,7 @@ export default function ProfilePage() {
   return <Card style={{ borderRadius: 16 }}><Tabs items={[
     { key: 'profile', label: <span><UserOutlined /> اطلاعات شخصی</span>, children: personal },
     { key: 'password', label: <span><LockOutlined /> رمز عبور</span>, children: password },
+    { key: 'mfa', label: <span><SafetyCertificateOutlined /> احراز هویت دو مرحله‌ای</span>, children: <TwoFactorSettings /> },
     { key: 'signature', label: '✍️ امضا', children: signature }
   ]} /></Card>
 }

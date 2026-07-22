@@ -39,6 +39,9 @@ export default function LoginPage() {
   const captchaThreshold = company.captchaAfterAttempts ?? 3
   const captchaRequired = failedAttempts >= captchaThreshold
   const newCaptcha = () => { setCaptcha(makeCaptcha()); setCaptchaInput('') }
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [pendingName, setPendingName] = useState('')
 
   useEffect(() => {
     fetch('http://localhost:5043/api/v1/company/public?tenantId=00000000-0000-0000-0000-000000000001')
@@ -46,6 +49,20 @@ export default function LoginPage() {
       .then(data => { setCompany(data); localStorage.setItem('company', JSON.stringify(data)) })
       .catch(() => undefined)
   }, [])
+
+  const completeLogin = (data: any, fallbackName?: string) => {
+    localStorage.setItem('token', data.accessToken)
+    localStorage.setItem('user', JSON.stringify(data.user))
+    localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
+    if (data.company) localStorage.setItem('company', JSON.stringify(data.company))
+    sessionStorage.setItem('welcome-user', data.user?.fullName || `${data.user?.firstName || ''} ${data.user?.lastName || ''}`.trim() || data.user?.username || fallbackName || '')
+    if (data.mustChangePassword) {
+      localStorage.setItem('force-password-change', '1')
+      window.location.assign('/change-password')
+      return
+    }
+    window.location.assign('/dashboard')
+  }
 
   const handleLogin = async (values: { username: string; password: string }) => {
     if (captchaRequired && captchaInput.trim().toUpperCase() !== captcha.toUpperCase()) {
@@ -72,17 +89,32 @@ export default function LoginPage() {
         newCaptcha()
         return
       }
-      localStorage.setItem('token', data.accessToken)
-      localStorage.setItem('user', JSON.stringify(data.user))
-      localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
-      if (data.company) localStorage.setItem('company', JSON.stringify(data.company))
-      sessionStorage.setItem('welcome-user', data.user?.fullName || `${data.user?.firstName || ''} ${data.user?.lastName || ''}`.trim() || data.user?.username || values.username)
-      if (data.mustChangePassword) {
-        localStorage.setItem('force-password-change', '1')
-        window.location.assign('/change-password')
+      if (data.mfaRequired) { setMfaToken(data.mfaToken); setPendingName(values.username); return }
+      completeLogin(data, values.username)
+    } catch {
+      setError('خطا در اتصال به سرور')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verifyMfa = async () => {
+    if (!/^\d{6}$/.test(mfaCode.trim())) { setError('کد ۶ رقمی برنامه احرازهویت را وارد کنید'); return }
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('http://localhost:5043/api/v1/auth/mfa-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfaToken, code: mfaCode.trim() })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.message || 'کد تأیید اشتباه است')
+        if (res.status === 401 && String(data.message || '').includes('مهلت')) { setMfaToken(null); setMfaCode('') }
         return
       }
-      window.location.assign('/dashboard')
+      completeLogin(data, pendingName)
     } catch {
       setError('خطا در اتصال به سرور')
     } finally {
@@ -129,6 +161,26 @@ export default function LoginPage() {
 
           {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
 
+          {mfaToken ? (
+            <div>
+              <Alert type="info" showIcon style={{ marginBottom: 16 }}
+                message="کد تأیید دو مرحله‌ای"
+                description="کد ۶ رقمی نمایش‌داده‌شده در برنامه احرازهویت (مثل Google Authenticator) را وارد کنید." />
+              <Input
+                autoFocus value={mfaCode}
+                onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onPressEnter={() => void verifyMfa()}
+                placeholder="------" size="large" maxLength={6} inputMode="numeric"
+                style={{ height: 56, fontSize: 26, letterSpacing: 12, textAlign: 'center', fontFamily: 'monospace', direction: 'ltr' }} />
+              <Button type="primary" block size="large" loading={loading} onClick={() => void verifyMfa()}
+                style={{ background: 'linear-gradient(135deg, #8B1A6B, #A83585)', border: 'none', borderRadius: 12, height: 54, fontWeight: 700, fontSize: 16, marginTop: 16 }}>
+                تأیید و ورود
+              </Button>
+              <Button type="link" block onClick={() => { setMfaToken(null); setMfaCode(''); setError('') }} style={{ marginTop: 8, color: '#8c8c8c' }}>
+                بازگشت به صفحه ورود
+              </Button>
+            </div>
+          ) : (
           <Form layout="vertical" onFinish={handleLogin}>
             <Form.Item name="username" label="نام کاربری" rules={[{ required: true, message: 'نام کاربری الزامی است' }]}>
               <Input
@@ -168,6 +220,7 @@ export default function LoginPage() {
               ورود به سامانه
             </Button>
           </Form>
+          )}
         </div>
       </div>
 

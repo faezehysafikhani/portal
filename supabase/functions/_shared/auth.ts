@@ -45,6 +45,26 @@ function sessionClient(): SupabaseClient {
   return sharedClient
 }
 
+// Short-lived token issued after password success but before the MFA (TOTP) step.
+export async function issueMfaToken(userId: string, tenantId: string): Promise<string> {
+  if (!secret) throw new Error('EDGE_JWT_SECRET is not configured')
+  return await new SignJWT({ user_id: userId, tenant_id: tenantId, purpose: 'mfa' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuer('org-system-edge').setAudience('org-system-mfa')
+    .setIssuedAt().setExpirationTime('5m').sign(secret)
+}
+
+export async function verifyMfaToken(token: string): Promise<{ userId: string; tenantId: string }> {
+  if (!secret) throw new Error('EDGE_JWT_SECRET is not configured')
+  const { payload } = await jwtVerify(token, secret, {
+    algorithms: ['HS256'], issuer: 'org-system-edge', audience: 'org-system-mfa',
+  })
+  if (payload.purpose !== 'mfa') throw new HttpError(401, 'توکن نامعتبر است')
+  const userId = String(payload.user_id ?? ''), tenantId = String(payload.tenant_id ?? '')
+  if (!userId || !tenantId) throw new HttpError(401, 'توکن نامعتبر است')
+  return { userId, tenantId }
+}
+
 export async function authenticate(request: Request): Promise<AuthContext> {
   if (!secret) throw new Error('EDGE_JWT_SECRET is not configured')
   const header = request.headers.get('authorization') ?? ''

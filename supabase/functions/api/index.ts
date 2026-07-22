@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs'
-import { adminClient, authenticate, AuthContext, issueToken, requirePermission } from '../_shared/auth.ts'
+import { adminClient, authenticate, AuthContext, issueMfaToken, issueToken, requirePermission, verifyMfaToken } from '../_shared/auth.ts'
+import { decryptSecret, encryptSecret } from '../_shared/crypto.ts'
+import { generateBase32Secret, otpauthUri, verifyTotp } from '../_shared/totp.ts'
 import { body, camelize, HttpError, json, pascalize, uuid } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { handlePublicCustomer, handleTicketsCustomers } from './tickets-customers.ts'
@@ -116,6 +118,17 @@ async function revokeUserSessions(tenantId: string, userId: string, exceptJti?: 
   }
 }
 
+// Fixed-window rate limit. Returns true when the caller has exceeded `limit` within the window.
+// Fail-open: any DB error returns false so a rate-limit outage never blocks legitimate traffic.
+async function rateLimited(bucket: string, limit: number, windowSeconds: number): Promise<boolean> {
+  try {
+    const { data, error } = await db.rpc('rate_limit_hit', { p_bucket: bucket, p_window_seconds: windowSeconds })
+    if (error) { console.error('rate_limit_hit', error.message); return false }
+    if (Math.random() < 0.02) { void db.from('RateLimits').delete().lt('ExpiresAt', now()).then(() => {}, () => {}) }
+    return Number(data) > limit
+  } catch { return false }
+}
+
 function passwordProblem(pw: string, policy: SecurityPolicy): string | null {
   if (pw.length < policy.passwordMinLength) return `رمز عبور باید حداقل ${policy.passwordMinLength} کاراکتر باشد`
   if (policy.requireComplexity && (!/[a-z]/.test(pw) || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw))) {
@@ -130,6 +143,9 @@ async function login(request: Request): Promise<Response> {
   const password = String(input.password ?? '')
   const tenantId = String(input.tenantId ?? tenantDefault)
   if (!username || !password) throw new HttpError(400, 'نام کاربری و رمز عبور الزامی است')
+  if (await rateLimited(`login:${requestIp(request) ?? 'unknown'}`, 30, 300)) {
+    throw new HttpError(429, 'تلاش‌های ورود بیش از حد مجاز است؛ چند دقیقه دیگر دوباره تلاش کنید')
+  }
   const policy = await loadSecurity(tenantId)
 
   const { data: user, error } = await db.from('Users').select('*')
@@ -150,6 +166,15 @@ async function login(request: Request): Promise<Response> {
     throw new HttpError(423, 'حساب کاربری موقتاً قفل است')
   }
 
+  // Second factor — only for users who have explicitly enabled TOTP; everyone else logs in as before.
+  if (user.IsTwoFactorEnabled && user.TwoFactorSecret) {
+    const mfaToken = await issueMfaToken(user.Id, tenantId)
+    return json(request, { mfaRequired: true, mfaToken })
+  }
+  return await issueSession(request, user as JsonObject, tenantId, policy)
+}
+
+async function issueSession(request: Request, user: JsonObject, tenantId: string, policy: SecurityPolicy): Promise<Response> {
   const { data: links, error: linkError } = await db.from('UserPermissions')
     .select('PermissionId').eq('TenantId', tenantId).eq('UserId', user.Id).eq('IsDeleted', false)
   failOnDb(linkError)
@@ -163,7 +188,7 @@ async function login(request: Request): Promise<Response> {
   }
 
   const auth: AuthContext = {
-    userId: user.Id, tenantId, username: user.Username,
+    userId: String(user.Id), tenantId, username: String(user.Username),
     permissions, isAdmin: String(user.Username).toLowerCase() === 'admin',
   }
   const jti = crypto.randomUUID()
@@ -172,7 +197,7 @@ async function login(request: Request): Promise<Response> {
   failOnDb(companyResult.error)
   await db.from('Users').update({ FailedLoginCount: 0, LockoutEnd: null, LastLoginAt: now() })
     .eq('Id', user.Id).eq('TenantId', tenantId)
-  await recordLogin(tenantId, user, username, true, request)
+  await recordLogin(tenantId, user, String(user.Username), true, request)
 
   // Always record the session so it can be revoked on block/delete/password-change.
   // Concurrent-session limiting only kicks in when enabled. Fail-safe: never blocks login on error.
@@ -851,18 +876,76 @@ async function loginAudit(request: Request, auth: AuthContext, url: URL): Promis
   return json(request, asCamel(result.data))
 }
 
+async function mfaVerify(request: Request): Promise<Response> {
+  const input = await body<{ mfaToken?: string; code?: string }>(request)
+  let claim: { userId: string; tenantId: string }
+  try { claim = await verifyMfaToken(String(input.mfaToken ?? '')) }
+  catch { throw new HttpError(401, 'مهلت تأیید دو مرحله‌ای به پایان رسید؛ دوباره وارد شوید') }
+  if (await rateLimited(`mfa:${claim.userId}`, 8, 300)) throw new HttpError(429, 'تعداد تلاش زیاد است؛ کمی بعد دوباره تلاش کنید')
+  const policy = await loadSecurity(claim.tenantId)
+  const { data: user, error } = await db.from('Users').select('*')
+    .eq('TenantId', claim.tenantId).eq('Id', claim.userId).eq('IsDeleted', false).maybeSingle()
+  failOnDb(error)
+  if (!user || !user.IsActive || !user.IsTwoFactorEnabled || !user.TwoFactorSecret) throw new HttpError(401, 'درخواست نامعتبر است')
+  const secretValue = await decryptSecret(String(user.TwoFactorSecret))
+  if (!await verifyTotp(secretValue, String(input.code ?? ''))) {
+    await recordLogin(claim.tenantId, user, String(user.Username), false, request)
+    throw new HttpError(401, 'کد تأیید اشتباه است')
+  }
+  return await issueSession(request, user as JsonObject, claim.tenantId, policy)
+}
+
+async function mfaManage(request: Request, auth: AuthContext, path: string): Promise<Response> {
+  if (path === '/auth/mfa/status' && request.method === 'GET') {
+    const { data } = await db.from('Users').select('IsTwoFactorEnabled').eq('TenantId', auth.tenantId).eq('Id', auth.userId).maybeSingle()
+    return json(request, { enabled: !!data?.IsTwoFactorEnabled })
+  }
+  if (path === '/auth/mfa/setup' && request.method === 'POST') {
+    const secretB32 = generateBase32Secret()
+    const result = await db.from('Users').update({ TwoFactorSecret: await encryptSecret(secretB32), IsTwoFactorEnabled: false, UpdatedAt: now() })
+      .eq('TenantId', auth.tenantId).eq('Id', auth.userId)
+    failOnDb(result.error)
+    return json(request, { secret: secretB32, otpauth: otpauthUri('Portal Parspmi', auth.username, secretB32) })
+  }
+  if (path === '/auth/mfa/enable' && request.method === 'POST') {
+    const input = await body<{ code?: string }>(request)
+    const { data: user, error } = await db.from('Users').select('TwoFactorSecret').eq('TenantId', auth.tenantId).eq('Id', auth.userId).single()
+    failOnDb(error)
+    if (!user?.TwoFactorSecret) throw new HttpError(400, 'ابتدا راه‌اندازی را آغاز کنید')
+    const secretValue = await decryptSecret(String(user.TwoFactorSecret))
+    if (!await verifyTotp(secretValue, String(input.code ?? ''))) throw new HttpError(400, 'کد وارد شده صحیح نیست')
+    const result = await db.from('Users').update({ IsTwoFactorEnabled: true, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', auth.userId)
+    failOnDb(result.error)
+    return json(request, { message: 'احراز هویت دو مرحله‌ای فعال شد' })
+  }
+  if (path === '/auth/mfa/disable' && request.method === 'POST') {
+    const input = await body<{ password?: string }>(request)
+    const { data: user, error } = await db.from('Users').select('PasswordHash').eq('TenantId', auth.tenantId).eq('Id', auth.userId).single()
+    failOnDb(error)
+    if (!await bcrypt.compare(String(input.password ?? ''), user.PasswordHash)) throw new HttpError(400, 'رمز عبور اشتباه است')
+    const result = await db.from('Users').update({ IsTwoFactorEnabled: false, TwoFactorSecret: null, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', auth.userId)
+    failOnDb(result.error)
+    return json(request, { message: 'احراز هویت دو مرحله‌ای غیرفعال شد' })
+  }
+  throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
+}
+
 async function dispatch(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) })
   const url = new URL(request.url)
   const path = routePath(url)
   if (path === '/health' && request.method === 'GET') return json(request, { status: 'ok', runtime: 'supabase-edge' })
   if (path === '/auth/login' && request.method === 'POST') return await login(request)
+  if (path === '/auth/mfa-verify' && request.method === 'POST') return await mfaVerify(request)
   if (path === '/company/public' && request.method === 'GET') return await publicCompany(request, url)
   const publicCustomerResponse = await handlePublicCustomer(request, path)
   if (publicCustomerResponse) return publicCustomerResponse
 
   const auth = await authenticate(request)
+  // General per-user rate limit (generous; guards against scraping/abuse). Fail-open on error.
+  if (await rateLimited(`u:${auth.userId}`, 600, 60)) throw new HttpError(429, 'تعداد درخواست‌های شما بیش از حد مجاز است؛ لطفاً چند لحظه صبر کنید')
   if (path === '/auth/logout' && request.method === 'POST') return json(request, { message: 'خروج موفق' })
+  if (path.startsWith('/auth/mfa/')) return await mfaManage(request, auth, path)
   if (path === '/auth/change-password' && request.method === 'POST') return await changePassword(request, auth)
   if (path === '/security-settings') return await securitySettings(request, auth)
   if (path === '/login-audit') return await loginAudit(request, auth, url)
