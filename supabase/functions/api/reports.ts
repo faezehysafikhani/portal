@@ -49,8 +49,20 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
   }
 
   if (path === '/reports/forms/pending') {
-    const result=await db.from('OrganizationalForms').select('Id,Title,FormType,SubmitterName,Status,RequestedHours,CreatedAt,ManagerName,HrName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']).order('CreatedAt');check(result.error)
-    return json(request,(result.data??[]).map((x:Obj)=>({id:x.Id,title:x.Title,formType:x.FormType,submitterName:x.SubmitterName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,currentStage:x.Status==='manager_pending'?'تأیید مدیر مستقیم':'تأیید منابع انسانی',currentApprover:x.Status==='manager_pending'?x.ManagerName:x.HrName,waitingDays:Math.max(0,Math.floor((Date.now()-new Date(x.CreatedAt).getTime())/86400000))})))
+    const result=await db.from('OrganizationalForms').select('Id,Title,FormType,DataJson,SubmitterUserId,SubmitterName,Status,RequestedHours,CreatedAt,ManagerName,HrName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).order('CreatedAt');check(result.error)
+    const all=result.data??[], pending=all.filter((x:Obj)=>['manager_pending','hr_pending'].includes(x.Status)), ids=pending.map((x:Obj)=>x.Id)
+    const historiesR=ids.length?await db.from('FormWorkflowHistories').select('FormId,Action,ActorName,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormId',ids).order('CreatedAt'):({data:[],error:null} as any);check(historiesR.error)
+    const histories=new Map<string,Obj[]>();for(const h of historiesR.data??[]){const list=histories.get(h.FormId)??[];list.push(h);histories.set(h.FormId,list)}
+    const key=(x:Obj)=>`${x.SubmitterUserId}|${x.FormType}|${String(x.DataJson??'')}`
+    const completedKeys=new Set(all.filter((x:Obj)=>['approved','completed'].includes(x.Status)).map(key))
+    const visible=pending.filter((x:Obj)=>{
+      if(completedKeys.has(key(x)))return false
+      const history=histories.get(x.Id)??[]
+      if(history.some((h:Obj)=>['rejected','returned','complete'].includes(String(h.Action))))return false
+      const approver=x.Status==='manager_pending'?x.ManagerName:x.HrName
+      return !history.some((h:Obj)=>h.ActorName===approver&&h.Action==='approve')
+    })
+    return json(request,visible.map((x:Obj)=>({id:x.Id,title:x.Title,formType:x.FormType,submitterName:x.SubmitterName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,currentStage:x.Status==='manager_pending'?'تأیید مدیر مستقیم':'تأیید منابع انسانی',currentApprover:x.Status==='manager_pending'?x.ManagerName:x.HrName,waitingDays:Math.max(0,Math.floor((Date.now()-new Date(x.CreatedAt).getTime())/86400000))})))
   }
 
   if (path !== '/reports/dashboard') return null
