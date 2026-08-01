@@ -111,7 +111,7 @@ public class GroupChatController(AppDbContext db) : ControllerBase
         if (actor == null || (!actor.IsAdmin && group.OwnerUserId != UserId)) return Forbid();
         var existingIds = group.Members.Select(x => x.UserId).ToHashSet();
         var requestedIds = (request.MemberUserIds ?? []).Where(x => !existingIds.Contains(x)).Distinct().Take(Math.Max(0, 50 - existingIds.Count)).ToList();
-        var active = await db.Users.AsNoTracking().Where(x => x.IsActive && requestedIds.Contains(x.Id)).Select(x => new { x.Id, x.FullName }).ToListAsync(ct);
+        var active = await db.Users.AsNoTracking().Where(x => x.IsActive && requestedIds.Contains(x.Id)).Select(x => new { x.Id }).ToListAsync(ct);
         foreach (var user in active)
         {
             db.InternalChatGroupMembers.Add(new InternalChatGroupMember { GroupId = groupId, UserId = user.Id, TenantId = TenantId, CreatedByUserId = UserId });

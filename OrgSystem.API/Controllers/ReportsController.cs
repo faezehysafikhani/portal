@@ -94,18 +94,35 @@ public class ReportsController(AppDbContext db) : ControllerBase
         // FullName is a computed CLR property and is not mapped to a database column.
         // Build it after materializing the query so PostgreSQL never has to translate it.
         var users = await db.Users.AsNoTracking()
-            .Where(x => x.IsActive)
             .OrderBy(x => x.FirstName).ThenBy(x => x.LastName)
-            .Select(x => new { x.Id, x.FirstName, x.LastName, x.Position, x.Department })
+            .Select(x => new { x.Id, x.FirstName, x.LastName, x.Position, x.Department, x.IsActive })
             .ToListAsync(ct);
 
-        return Ok(users.Select(x => new
+        // Keep employees with historical forms available even if their account was
+        // later deactivated or soft-deleted.
+        var formSubmitters = await db.OrganizationalForms.AsNoTracking()
+            .Select(x => new { Id = x.SubmitterUserId, FullName = x.SubmitterName })
+            .Distinct()
+            .ToListAsync(ct);
+        var knownIds = users.Select(x => x.Id).ToHashSet();
+
+        var result = users.Select(x => new
         {
             x.Id,
             FullName = $"{x.FirstName} {x.LastName}".Trim(),
             x.Position,
-            x.Department
-        }));
+            x.Department,
+            x.IsActive
+        }).Concat(formSubmitters.Where(x => !knownIds.Contains(x.Id)).Select(x => new
+        {
+            x.Id,
+            x.FullName,
+            Position = (string?)null,
+            Department = (string?)null,
+            IsActive = false
+        })).OrderBy(x => x.FullName).ToList();
+
+        return Ok(result);
     }
 
     [HttpGet("forms/leave")]
