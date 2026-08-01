@@ -89,8 +89,24 @@ public class ReportsController(AppDbContext db) : ControllerBase
     }
 
     [HttpGet("forms/users")]
-    public async Task<IActionResult> FormUsers(CancellationToken ct) => Ok(await db.Users.AsNoTracking().Where(x => x.IsActive)
-        .OrderBy(x => x.FirstName).ThenBy(x => x.LastName).Select(x => new { x.Id, x.FullName, x.Position, x.Department }).ToListAsync(ct));
+    public async Task<IActionResult> FormUsers(CancellationToken ct)
+    {
+        // FullName is a computed CLR property and is not mapped to a database column.
+        // Build it after materializing the query so PostgreSQL never has to translate it.
+        var users = await db.Users.AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.FirstName).ThenBy(x => x.LastName)
+            .Select(x => new { x.Id, x.FirstName, x.LastName, x.Position, x.Department })
+            .ToListAsync(ct);
+
+        return Ok(users.Select(x => new
+        {
+            x.Id,
+            FullName = $"{x.FirstName} {x.LastName}".Trim(),
+            x.Position,
+            x.Department
+        }));
+    }
 
     [HttpGet("forms/leave")]
     public async Task<IActionResult> LeaveReport([FromQuery] Guid? userId, [FromQuery] string? fromDate, [FromQuery] string? toDate, CancellationToken ct)
