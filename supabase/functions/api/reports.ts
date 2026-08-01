@@ -70,7 +70,7 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
     db.from('Letters').select('Id,LetterNumber,IncomingNumber,Type,Subject,FromUserName,IncomingFromOrg,LetterDate,CreatedAt,Status').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
     db.from('Tasks').select('Id,Title,Status,Priority,Progress,DueDate,AssignedToUserId,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
     db.from('Tickets').select('Id,Code,Title,CustomerId,Category,AssignedToUserId,Status,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
-    db.from('OrganizationalForms').select('Id,FormType,Title,SubmitterName,ManagerName,HrName,Status,RequestedHours,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
+    db.from('OrganizationalForms').select('Id,FormType,DataJson,SubmitterUserId,Title,SubmitterName,ManagerName,HrName,Status,RequestedHours,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
     db.from('SmsMessages').select('Status').eq('TenantId', auth.tenantId).eq('IsDeleted', false).limit(1000),
     db.from('Users').select('Id,FirstName,LastName,IsActive').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
     db.from('Customers').select('Id,FullName').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
@@ -81,10 +81,13 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
   ]); [lettersR,tasksR,ticketsR,formsR,smsR,usersR,customersR,letterCountR,activeTasksR,openTicketsR,pendingFormsR].forEach((x) => check(x.error))
   const letters = lettersR.data ?? [], tasks = tasksR.data ?? [], tickets = ticketsR.data ?? [], forms = formsR.data ?? [], users = usersR.data ?? [], customers = customersR.data ?? []
   const userName = new Map(users.map((u) => [u.Id, `${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim()])); const customerName = new Map(customers.map((c) => [c.Id, c.FullName]))
+  const formKey=(x:Obj)=>`${x.SubmitterUserId}|${x.FormType}|${String(x.DataJson??'')}`
+  const completedFormKeys=new Set(forms.filter((x:Obj)=>['approved','completed'].includes(x.Status)).map(formKey))
+  const actualPendingForms=forms.filter((x:Obj)=>['manager_pending','hr_pending'].includes(x.Status)&&!completedFormKeys.has(formKey(x))).length
   const months = Array.from({ length: 6 }, (_, index) => { const d = new Date(); d.setUTCDate(1); d.setUTCHours(0, 0, 0, 0); d.setUTCMonth(d.getUTCMonth() - (5 - index)); return d })
   const monthly = months.map((month) => { const same = (x: Obj) => { const d = new Date(x.CreatedAt); return d.getUTCFullYear() === month.getUTCFullYear() && d.getUTCMonth() === month.getUTCMonth() }; return { month: month.toLocaleDateString('fa-IR', { month: 'short', year: 'numeric' }), internalLetters: letters.filter((x) => same(x) && Number(x.Type) === 0).length, incomingLetters: letters.filter((x) => same(x) && Number(x.Type) === 1).length, outgoingLetters: letters.filter((x) => same(x) && Number(x.Type) === 2).length, tasks: tasks.filter(same).length, tickets: tickets.filter(same).length, forms: forms.filter(same).length } })
   return json(request, {
-    summary: { letterCount:letterCountR.count??0,activeTasks:activeTasksR.count??0,openTickets:openTicketsR.count??0,sentSms:(smsR.data??[]).filter((x)=>[1,2,'Sent','Delivered'].includes(x.Status)).length,pendingForms:pendingFormsR.count??0,activeUsers:users.filter((x)=>x.IsActive).length,totalUsers:users.length },
+    summary: { letterCount:letterCountR.count??0,activeTasks:activeTasksR.count??0,openTickets:openTicketsR.count??0,sentSms:(smsR.data??[]).filter((x)=>[1,2,'Sent','Delivered'].includes(x.Status)).length,pendingForms:actualPendingForms,activeUsers:users.filter((x)=>x.IsActive).length,totalUsers:users.length },
     monthly, letterTypes: group(letters, 'Type', letterTypes), taskStatuses: group(tasks, 'Status', taskStatuses), ticketStatuses: group(tickets, 'Status'), formStatuses: group(forms, 'Status'),
     letters: letters.map((x) => ({ id: x.Id, number: x.LetterNumber ?? x.IncomingNumber ?? '—', type: out(x.Type, letterTypes), subject: x.Subject, from: x.FromUserName ?? x.IncomingFromOrg ?? '—', date: x.LetterDate ?? x.CreatedAt, status: out(x.Status, letterStatuses) })),
     tasks: tasks.map((x) => ({ ...(camelize(x) as Obj), status: out(x.Status, taskStatuses), priority: out(x.Priority, priorities), assignee: userName.get(x.AssignedToUserId) ?? '' })),
