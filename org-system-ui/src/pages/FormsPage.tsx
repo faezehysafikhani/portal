@@ -136,7 +136,10 @@ export default function FormsPage() {
   const managerOptions=workflow.manager?[{value:workflow.manager.id,label:`${workflow.manager.fullName}${workflow.manager.position?' — '+workflow.manager.position:''}`}]:[]
   const hrOptions=workflow.hrManager?[{value:workflow.hrManager.id,label:`${workflow.hrManager.fullName}${workflow.hrManager.position?' — '+workflow.hrManager.position:''}`}]:[]
   const userOptions=users.map(u=>({value:u.id,label:u.fullName}))
-  const openForm=(type:string)=>{form.resetFields();setNewFormType(type);form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id});setNewFormModal(true)}
+  const openForm=(type:string)=>{
+    if(['leave_daily','leave_hourly'].includes(type)&&leaveBalance.availableHours<=0){notification.warning({message:'⚠️ مانده مرخصی ندارید',description:'مانده قابل استفاده شما صفر است و امکان ثبت درخواست مرخصی وجود ندارد.',duration:6});return}
+    form.resetFields();setNewFormType(type);form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id});setNewFormModal(true)
+  }
 
   const checkLeaveBalance = (type: string, days?: number, hours?: number) => {
     if (type === 'leave_daily' && days && days * 8 > leaveBalance.availableHours) {

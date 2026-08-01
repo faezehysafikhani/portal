@@ -29,21 +29,16 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
   if (path === '/reports/forms/leave') {
     const userId=url.searchParams.get('userId'), fromDate=url.searchParams.get('fromDate')?.replaceAll('-','/'), toDate=url.searchParams.get('toDate')?.replaceAll('-','/')
     if (fromDate && toDate && fromDate > toDate) throw new HttpError(400, 'تاریخ پایان نمی‌تواند قبل از تاریخ شروع باشد')
-    let query=db.from('OrganizationalForms').select('Id,FormType,DataJson,SubmitterUserId,SubmitterName,ManagerName,HrName,Status,RequestedHours,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormType',['leave_daily','leave_hourly'])
+    let query=db.from('OrganizationalForms').select('Id,FormType,DataJson,SubmitterUserId,SubmitterName,ManagerName,Status,RequestedHours,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormType',['leave_daily','leave_hourly']).eq('Status','approved')
     if(userId) query=query.eq('SubmitterUserId',userId)
     const formsR=await query.order('CreatedAt',{ascending:false});check(formsR.error)
-    const ids=(formsR.data??[]).map((x:Obj)=>x.Id)
-    const historiesR=ids.length?await db.from('FormWorkflowHistories').select('FormId,Action,ActorName,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormId',ids).order('CreatedAt'):({data:[],error:null} as any);check(historiesR.error)
-    const histories=new Map<string,Obj[]>(); for(const h of historiesR.data??[]){const list=histories.get(h.FormId)??[];list.push(h);histories.set(h.FormId,list)}
-    const decision=(action:unknown)=>({approved:'تأیید شده',rejected:'رد شده',returned:'برگشت داده شده'} as Obj)[String(action??'')]??'—'
     const rows:Obj[]=[]
     for(const item of formsR.data??[]){
       let data:Obj={};try{data=typeof item.DataJson==='string'?JSON.parse(item.DataJson):(item.DataJson??{})}catch{continue}
       const daily=item.FormType==='leave_daily', start=String(data[daily?'fromDate':'date']??'').replaceAll('-','/'), end=String(daily?(data.toDate??start):start).replaceAll('-','/')
       if(!/^\d{4}\/\d{2}\/\d{2}$/.test(start)||!/^\d{4}\/\d{2}\/\d{2}$/.test(end))continue
       if((fromDate&&end<fromDate)||(toDate&&start>toDate))continue
-      const history=histories.get(item.Id)??[], managerAction=history.find(x=>x.ActorName===item.ManagerName&&x.Action!=='submitted')?.Action, hrAction=history.find(x=>x.ActorName===item.HrName&&x.Action!=='submitted')?.Action
-      rows.push({id:item.Id,employeeName:item.SubmitterName,leaveKind:daily?'روزانه':'ساعتی',date:daily&&start!==end?`${start} تا ${end}`:start,startTime:daily?'—':(data.fromTime??'—'),endTime:daily?'—':(data.toTime??'—'),requestedHours:item.RequestedHours,managerName:item.ManagerName,managerDecision:item.Status==='manager_pending'?'در انتظار':decision(managerAction),hrManagerName:item.HrName,hrDecision:['manager_pending','hr_pending'].includes(item.Status)?'در انتظار':decision(hrAction),status:item.Status,createdAt:item.CreatedAt})
+      rows.push({id:item.Id,employeeName:item.SubmitterName,leaveKind:daily?'روزانه':'ساعتی',startDate:daily?start:'—',endDate:daily?end:'—',dayCount:daily?Number(item.RequestedHours??0)/8:'—',hourlyDate:daily?'—':start,startTime:daily?'—':(data.fromTime??'—'),endTime:daily?'—':(data.toTime??'—'),totalHours:daily?'—':Number(item.RequestedHours??0),managerName:item.ManagerName,createdAt:item.CreatedAt})
     }
     return json(request,rows)
   }

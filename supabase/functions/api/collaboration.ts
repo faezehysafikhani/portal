@@ -236,10 +236,10 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     requirePermission(auth, 'forms.view'); let query=db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     const scope=url.searchParams.get('scope')||'sent'
     if(scope==='approvals')query=query.or(`and(ManagerUserId.eq.${auth.userId},Status.eq.manager_pending),and(HrUserId.eq.${auth.userId},Status.eq.hr_pending),and(HrUserId.eq.${auth.userId},FormType.eq.personnel,Status.eq.completed)`)
-    else if(scope==='inbox')query=query.eq('SubmitterUserId',auth.userId).in('Status',['approved','completed','rejected','returned'])
+    else if(scope==='inbox')query=query.eq('SubmitterUserId',auth.userId).in('Status',['hr_pending','approved','completed','rejected','returned'])
     else query=query.eq('SubmitterUserId',auth.userId)
     const result=await query.order('CreatedAt',{ascending:false});check(result.error)
-    const enriched=await Promise.all((result.data??[]).map(async(form:Obj)=>{const history=await db.from('FormWorkflowHistories').select('*').eq('TenantId',auth.tenantId).eq('FormId',form.Id).eq('IsDeleted',false).order('CreatedAt');check(history.error);return{...camelize(form) as Obj,history:camelize(history.data)}}))
+    const enriched=await Promise.all((result.data??[]).map(async(form:Obj)=>{const history=await db.from('FormWorkflowHistories').select('*').eq('TenantId',auth.tenantId).eq('FormId',form.Id).eq('IsDeleted',false).order('CreatedAt');check(history.error);const canAct=(form.ManagerUserId===auth.userId&&form.Status==='manager_pending')||(form.HrUserId===auth.userId&&form.Status==='hr_pending');return{...camelize(form) as Obj,canAct,isHrCopy:false,history:camelize(history.data)}}))
     return json(request,enriched)
   }
   if (path === '/forms' && request.method === 'POST') {
@@ -270,7 +270,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     // تفکیک وظایف: هیچ‌کس (حتی مدیر سیستم) نمی‌تواند فرم ثبت‌شده توسط خودش را تأیید/رد کند.
     if (form.SubmitterUserId === auth.userId) throw new HttpError(403, 'شما نمی‌توانید فرمی را که خودتان ثبت کرده‌اید تأیید یا رد کنید')
     const isManager = form.ManagerUserId === auth.userId && form.Status === 'manager_pending'; const isHr = form.HrUserId === auth.userId && form.Status === 'hr_pending'
-    if (!isManager && !isHr && !auth.isAdmin) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
+    if (!isManager && !isHr) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
     const personnel=form.FormType==='personnel'
     let status = form.Status
     if(personnel&&isHr&&input.action==='complete')status='completed'
@@ -287,9 +287,13 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
       const accountUpdate:Obj={ReservedHours:reserved,UpdatedAt:now()};if(input.action==='approve'&&status==='approved')accountUpdate.UsedHours=Number(account.UsedHours??0)+requested
       const saved=await db.from('LeaveAccounts').update(accountUpdate).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(saved.error)
     }
-    const nextUser=status==='hr_pending'?form.HrUserId:form.SubmitterUserId
     const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='completed'?'فرم مشخصات پرسنلی شما خاتمه یافت':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
-    await createNotification(db,auth,{userId:nextUser,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:status==='hr_pending'?'/forms/approvals':'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'})
+    if(status==='hr_pending'){
+      await Promise.all([
+        createNotification(db,auth,{userId:form.HrUserId,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:form.Id,entityType:'OrganizationalForm'}),
+        createNotification(db,auth,{userId:form.SubmitterUserId,title:'فرم شما توسط مدیر مستقیم تأیید شد',body:`${form.Title} برای تأیید نهایی به منابع انسانی ارسال شد.`,type:notificationType.form,actionUrl:'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'}),
+      ])
+    }else await createNotification(db,auth,{userId:form.SubmitterUserId,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'})
     return json(request, { status: result.data.Status })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
