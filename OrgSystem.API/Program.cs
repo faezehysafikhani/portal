@@ -17,12 +17,21 @@ builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
 // Database
-builder.Services.AddDbContext<AppDbContext>(options =>
+/*builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         sql => sql.EnableRetryOnFailure(maxRetryCount: 3)
     )
 );
+*/
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        npgsql => npgsql.EnableRetryOnFailure(maxRetryCount: 3)
+    )
+);
+
+
 
 // JWT Settings
 var jwtSettings = builder.Configuration.GetSection("JwtSettings").Get<JwtSettings>()!;

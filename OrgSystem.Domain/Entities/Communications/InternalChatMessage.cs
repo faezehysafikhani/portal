@@ -23,3 +23,28 @@ public enum ChatMessageKind
     File = 1,
     Voice = 2
 }
+
+public class InternalChatGroup : BaseEntity
+{
+    public string Name { get; set; } = string.Empty;
+    public Guid OwnerUserId { get; set; }
+    public ICollection<InternalChatGroupMember> Members { get; set; } = new List<InternalChatGroupMember>();
+    public ICollection<InternalChatGroupMessage> Messages { get; set; } = new List<InternalChatGroupMessage>();
+}
+
+public class InternalChatGroupMember : BaseEntity
+{
+    public Guid GroupId { get; set; }
+    public InternalChatGroup Group { get; set; } = null!;
+    public Guid UserId { get; set; }
+    public bool IsAdmin { get; set; }
+    public DateTime? LastReadAt { get; set; }
+}
+
+public class InternalChatGroupMessage : BaseEntity
+{
+    public Guid GroupId { get; set; }
+    public InternalChatGroup Group { get; set; } = null!;
+    public Guid SenderUserId { get; set; }
+    public string Content { get; set; } = string.Empty;
+}

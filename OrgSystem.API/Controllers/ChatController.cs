@@ -33,7 +33,7 @@ public class ChatController(AppDbContext db) : ControllerBase
             var last = messages.FirstOrDefault(x => x.SenderUserId == user.Id || x.RecipientUserId == user.Id);
             var unread = messages.Count(x => x.SenderUserId == user.Id && x.RecipientUserId == UserId && !x.IsRead);
             var lastText = last == null ? null : last.Kind == ChatMessageKind.Voice ? "🎤 پیام صوتی" : last.Kind == ChatMessageKind.File ? $"📎 {last.AttachmentName}" : last.Content;
-            return new { user.Id, user.FullName, user.Position, user.Department, user.AvatarUrl, IsOnline = user.LastLoginAt >= DateTime.UtcNow.AddMinutes(-15), LastMessage = lastText, LastMessageAt = last?.CreatedAt, Unread = unread };
+            return new { user.Id, PersonId = user.Id, PersonType = "user", user.FullName, user.Position, user.Department, user.AvatarUrl, IsOnline = user.LastLoginAt >= DateTime.UtcNow.AddMinutes(-15), LastMessage = lastText, LastMessageAt = last?.CreatedAt, Unread = unread };
         }));
     }
 

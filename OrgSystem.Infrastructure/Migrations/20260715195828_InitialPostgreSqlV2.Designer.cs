@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using OrgSystem.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using OrgSystem.Infrastructure.Persistence;
 namespace OrgSystem.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260715195828_InitialPostgreSqlV2")]
+    partial class InitialPostgreSqlV2
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -170,128 +173,6 @@ namespace OrgSystem.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("AiProviderSettings");
-                });
-
-            modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatGroup", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(60)
-                        .HasColumnType("character varying(60)");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("InternalChatGroups");
-                });
-
-            modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatGroupMember", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("GroupId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsAdmin")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("LastReadAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("InternalChatGroupMembers");
-                });
-
-            modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatGroupMessage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Content")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("GroupId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<Guid>("SenderUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("GroupId", "CreatedAt");
-
-                    b.ToTable("InternalChatGroupMessages");
                 });
 
             modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatMessage", b =>
@@ -2241,28 +2122,6 @@ namespace OrgSystem.Infrastructure.Migrations
                     b.Navigation("Conversation");
                 });
 
-            modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatGroupMember", b =>
-                {
-                    b.HasOne("OrgSystem.Domain.Entities.Communications.InternalChatGroup", "Group")
-                        .WithMany("Members")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Group");
-                });
-
-            modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatGroupMessage", b =>
-                {
-                    b.HasOne("OrgSystem.Domain.Entities.Communications.InternalChatGroup", "Group")
-                        .WithMany("Messages")
-                        .HasForeignKey("GroupId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Group");
-                });
-
             modelBuilder.Entity("OrgSystem.Domain.Entities.Crm.Contract", b =>
                 {
                     b.HasOne("OrgSystem.Domain.Entities.Crm.Customer", "Customer")
@@ -2470,13 +2329,6 @@ namespace OrgSystem.Infrastructure.Migrations
 
             modelBuilder.Entity("OrgSystem.Domain.Entities.AI.AiConversation", b =>
                 {
-                    b.Navigation("Messages");
-                });
-
-            modelBuilder.Entity("OrgSystem.Domain.Entities.Communications.InternalChatGroup", b =>
-                {
-                    b.Navigation("Members");
-
                     b.Navigation("Messages");
                 });
 

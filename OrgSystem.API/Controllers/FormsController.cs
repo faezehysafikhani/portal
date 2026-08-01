@@ -28,12 +28,21 @@ public class FormsController(AppDbContext db) : ControllerBase
         ["equipment"] = "تحویل تجهیزات", ["personnel"] = "مشخصات پرسنلی"
     };
     private static int CurrentYm { get { var pc = new PersianCalendar(); var now = DateTime.Now; return pc.GetYear(now) * 12 + pc.GetMonth(now); } }
+    private static int YearMonth(DateTime value) { var pc = new PersianCalendar(); return pc.GetYear(value) * 12 + pc.GetMonth(value); }
 
     private async Task<LeaveAccount> Account(Guid userId)
     {
+        var userCreatedAt = await db.Users.AsNoTracking().Where(x => x.Id == userId).Select(x => (DateTime?)x.CreatedAt).FirstOrDefaultAsync() ?? DateTime.UtcNow;
+        var accrualMonths = Math.Max(1, CurrentYm - YearMonth(userCreatedAt) + 1);
+        var expectedAccruedHours = accrualMonths * 20m;
+        var approvedUsedHours = await db.OrganizationalForms.AsNoTracking().Where(x => x.SubmitterUserId == userId &&
+            (x.FormType == "leave_daily" || x.FormType == "leave_hourly") && (x.Status == "approved" || x.Status == "completed"))
+            .SumAsync(x => (decimal?)x.RequestedHours) ?? 0;
         var account = await db.LeaveAccounts.FirstOrDefaultAsync(x => x.UserId == userId);
-        if (account == null) { account = new LeaveAccount { UserId = userId, AccruedThroughYearMonth = CurrentYm, AccruedHours = 20, TenantId = TenantId }; db.LeaveAccounts.Add(account); }
-        else if (account.AccruedThroughYearMonth < CurrentYm) { account.AccruedHours += (CurrentYm - account.AccruedThroughYearMonth) * 20; account.AccruedThroughYearMonth = CurrentYm; }
+        if (account == null) { account = new LeaveAccount { UserId = userId, TenantId = TenantId }; db.LeaveAccounts.Add(account); }
+        account.AccruedThroughYearMonth = CurrentYm;
+        account.AccruedHours = expectedAccruedHours;
+        account.UsedHours = approvedUsedHours;
         await db.SaveChangesAsync(); return account;
     }
 
@@ -129,15 +138,27 @@ public class FormsController(AppDbContext db) : ControllerBase
         var a = await Account(UserId);
         var reserved = await db.OrganizationalForms.Where(x => x.SubmitterUserId == UserId && (x.FormType == "leave_daily" || x.FormType == "leave_hourly") && (x.Status == "manager_pending" || x.Status == "hr_pending")).SumAsync(x => (decimal?)x.RequestedHours) ?? 0;
         var available = Math.Max(0, a.AccruedHours - a.UsedHours - reserved);
-        return Ok(new { accruedHours = a.AccruedHours, usedHours = a.UsedHours, reservedHours = reserved, availableHours = available, days = Math.Floor(available / 8), hoursPerDay = 8, monthlyAccrualHours = 20 });
+        return Ok(new { accruedHours = a.AccruedHours, usedHours = a.UsedHours, reservedHours = reserved, availableHours = available, days = Math.Round(available / 8, 2), remainingHours = available % 8, hoursPerDay = 8, monthlyAccrualHours = 20 });
     }
 
     [HttpGet, RequirePermission("forms.view")]
     public async Task<IActionResult> List([FromQuery] string scope = "mine")
     {
         var q = db.OrganizationalForms.Include(x => x.History).AsNoTracking();
-        q = scope == "approvals" ? q.Where(x => (x.Status == "manager_pending" && x.ManagerUserId == UserId) || (x.Status == "hr_pending" && x.HrUserId == UserId)) : q.Where(x => x.SubmitterUserId == UserId);
-        return Ok(await q.OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.FormType, x.Title, x.SubmitterName, x.ManagerName, x.HrName, x.Status, x.RequestedHours, x.DataJson, x.CreatedAt, History = x.History.OrderBy(h => h.CreatedAt).Select(h => new { h.Id, h.Action, h.ActorName, h.Note, h.CreatedAt }) }).ToListAsync());
+        var current = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == UserId);
+        var currentFullName = current?.FullName ?? UserName;
+        var isHrStaff = current != null && ((current.Position?.Contains("منابع انسانی") ?? false) || (current.Position?.Contains("HR", StringComparison.OrdinalIgnoreCase) ?? false) || (current.Department?.Contains("منابع انسانی") ?? false));
+        if (scope == "approvals")
+            q = q.Where(x => (x.Status == "manager_pending" && x.ManagerUserId == UserId) ||
+                ((x.Status == "manager_pending" || x.Status == "hr_pending") && (x.HrUserId == UserId || x.HrName == currentFullName || isHrStaff)));
+        else q = q.Where(x => x.SubmitterUserId == UserId);
+        return Ok(await q.OrderByDescending(x => x.CreatedAt).Select(x => new
+        {
+            x.Id, x.FormType, x.Title, x.SubmitterName, x.ManagerName, x.HrName, x.Status, x.RequestedHours, x.DataJson, x.CreatedAt,
+            CanAct = (x.Status == "manager_pending" && x.ManagerUserId == UserId) || (x.Status == "hr_pending" && (x.HrUserId == UserId || x.HrName == currentFullName || isHrStaff)),
+            IsHrCopy = x.Status == "manager_pending" && (x.HrUserId == UserId || x.HrName == currentFullName || isHrStaff),
+            History = x.History.OrderBy(h => h.CreatedAt).Select(h => new { h.Id, h.Action, h.ActorName, h.Note, h.CreatedAt })
+        }).ToListAsync());
     }
 
     [HttpGet("approvers"), RequirePermission("forms.create")]
@@ -187,7 +208,13 @@ public class FormsController(AppDbContext db) : ControllerBase
         if (request.Action is not ("approve" or "reject" or "return")) return BadRequest(new { message = "اقدام نامعتبر است" });
         var note = request.Note?.Trim(); if (note?.Length > 1000 || note != null && Dangerous.IsMatch(note)) return BadRequest(new { message = "متن توضیحات معتبر نیست" });
         var item = await db.OrganizationalForms.FirstOrDefaultAsync(x => x.Id == id); if (item == null) return NotFound();
-        var isManager = item.Status == "manager_pending" && item.ManagerUserId == UserId; var isHr = item.Status == "hr_pending" && item.HrUserId == UserId; if (!isManager && !isHr) return Forbid();
+        if (item.SubmitterUserId == UserId) return BadRequest(new { message = "تأیید فرم ثبت‌شده توسط خود شخص مجاز نیست" });
+        var current = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == UserId);
+        var currentFullName = current?.FullName ?? UserName;
+        var isHrStaff = current != null && ((current.Position?.Contains("منابع انسانی") ?? false) || (current.Position?.Contains("HR", StringComparison.OrdinalIgnoreCase) ?? false) || (current.Department?.Contains("منابع انسانی") ?? false));
+        var isManager = item.Status == "manager_pending" && item.ManagerUserId == UserId;
+        var isHr = item.Status == "hr_pending" && (item.HrUserId == UserId || item.HrName == currentFullName || isHrStaff);
+        if (!isManager && !isHr) return Forbid();
         if (request.Action == "approve" && isManager) { item.Status = "hr_pending"; db.Notifications.Add(new Notification { UserId = item.HrUserId, Title = "فرم در انتظار تأیید منابع انسانی", Body = $"{item.Title} — {item.SubmitterName}", Type = NotificationType.Form, ActionUrl = "/forms", TenantId = TenantId }); }
         else if (request.Action == "approve" && isHr) { if (item.RequestedHours > 0) { var a = await Account(item.SubmitterUserId); if (item.RequestedHours > a.AccruedHours - a.UsedHours) return BadRequest(new { message = "مانده مرخصی کافی نیست" }); a.UsedHours += item.RequestedHours; } item.Status = "approved"; }
         else if (request.Action == "reject") item.Status = "rejected"; else if (request.Action == "return") item.Status = "returned";

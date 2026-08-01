@@ -64,6 +64,9 @@ public class AppDbContext : DbContext
     public DbSet<FormWorkflowHistory> FormWorkflowHistories => Set<FormWorkflowHistory>();
     public DbSet<LeaveAccount> LeaveAccounts => Set<LeaveAccount>();
     public DbSet<InternalChatMessage> InternalChatMessages => Set<InternalChatMessage>();
+    public DbSet<InternalChatGroup> InternalChatGroups => Set<InternalChatGroup>();
+    public DbSet<InternalChatGroupMember> InternalChatGroupMembers => Set<InternalChatGroupMember>();
+    public DbSet<InternalChatGroupMessage> InternalChatGroupMessages => Set<InternalChatGroupMessage>();
     public DbSet<AiProviderSetting> AiProviderSettings => Set<AiProviderSetting>();
     public DbSet<AiConversation> AiConversations => Set<AiConversation>();
     public DbSet<AiChatMessage> AiChatMessages => Set<AiChatMessage>();
@@ -101,6 +104,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LetterTemplate>().HasIndex(x => new { x.TenantId, x.TemplateKey }).IsUnique();
         modelBuilder.Entity<InternalChatMessage>().HasIndex(x => new { x.RecipientUserId, x.IsRead, x.CreatedAt });
         modelBuilder.Entity<InternalChatMessage>().HasIndex(x => new { x.SenderUserId, x.RecipientUserId, x.CreatedAt });
+        modelBuilder.Entity<InternalChatGroup>().Property(x => x.Name).HasMaxLength(60);
+        modelBuilder.Entity<InternalChatGroupMember>().HasIndex(x => new { x.GroupId, x.UserId }).IsUnique();
+        modelBuilder.Entity<InternalChatGroupMember>().HasOne(x => x.Group).WithMany(x => x.Members).HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<InternalChatGroupMessage>().HasIndex(x => new { x.GroupId, x.CreatedAt });
+        modelBuilder.Entity<InternalChatGroupMessage>().HasOne(x => x.Group).WithMany(x => x.Messages).HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AiProviderSetting>().HasIndex(x => x.TenantId).IsUnique();
         modelBuilder.Entity<AiConversation>().HasIndex(x => new { x.UserId, x.CreatedAt });
         modelBuilder.Entity<AiChatMessage>().HasOne(x => x.Conversation).WithMany(x => x.Messages).HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);

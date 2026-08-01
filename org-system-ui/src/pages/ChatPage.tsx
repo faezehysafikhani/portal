@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Avatar, Badge, Button, Card, Empty, Input, message, Popover, Space, Spin, Tag, Tooltip } from 'antd'
-import { AudioOutlined, CloseOutlined, DownloadOutlined, FileOutlined, PaperClipOutlined, SearchOutlined, SendOutlined, SmileOutlined, StopOutlined, UserOutlined } from '@ant-design/icons'
+import { Avatar, Badge, Button, Card, Divider, Empty, Form, Input, message, Modal, Popover, Select, Space, Spin, Tag, Tooltip } from 'antd'
+import { AudioOutlined, CloseOutlined, DownloadOutlined, FileOutlined, PaperClipOutlined, PlusOutlined, SearchOutlined, SendOutlined, SmileOutlined, StopOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
 import { apiFetch } from '../utils/api'
 
 const API='http://localhost:5043/api/v1'
@@ -10,6 +10,9 @@ const allowedExtensions=['pdf','png','jpg','jpeg','txt','docx','xlsx']
 const CHAT_EMOJIS=[...new Set(['👍','😂','😭','👏','🤞','🙏','🙂','🥰','😳','🙌','🙃','😊','🥳','🤪','💀','😱','🎉','😎','😴','✌️','😁','👌','🤭','😐','🤷','😋','💰','🥴','🥺','😢','🙋','💩','😜','🤗','💯','🤢','😉','🌹','🤫','🤐','🤥','🎂','🎈','😵‍💫','🤒','😷','🤔','😡','🤬','🤧','🤕','🥱','🤮','🤯','🥵','🥶','🤠','🧐','👻','🙈','🙉','🙊','🫰🏻','☝🏻','🤝🏼','🤦🏻‍♀️','🧑‍💻','🏃'])]
 interface ChatUser { id:string; personId:string; personType:'user'|'contact'; fullName:string; position?:string; department?:string; avatarUrl?:string; isOnline:boolean; lastMessage?:string; lastMessageAt?:string; unread:number }
 interface ChatMessage { id:string; senderUserId:string; recipientUserId:string; content:string; kind:'Text'|'File'|'Voice'|string; attachmentName?:string; attachmentContentType?:string; attachmentSize?:number; voiceDurationSeconds?:number; hasAttachment?:boolean; isRead:boolean; createdAt:string; isMe:boolean }
+interface ChatGroupMember { userId:string; fullName:string; position?:string; isAdmin:boolean }
+interface ChatGroup { groupId:string; name:string; ownerUserId:string; isAdmin:boolean; memberCount:number; lastMessage?:string; lastMessageAt?:string; unread:number; members:ChatGroupMember[] }
+interface GroupMessage { id:string; groupId:string; senderUserId:string; senderName:string; content:string; createdAt:string; isMe:boolean }
 
 const bytesLabel=(size?:number)=>size?`${Math.ceil(size/1024).toLocaleString('fa-IR')} KB`:''
 const fileToBase64=(file:Blob)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(new Error('read'));reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.readAsDataURL(file)})
@@ -25,6 +28,23 @@ function VoicePlayer({id}:{id:string}){
   return <audio controls preload="metadata" src={src} style={{width:260,maxWidth:'100%',height:36}}/>
 }
 
+function GroupConversation({group,users,onClose,onChanged}:{group:ChatGroup;users:ChatUser[];onClose:()=>void;onChanged:()=>void}){
+  const [items,setItems]=useState<GroupMessage[]>([]),[text,setText]=useState(''),[sending,setSending]=useState(false)
+  const [newMemberIds,setNewMemberIds]=useState<string[]>([]),[addingMembers,setAddingMembers]=useState(false)
+  const end=useRef<HTMLDivElement>(null)
+  const load=async(silent=false)=>{const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`);if(!response.ok){if(!silent)message.error('پیام‌های گروه دریافت نشد');return}setItems(await response.json());onChanged()}
+  useEffect(()=>{load();const timer=window.setInterval(()=>load(true),6000);return()=>window.clearInterval(timer)},[group.groupId])
+  useEffect(()=>end.current?.scrollIntoView({behavior:'smooth'}),[items])
+  const send=async()=>{const content=text.trim();if(!content||sending)return;if(content.length>2000||codePattern.test(content)){message.error('متن پیام معتبر نیست');return}setSending(true);const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})});const result=await response.json().catch(()=>({}));setSending(false);if(!response.ok){message.error(result.message||'ارسال پیام گروه انجام نشد');return}setItems(current=>[...current,result]);setText('');onChanged()}
+  const addMembers=async()=>{if(!newMemberIds.length)return;setAddingMembers(true);const response=await apiFetch(`${API}/chat/groups/${group.groupId}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({memberUserIds:newMemberIds})});const result=await response.json().catch(()=>({}));setAddingMembers(false);if(!response.ok){message.error(result.message||'افزودن عضو انجام نشد');return}message.success(result.message);setNewMemberIds([]);onChanged()}
+  return <Modal open title={<Space><TeamOutlined/><span>{group.name}</span><Tag>{group.memberCount.toLocaleString('fa-IR')} عضو</Tag></Space>} onCancel={onClose} footer={null} width={760} centered destroyOnHidden>
+    <div style={{marginBottom:10,maxHeight:64,overflowY:'auto'}}><Space wrap>{group.members.map(member=><Tag key={member.userId} color={member.isAdmin?'purple':'default'}>{member.fullName}{member.isAdmin?' • مدیر گروه':''}</Tag>)}</Space></div>
+    {group.isAdmin&&<div style={{display:'flex',gap:8,marginBottom:10}}><Select mode="multiple" value={newMemberIds} onChange={setNewMemberIds} showSearch optionFilterProp="label" maxTagCount="responsive" style={{flex:1}} placeholder="افزودن همکار جدید به گروه" options={users.filter(user=>user.personType==='user'&&!group.members.some(member=>member.userId===user.personId)).map(user=>({value:user.personId,label:user.fullName}))}/><Button icon={<PlusOutlined/>} loading={addingMembers} disabled={!newMemberIds.length} onClick={addMembers}>افزودن</Button></div>}
+    <div style={{height:430,overflowY:'auto',padding:16,background:'linear-gradient(145deg,#fafafa,#f7f0f5)',borderRadius:12}}>{items.length===0?<Empty description="هنوز پیامی در گروه ثبت نشده"/>:items.map(item=><div key={item.id} style={{display:'flex',justifyContent:item.isMe?'flex-start':'flex-end',marginBottom:12}}><div style={{maxWidth:'75%'}}><div style={{fontSize:10,color:'#8b1a6b',marginBottom:2}}>{item.senderName}</div><div style={{background:item.isMe?'#8b1a6b':'#fff',color:item.isMe?'#fff':'#333',padding:'9px 13px',borderRadius:12,boxShadow:'0 2px 7px #0000000c',whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{chatText(item.content)}</div><div style={{fontSize:9,color:'#999',marginTop:2}}>{new Date(item.createdAt).toLocaleString('fa-IR')}</div></div></div>)}<div ref={end}/></div>
+    <div style={{display:'flex',gap:8,marginTop:12}}><Input.TextArea value={text} maxLength={2000} autoSize={{minRows:1,maxRows:4}} onChange={e=>setText(e.target.value)} onPressEnter={e=>{if(!e.shiftKey){e.preventDefault();send()}}} placeholder={`پیام در گروه ${group.name}...`}/><Button type="primary" icon={<SendOutlined/>} loading={sending} disabled={!text.trim()} onClick={send} style={{background:'#8b1a6b'}}>ارسال</Button></div>
+  </Modal>
+}
+
 export default function ChatPage(){
   const [users,setUsers]=useState<ChatUser[]>([])
   const [selectedId,setSelectedId]=useState<string>()
@@ -37,6 +57,11 @@ export default function ChatPage(){
   const [recording,setRecording]=useState(false)
   const [recordSeconds,setRecordSeconds]=useState(0)
   const [emojiOpen,setEmojiOpen]=useState(false)
+  const [groups,setGroups]=useState<ChatGroup[]>([])
+  const [activeGroup,setActiveGroup]=useState<ChatGroup>()
+  const [createGroupOpen,setCreateGroupOpen]=useState(false)
+  const [creatingGroup,setCreatingGroup]=useState(false)
+  const [groupForm]=Form.useForm()
   const endRef=useRef<HTMLDivElement>(null)
   const fileInputRef=useRef<HTMLInputElement>(null)
   const recorderRef=useRef<MediaRecorder|null>(null)
@@ -54,12 +79,13 @@ export default function ChatPage(){
     const fromUrl=new URLSearchParams(location.search).get('user')||undefined
     setSelectedId(current=>current||(fromUrl&&data.some(x=>x.id===fromUrl)?fromUrl:data[0]?.id));setLoading(false)
   }
+  const loadGroups=async()=>{const response=await apiFetch(`${API}/chat/groups`);if(!response.ok)return;const data:ChatGroup[]=await response.json();setGroups(data);const fromUrl=new URLSearchParams(location.search).get('group');if(fromUrl){const found=data.find(x=>x.groupId===fromUrl);if(found)setActiveGroup(found)}}
   const loadMessages=async(userId:string,silent=false)=>{
     const response=await apiFetch(`${API}/chat/messages/${userId}`)
     if(!response.ok){if(!silent)message.error('دریافت پیام‌ها انجام نشد');return}
     setMessages(await response.json());setUsers(prev=>prev.map(x=>x.id===userId?{...x,unread:0}:x))
   }
-  useEffect(()=>{loadUsers();const timer=setInterval(()=>loadUsers(true),10000);return()=>clearInterval(timer)},[])
+  useEffect(()=>{loadUsers();loadGroups();const timer=setInterval(()=>{loadUsers(true);loadGroups()},10000);return()=>clearInterval(timer)},[])
   useEffect(()=>{if(!selectedId)return;loadMessages(selectedId);const timer=setInterval(()=>loadMessages(selectedId,true),6000);return()=>clearInterval(timer)},[selectedId])
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'})},[messages])
   useEffect(()=>()=>stopRecordingResources(),[])
@@ -67,7 +93,7 @@ export default function ChatPage(){
   const postMessage=async(payload:Record<string,unknown>)=>{
     if(!selectedId||sending)return false
     setSending(true)
-    const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientType:selected?.personType,recipientId:selected?.personId,...payload})})
+    const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientUserId:selected?.personId,...payload})})
     const result=await response.json().catch(()=>({}));setSending(false)
     if(!response.ok){message.error(result.message||'ارسال پیام انجام نشد');return false}
     setMessages(prev=>[...prev,result]);
@@ -123,12 +149,13 @@ export default function ChatPage(){
   const faTime=(value?:string)=>value?new Date(value).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''
   const addEmoji=(emoji:string)=>{setText(current=>`${current}${emoji}`.slice(0,2000));setEmojiOpen(false)}
   const emojiPicker=<div style={{width:340,maxWidth:'calc(100vw - 64px)',maxHeight:240,overflowY:'auto',display:'grid',gridTemplateColumns:'repeat(10,minmax(28px,1fr))',gap:3,direction:'ltr',padding:'2px 4px 2px 0'}}>{CHAT_EMOJIS.map(emoji=><Button key={emoji} type="text" onClick={()=>addEmoji(emoji)} aria-label={`ایموجی ${emoji}`} style={{fontSize:25,padding:0,height:36,minWidth:0,lineHeight:'36px',borderRadius:7}}>{emoji}</Button>)}</div>
+  const createGroup=async()=>{const values=await groupForm.validateFields();setCreatingGroup(true);const response=await apiFetch(`${API}/chat/groups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:values.name,memberUserIds:values.memberUserIds})});const result=await response.json().catch(()=>({}));setCreatingGroup(false);if(!response.ok){message.error(result.message||'ایجاد گروه انجام نشد');return}message.success(result.message);setCreateGroupOpen(false);groupForm.resetFields();await loadGroups()}
 
   if(loading)return <div style={{display:'grid',placeItems:'center',height:400}}><Spin size="large"/></div>
   return <div style={{height:'calc(100vh - 125px)',display:'flex',gap:14,minHeight:520}}>
-    <Card title={<Space>💬 <span>کارتابل پیام‌ها</span><Badge count={users.reduce((s,x)=>s+x.unread,0)}/></Space>} style={{width:280,flexShrink:0,borderRadius:14,overflow:'hidden'}} styles={{body:{padding:0,height:'calc(100% - 58px)',display:'flex',flexDirection:'column'}}}>
+    <Card title={<Space>💬 <span>کارتابل پیام‌ها</span><Badge count={users.reduce((s,x)=>s+x.unread,0)+groups.reduce((s,x)=>s+x.unread,0)}/></Space>} extra={<Tooltip title="ایجاد گروه"><Button size="small" type="primary" icon={<PlusOutlined/>} onClick={()=>setCreateGroupOpen(true)} style={{background:'#8b1a6b'}}/></Tooltip>} style={{width:280,flexShrink:0,borderRadius:14,overflow:'hidden'}} styles={{body:{padding:0,height:'calc(100% - 58px)',display:'flex',flexDirection:'column'}}}>
       <div style={{padding:12,borderBottom:'1px solid #f0f0f0'}}><Input allowClear prefix={<SearchOutlined/>} value={search} onChange={e=>setSearch(e.target.value)} placeholder="جستجوی همکار..."/></div>
-      <div style={{overflowY:'auto',flex:1}}>{filtered.length===0?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="کاربری یافت نشد"/>:filtered.map(user=><div key={user.id} onClick={()=>choose(user.id)} style={{padding:'7px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:selectedId===user.id?'#f7eaf3':'#fff',borderRight:selectedId===user.id?'4px solid #8b1a6b':'4px solid transparent'}}>
+      <div style={{overflowY:'auto',flex:1}}>{groups.length>0&&<><Divider titlePlacement="right" plain style={{fontSize:11,margin:'8px 0'}}>گروه‌ها</Divider>{groups.filter(group=>group.name.includes(search.trim())).map(group=><div key={group.groupId} onClick={()=>{setActiveGroup(group);history.replaceState(null,'',`/chat?group=${group.groupId}`)}} style={{padding:'8px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:'#fffafc'}}><div style={{display:'flex',alignItems:'center',gap:9}}><Avatar size={36} icon={<TeamOutlined/>} style={{background:'#722ed1'}}/><div style={{flex:1,minWidth:0}}><b style={{fontSize:12}}>{group.name}</b><div style={{fontSize:10,color:'#888'}}>{group.memberCount.toLocaleString('fa-IR')} عضو • {group.lastMessage||'بدون پیام'}</div></div>{group.unread>0&&<Badge count={group.unread} style={{background:'#722ed1'}}/>}</div></div>)}</>}{groups.length>0&&<Divider titlePlacement="right" plain style={{fontSize:11,margin:'8px 0'}}>گفتگوهای مستقیم</Divider>}{filtered.length===0?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="کاربری یافت نشد"/>:filtered.map(user=><div key={user.id} onClick={()=>choose(user.id)} style={{padding:'7px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:selectedId===user.id?'#f7eaf3':'#fff',borderRight:selectedId===user.id?'4px solid #8b1a6b':'4px solid transparent'}}>
         <div style={{display:'flex',gap:10,alignItems:'center'}}><Badge dot color={user.isOnline?'#52c41a':'#bfbfbf'} offset={[-4,30]}><Avatar size={36} src={user.avatarUrl} icon={<UserOutlined/>} style={{background:'#8b1a6b'}}/></Badge>
           <div style={{flex:1,minWidth:0}}><div style={{display:'flex',justifyContent:'space-between'}}><b style={{fontSize:13}}>{user.fullName}</b><small style={{color:'#999'}}>{faTime(user.lastMessageAt)}</small></div>
             <div style={{fontSize:11,color:'#888'}}>{user.position||user.department||(user.personType==='contact'?'مخاطب خارجی':'کاربر داخلی')}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:11,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:155}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
@@ -154,5 +181,9 @@ export default function ChatPage(){
         </div>
       </>}
     </Card>
+    {activeGroup&&<GroupConversation group={activeGroup} users={users} onClose={()=>{setActiveGroup(undefined);history.replaceState(null,'','/chat')}} onChanged={loadGroups}/>}
+    <Modal open={createGroupOpen} title={<Space><TeamOutlined/><span>ایجاد گروه جدید</span></Space>} onCancel={()=>{setCreateGroupOpen(false);groupForm.resetFields()}} onOk={createGroup} confirmLoading={creatingGroup} okText="ایجاد گروه" cancelText="انصراف" centered maskClosable={false}>
+      <Form form={groupForm} layout="vertical"><Form.Item name="name" label="نام گروه" rules={[{required:true,message:'نام گروه را وارد کنید'},{min:3,max:60},{pattern:/^[\p{L}\p{M}\p{N}\s\u200c_-]+$/u,message:'نام گروه فقط شامل حروف، عدد، فاصله، خط تیره یا زیرخط باشد'}]}><Input maxLength={60} showCount placeholder="مثلاً تیم پروژه پارس"/></Form.Item><Form.Item name="memberUserIds" label="اعضای گروه" rules={[{required:true,message:'حداقل یک عضو انتخاب کنید'}]}><Select mode="multiple" showSearch optionFilterProp="label" maxTagCount="responsive" placeholder="همکاران را انتخاب کنید" options={users.filter(x=>x.personType==='user').map(x=>({value:x.personId,label:`${x.fullName}${x.position?' — '+x.position:''}`}))}/></Form.Item></Form>
+    </Modal>
   </div>
 }

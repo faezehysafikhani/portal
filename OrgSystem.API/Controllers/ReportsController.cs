@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,24 @@ namespace OrgSystem.API.Controllers;
 [ApiController, Route("api/v1/reports"), Authorize, RequirePermission("reports.view")]
 public class ReportsController(AppDbContext db) : ControllerBase
 {
+    private static readonly Regex JalaliPattern = new(@"^\d{4}/\d{2}/\d{2}$", RegexOptions.Compiled);
+    private static string NormalizeDigits(string value) => string.Concat(value.Select(c => c switch
+    {
+        >= '۰' and <= '۹' => (char)('0' + c - '۰'), >= '٠' and <= '٩' => (char)('0' + c - '٠'), _ => c
+    }));
+    private static bool TryJalali(string? value, out DateTime date)
+    {
+        date = default; value = value == null ? null : NormalizeDigits(value.Trim());
+        if (value == null || !JalaliPattern.IsMatch(value)) return false;
+        try { var p = value.Split('/').Select(int.Parse).ToArray(); date = new PersianCalendar().ToDateTime(p[0], p[1], p[2], 0, 0, 0, 0); return true; } catch { return false; }
+    }
+    private static string? JsonValue(string json, string key)
+    {
+        try { using var document = JsonDocument.Parse(json); return document.RootElement.TryGetProperty(key, out var value) ? value.ToString() : null; }
+        catch (JsonException) { return null; }
+    }
+    private static string Decision(string? action) => action switch { "approve" => "تأیید شده", "reject" => "رد شده", "return" => "برگشت برای اصلاح", "complete" => "خاتمه یافته", _ => "در انتظار" };
+
     [HttpGet("dashboard")]
     public async Task<IActionResult> Dashboard(CancellationToken ct)
     {
@@ -66,5 +86,65 @@ public class ReportsController(AppDbContext db) : ControllerBase
             formStatuses = await db.OrganizationalForms.GroupBy(x => x.Status).Select(x => new { name = x.Key, value = x.Count() }).ToListAsync(ct),
             letters, tasks, tickets, forms
         });
+    }
+
+    [HttpGet("forms/users")]
+    public async Task<IActionResult> FormUsers(CancellationToken ct) => Ok(await db.Users.AsNoTracking().Where(x => x.IsActive)
+        .OrderBy(x => x.FirstName).ThenBy(x => x.LastName).Select(x => new { x.Id, x.FullName, x.Position, x.Department }).ToListAsync(ct));
+
+    [HttpGet("forms/leave")]
+    public async Task<IActionResult> LeaveReport([FromQuery] Guid? userId, [FromQuery] string? fromDate, [FromQuery] string? toDate, CancellationToken ct)
+    {
+        DateTime? from = null, to = null;
+        if (!string.IsNullOrWhiteSpace(fromDate)) { if (!TryJalali(fromDate, out var parsed)) return BadRequest(new { message = "تاریخ شروع فیلتر معتبر نیست" }); from = parsed.Date; }
+        if (!string.IsNullOrWhiteSpace(toDate)) { if (!TryJalali(toDate, out var parsed)) return BadRequest(new { message = "تاریخ پایان فیلتر معتبر نیست" }); to = parsed.Date; }
+        if (from.HasValue && to.HasValue && to < from) return BadRequest(new { message = "تاریخ پایان نمی‌تواند قبل از تاریخ شروع باشد" });
+
+        var query = db.OrganizationalForms.Include(x => x.History).AsNoTracking().Where(x => x.FormType == "leave_daily" || x.FormType == "leave_hourly");
+        if (userId.HasValue) query = query.Where(x => x.SubmitterUserId == userId.Value);
+        var forms = await query.OrderByDescending(x => x.CreatedAt).ToListAsync(ct);
+        var rows = new List<object>();
+        foreach (var item in forms)
+        {
+            var daily = item.FormType == "leave_daily";
+            var dateText = JsonValue(item.DataJson, daily ? "fromDate" : "date") ?? "";
+            var endDateText = daily ? JsonValue(item.DataJson, "toDate") ?? dateText : dateText;
+            if (!TryJalali(dateText, out var itemFrom) || !TryJalali(endDateText, out var itemTo)) continue;
+            if (from.HasValue && itemTo.Date < from.Value || to.HasValue && itemFrom.Date > to.Value) continue;
+            var histories = item.History.OrderBy(x => x.CreatedAt).ToList();
+            var managerAction = histories.FirstOrDefault(x => x.ActorName == item.ManagerName && x.Action != "submitted")?.Action;
+            var hrAction = histories.FirstOrDefault(x => x.ActorName == item.HrName && x.Action != "submitted")?.Action;
+            rows.Add(new
+            {
+                item.Id,
+                EmployeeName = item.SubmitterName,
+                LeaveKind = daily ? "روزانه" : "ساعتی",
+                Date = daily && dateText != endDateText ? $"{dateText} تا {endDateText}" : dateText,
+                StartTime = daily ? "—" : JsonValue(item.DataJson, "fromTime") ?? "—",
+                EndTime = daily ? "—" : JsonValue(item.DataJson, "toTime") ?? "—",
+                item.RequestedHours,
+                item.ManagerName,
+                ManagerDecision = item.Status == "manager_pending" ? "در انتظار" : Decision(managerAction),
+                HrManagerName = item.HrName,
+                HrDecision = item.Status == "manager_pending" || item.Status == "hr_pending" ? "در انتظار" : Decision(hrAction),
+                item.Status,
+                item.CreatedAt
+            });
+        }
+        return Ok(rows);
+    }
+
+    [HttpGet("forms/pending")]
+    public async Task<IActionResult> PendingForms(CancellationToken ct)
+    {
+        var today = DateTime.UtcNow;
+        var source = await db.OrganizationalForms.AsNoTracking().Where(x => x.Status == "manager_pending" || x.Status == "hr_pending")
+            .OrderBy(x => x.CreatedAt).Select(x => new
+            {
+                x.Id, x.Title, x.FormType, x.SubmitterName, x.Status, x.RequestedHours, x.CreatedAt,
+                CurrentStage = x.Status == "manager_pending" ? "تأیید مدیر مستقیم" : "تأیید منابع انسانی",
+                CurrentApprover = x.Status == "manager_pending" ? x.ManagerName : x.HrName
+            }).ToListAsync(ct);
+        return Ok(source.Select(x => new { x.Id, x.Title, x.FormType, x.SubmitterName, x.Status, x.RequestedHours, x.CreatedAt, x.CurrentStage, x.CurrentApprover, WaitingDays = Math.Max(0, (int)Math.Floor((today - x.CreatedAt).TotalDays)) }));
     }
 }
