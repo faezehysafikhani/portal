@@ -8,9 +8,52 @@ const out = (v: any, names: string[]) => typeof v === 'number' ? names[v] : v
 const group = (rows: Obj[], field: string, names?: string[]) => Object.entries(rows.reduce((a: Obj, r) => { const key = String(names ? out(r[field], names) : r[field]); a[key] = (a[key] ?? 0) + 1; return a }, {})).map(([name, value]) => ({ name, value }))
 
 export async function handleReports(request: Request, auth: AuthContext, path: string): Promise<Response | null> {
-  if (path !== '/reports/dashboard') return null
+  if (!path.startsWith('/reports/')) return null
+  const url = new URL(request.url)
   if (request.method !== 'GET') throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
   requirePermission(auth, 'reports.view')
+
+  if (path === '/reports/forms/users') {
+    const [usersR, submittersR] = await Promise.all([
+      db.from('Users').select('Id,FirstName,LastName,Position,Department,IsActive').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FirstName'),
+      db.from('OrganizationalForms').select('SubmitterUserId,SubmitterName').eq('TenantId', auth.tenantId).eq('IsDeleted', false),
+    ]); check(usersR.error); check(submittersR.error)
+    const users = (usersR.data ?? []).map((x:Obj) => ({ id:x.Id, fullName:`${x.FirstName ?? ''} ${x.LastName ?? ''}`.trim(), position:x.Position, department:x.Department, isActive:Boolean(x.IsActive) }))
+    const known = new Set(users.map((x:Obj) => x.id))
+    for (const x of submittersR.data ?? []) if (x.SubmitterUserId && !known.has(x.SubmitterUserId)) {
+      known.add(x.SubmitterUserId); users.push({ id:x.SubmitterUserId, fullName:x.SubmitterName || 'کارمند سابق', position:null, department:null, isActive:false })
+    }
+    return json(request, users.sort((a:Obj,b:Obj) => String(a.fullName).localeCompare(String(b.fullName), 'fa')))
+  }
+
+  if (path === '/reports/forms/leave') {
+    const userId=url.searchParams.get('userId'), fromDate=url.searchParams.get('fromDate')?.replaceAll('-','/'), toDate=url.searchParams.get('toDate')?.replaceAll('-','/')
+    if (fromDate && toDate && fromDate > toDate) throw new HttpError(400, 'تاریخ پایان نمی‌تواند قبل از تاریخ شروع باشد')
+    let query=db.from('OrganizationalForms').select('Id,FormType,DataJson,SubmitterUserId,SubmitterName,ManagerName,HrName,Status,RequestedHours,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormType',['leave_daily','leave_hourly'])
+    if(userId) query=query.eq('SubmitterUserId',userId)
+    const formsR=await query.order('CreatedAt',{ascending:false});check(formsR.error)
+    const ids=(formsR.data??[]).map((x:Obj)=>x.Id)
+    const historiesR=ids.length?await db.from('FormWorkflowHistories').select('FormId,Action,ActorName,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormId',ids).order('CreatedAt'):({data:[],error:null} as any);check(historiesR.error)
+    const histories=new Map<string,Obj[]>(); for(const h of historiesR.data??[]){const list=histories.get(h.FormId)??[];list.push(h);histories.set(h.FormId,list)}
+    const decision=(action:unknown)=>({approved:'تأیید شده',rejected:'رد شده',returned:'برگشت داده شده'} as Obj)[String(action??'')]??'—'
+    const rows:Obj[]=[]
+    for(const item of formsR.data??[]){
+      let data:Obj={};try{data=typeof item.DataJson==='string'?JSON.parse(item.DataJson):(item.DataJson??{})}catch{continue}
+      const daily=item.FormType==='leave_daily', start=String(data[daily?'fromDate':'date']??'').replaceAll('-','/'), end=String(daily?(data.toDate??start):start).replaceAll('-','/')
+      if(!/^\d{4}\/\d{2}\/\d{2}$/.test(start)||!/^\d{4}\/\d{2}\/\d{2}$/.test(end))continue
+      if((fromDate&&end<fromDate)||(toDate&&start>toDate))continue
+      const history=histories.get(item.Id)??[], managerAction=history.find(x=>x.ActorName===item.ManagerName&&x.Action!=='submitted')?.Action, hrAction=history.find(x=>x.ActorName===item.HrName&&x.Action!=='submitted')?.Action
+      rows.push({id:item.Id,employeeName:item.SubmitterName,leaveKind:daily?'روزانه':'ساعتی',date:daily&&start!==end?`${start} تا ${end}`:start,startTime:daily?'—':(data.fromTime??'—'),endTime:daily?'—':(data.toTime??'—'),requestedHours:item.RequestedHours,managerName:item.ManagerName,managerDecision:item.Status==='manager_pending'?'در انتظار':decision(managerAction),hrManagerName:item.HrName,hrDecision:['manager_pending','hr_pending'].includes(item.Status)?'در انتظار':decision(hrAction),status:item.Status,createdAt:item.CreatedAt})
+    }
+    return json(request,rows)
+  }
+
+  if (path === '/reports/forms/pending') {
+    const result=await db.from('OrganizationalForms').select('Id,Title,FormType,SubmitterName,Status,RequestedHours,CreatedAt,ManagerName,HrName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']).order('CreatedAt');check(result.error)
+    return json(request,(result.data??[]).map((x:Obj)=>({id:x.Id,title:x.Title,formType:x.FormType,submitterName:x.SubmitterName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,currentStage:x.Status==='manager_pending'?'تأیید مدیر مستقیم':'تأیید منابع انسانی',currentApprover:x.Status==='manager_pending'?x.ManagerName:x.HrName,waitingDays:Math.max(0,Math.floor((Date.now()-new Date(x.CreatedAt).getTime())/86400000))})))
+  }
+
+  if (path !== '/reports/dashboard') return null
   const [lettersR,tasksR,ticketsR,formsR,smsR,usersR,customersR,letterCountR,activeTasksR,openTicketsR,pendingFormsR] = await Promise.all([
     db.from('Letters').select('Id,LetterNumber,IncomingNumber,Type,Subject,FromUserName,IncomingFromOrg,LetterDate,CreatedAt,Status').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
     db.from('Tasks').select('Id,Title,Status,Priority,Progress,DueDate,AssignedToUserId,CreatedAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(500),
