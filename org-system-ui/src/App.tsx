@@ -23,10 +23,20 @@ const lazyWithRecovery = <T extends { default: ComponentType<any> }>(name: strin
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
   static getDerivedStateFromError() { return { hasError: true } }
-  componentDidCatch(error: Error, info: ErrorInfo) { console.error('Portal UI error', error, info.componentStack) }
+  private recoveryKey = () => `portal:page-recovery:${location.pathname}`
+  private reloadFresh = () => {
+    const url = new URL(location.href)
+    url.searchParams.set('__recover', Date.now().toString())
+    location.replace(url.toString())
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Portal UI error', error, info.componentStack)
+    const key=this.recoveryKey(),lastAttempt=Number(sessionStorage.getItem(key)||0)
+    if(Date.now()-lastAttempt>60_000){sessionStorage.setItem(key,String(Date.now()));window.setTimeout(this.reloadFresh,100)}
+  }
   render() {
     if (!this.state.hasError) return this.props.children
-    return <div dir="rtl" style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#f7f7f8',fontFamily:'Tahoma,sans-serif',padding:24}}><div style={{background:'#fff',border:'1px solid #eee',borderRadius:16,padding:'30px 34px',maxWidth:480,textAlign:'center',boxShadow:'0 12px 35px #00000012'}}><h2 style={{marginTop:0,color:'#721052'}}>بارگذاری صفحه کامل نشد</h2><p style={{color:'#666',lineHeight:2}}>احتمالاً نسخه جدید سامانه منتشر شده است. با تلاش مجدد، آخرین نسخه دریافت می‌شود.</p><button onClick={()=>window.location.reload()} style={{border:0,borderRadius:8,padding:'10px 22px',background:'#8b1a6b',color:'#fff',cursor:'pointer',fontSize:14}}>تلاش مجدد</button></div></div>
+    return <div dir="rtl" style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#f7f7f8',fontFamily:'Tahoma,sans-serif',padding:24}}><div style={{background:'#fff',border:'1px solid #eee',borderRadius:16,padding:'30px 34px',maxWidth:480,textAlign:'center',boxShadow:'0 12px 35px #00000012'}}><h2 style={{marginTop:0,color:'#721052'}}>در حال بازیابی صفحه</h2><p style={{color:'#666',lineHeight:2}}>سامانه در حال دریافت نسخه سالم صفحه است. اگر انتقال خودکار انجام نشد، تلاش مجدد را بزنید.</p><button onClick={()=>{sessionStorage.removeItem(this.recoveryKey());this.reloadFresh()}} style={{border:0,borderRadius:8,padding:'10px 22px',background:'#8b1a6b',color:'#fff',cursor:'pointer',fontSize:14}}>تلاش مجدد</button></div></div>
   }
 }
 
