@@ -20,11 +20,9 @@ const lazyWithRecovery = <T extends { default: ComponentType<any> }>(name: strin
   }
 })
 
-class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; errorMessage: string; errorStack: string }> {
-  state = { hasError: false, errorMessage: '', errorStack: '' }
-  static getDerivedStateFromError(error: unknown) {
-    return { hasError: true, errorMessage: error instanceof Error ? error.message : String(error), errorStack: error instanceof Error ? (error.stack || '') : '' }
-  }
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; errorMessage: string }> {
+  state = { hasError: false, errorMessage: '' }
+  static getDerivedStateFromError(error: unknown) { return { hasError: true, errorMessage: error instanceof Error ? error.message : String(error) } }
   private recoveryKey = () => `portal:page-recovery:${location.pathname}`
   private reloadFresh = () => {
     const url = new URL(location.href)
@@ -38,7 +36,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
   }
   render() {
     if (!this.state.hasError) return this.props.children
-    return <div dir="rtl" style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#f7f7f8',fontFamily:'Tahoma,sans-serif',padding:24}}><div style={{background:'#fff',border:'1px solid #eee',borderRadius:16,padding:'30px 34px',maxWidth:480,textAlign:'center',boxShadow:'0 12px 35px #00000012'}}><h2 style={{marginTop:0,color:'#721052'}}>در حال بازیابی صفحه</h2><p style={{color:'#666',lineHeight:2}}>سامانه در حال دریافت نسخه سالم صفحه است. اگر انتقال خودکار انجام نشد، تلاش مجدد را بزنید.</p><small data-testid="portal-error-code" style={{display:'block',color:'#999',direction:'ltr',marginBottom:14}}>{`${this.state.errorMessage}\n${this.state.errorStack}`.slice(0,1200)}</small><button onClick={()=>{sessionStorage.removeItem(this.recoveryKey());this.reloadFresh()}} style={{border:0,borderRadius:8,padding:'10px 22px',background:'#8b1a6b',color:'#fff',cursor:'pointer',fontSize:14}}>تلاش مجدد</button></div></div>
+    return <div dir="rtl" style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#f7f7f8',fontFamily:'Tahoma,sans-serif',padding:24}}><div style={{background:'#fff',border:'1px solid #eee',borderRadius:16,padding:'30px 34px',maxWidth:480,textAlign:'center',boxShadow:'0 12px 35px #00000012'}}><h2 style={{marginTop:0,color:'#721052'}}>در حال بازیابی صفحه</h2><p style={{color:'#666',lineHeight:2}}>سامانه در حال دریافت نسخه سالم صفحه است. اگر انتقال خودکار انجام نشد، تلاش مجدد را بزنید.</p><small data-testid="portal-error-code" style={{display:'block',color:'#999',direction:'ltr',marginBottom:14}}>{this.state.errorMessage.slice(0,160)}</small><button onClick={()=>{sessionStorage.removeItem(this.recoveryKey());this.reloadFresh()}} style={{border:0,borderRadius:8,padding:'10px 22px',background:'#8b1a6b',color:'#fff',cursor:'pointer',fontSize:14}}>تلاش مجدد</button></div></div>
   }
 }
 
