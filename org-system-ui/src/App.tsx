@@ -1,46 +1,76 @@
-import { lazy, Suspense } from 'react'
+import { Component, lazy, Suspense, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 
-const LoginPage = lazy(() => import('./pages/LoginPage'))
-const DashboardPage = lazy(() => import('./pages/DashboardPage'))
-const TasksPage = lazy(() => import('./pages/TasksPage'))
-const LettersPage = lazy(() => import('./pages/LettersPage'))
-const TicketsPage = lazy(() => import('./pages/TicketsPage'))
-const UsersPage = lazy(() => import('./pages/UsersPage'))
-const SmsPage = lazy(() => import('./pages/SmsPage'))
-const FormsPage = lazy(() => import('./pages/FormsPage'))
-const ReportsPage = lazy(() => import('./pages/ReportsPage'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const CompanyPage = lazy(() => import('./pages/CompanyPage'))
-const ContactsPage = lazy(() => import('./pages/ContactsPage'))
-const AiPage = lazy(() => import('./pages/AiPage'))
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
-const ProfilePage = lazy(() => import('./pages/ProfilePage'))
-const ChatPage = lazy(() => import('./pages/ChatPage'))
-const CalendarPage = lazy(() => import('./pages/CalendarPage'))
-const MainLayout = lazy(() => import('./layouts/MainLayout'))
-const ForcePasswordChangePage = lazy(() => import('./pages/ForcePasswordChangePage'))
-const CustomerLoginPage = lazy(() => import('./pages/CustomerLoginPage'))
-const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage'))
-const PTMSDashboardPage = lazy(() => import('./pages/ptms/PTMSDashboardPage'))
-const PortfolioPage = lazy(() => import('./pages/ptms/PortfolioPage'))
-const PTMSProjectsPage = lazy(() => import('./pages/ptms/PTMSProjectsPage'))
-const ProjectDetailPage = lazy(() => import('./pages/ptms/ProjectDetailPage'))
-const MyTasksPage = lazy(() => import('./pages/ptms/MyTasksPage'))
-const TasksMainPage = lazy(() => import('./pages/ptms/TasksMainPage'))
-const FinancialPage = lazy(() => import('./pages/ptms/FinancialPage'))
-const RisksPage = lazy(() => import('./pages/ptms/RisksPage'))
-const IssuesPage = lazy(() => import('./pages/ptms/IssuesPage'))
-const ChangesPage = lazy(() => import('./pages/ptms/ChangesPage'))
-const PTMSReportsPage = lazy(() => import('./pages/ptms/PTMSReportsPage'))
-const PTMSDocumentsPage = lazy(() => import('./pages/ptms/PTMSDocumentsPage'))
+const lazyWithRecovery = <T extends { default: ComponentType<any> }>(name: string, loader: () => Promise<T>) => lazy(async () => {
+  const recoveryKey = `portal:lazy-recovery:${name}`
+  try {
+    const module = await loader()
+    sessionStorage.removeItem(recoveryKey)
+    return module
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const isChunkFailure = /dynamically imported module|loading chunk|module script|failed to fetch/i.test(message)
+    if (isChunkFailure && sessionStorage.getItem(recoveryKey) !== '1') {
+      sessionStorage.setItem(recoveryKey, '1')
+      window.location.reload()
+      return new Promise<T>(() => undefined)
+    }
+    sessionStorage.removeItem(recoveryKey)
+    throw error
+  }
+})
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('Portal UI error', error, info.componentStack) }
+  render() {
+    if (!this.state.hasError) return this.props.children
+    return <div dir="rtl" style={{minHeight:'100vh',display:'grid',placeItems:'center',background:'#f7f7f8',fontFamily:'Tahoma,sans-serif',padding:24}}><div style={{background:'#fff',border:'1px solid #eee',borderRadius:16,padding:'30px 34px',maxWidth:480,textAlign:'center',boxShadow:'0 12px 35px #00000012'}}><h2 style={{marginTop:0,color:'#721052'}}>بارگذاری صفحه کامل نشد</h2><p style={{color:'#666',lineHeight:2}}>احتمالاً نسخه جدید سامانه منتشر شده است. با تلاش مجدد، آخرین نسخه دریافت می‌شود.</p><button onClick={()=>window.location.reload()} style={{border:0,borderRadius:8,padding:'10px 22px',background:'#8b1a6b',color:'#fff',cursor:'pointer',fontSize:14}}>تلاش مجدد</button></div></div>
+  }
+}
+
+const LoginPage = lazyWithRecovery('login', () => import('./pages/LoginPage'))
+const DashboardPage = lazyWithRecovery('dashboard', () => import('./pages/DashboardPage'))
+const TasksPage = lazyWithRecovery('tasks', () => import('./pages/TasksPage'))
+const LettersPage = lazyWithRecovery('letters', () => import('./pages/LettersPage'))
+const TicketsPage = lazyWithRecovery('tickets', () => import('./pages/TicketsPage'))
+const UsersPage = lazyWithRecovery('users', () => import('./pages/UsersPage'))
+const SmsPage = lazyWithRecovery('sms', () => import('./pages/SmsPage'))
+const FormsPage = lazyWithRecovery('forms', () => import('./pages/FormsPage'))
+const ReportsPage = lazyWithRecovery('reports', () => import('./pages/ReportsPage'))
+const SettingsPage = lazyWithRecovery('settings', () => import('./pages/SettingsPage'))
+const CompanyPage = lazyWithRecovery('company', () => import('./pages/CompanyPage'))
+const ContactsPage = lazyWithRecovery('contacts', () => import('./pages/ContactsPage'))
+const AiPage = lazyWithRecovery('ai', () => import('./pages/AiPage'))
+const ProjectsPage = lazyWithRecovery('projects', () => import('./pages/ProjectsPage'))
+const ProfilePage = lazyWithRecovery('profile', () => import('./pages/ProfilePage'))
+const ChatPage = lazyWithRecovery('chat', () => import('./pages/ChatPage'))
+const CalendarPage = lazyWithRecovery('calendar', () => import('./pages/CalendarPage'))
+const MainLayout = lazyWithRecovery('layout', () => import('./layouts/MainLayout'))
+const ForcePasswordChangePage = lazyWithRecovery('force-password', () => import('./pages/ForcePasswordChangePage'))
+const CustomerLoginPage = lazyWithRecovery('customer-login', () => import('./pages/CustomerLoginPage'))
+const CustomerPortalPage = lazyWithRecovery('customer-portal', () => import('./pages/CustomerPortalPage'))
+const PTMSDashboardPage = lazyWithRecovery('ptms-dashboard', () => import('./pages/ptms/PTMSDashboardPage'))
+const PortfolioPage = lazyWithRecovery('portfolio', () => import('./pages/ptms/PortfolioPage'))
+const PTMSProjectsPage = lazyWithRecovery('ptms-projects', () => import('./pages/ptms/PTMSProjectsPage'))
+const ProjectDetailPage = lazyWithRecovery('project-detail', () => import('./pages/ptms/ProjectDetailPage'))
+const MyTasksPage = lazyWithRecovery('my-tasks', () => import('./pages/ptms/MyTasksPage'))
+const TasksMainPage = lazyWithRecovery('tasks-main', () => import('./pages/ptms/TasksMainPage'))
+const FinancialPage = lazyWithRecovery('financial', () => import('./pages/ptms/FinancialPage'))
+const RisksPage = lazyWithRecovery('risks', () => import('./pages/ptms/RisksPage'))
+const IssuesPage = lazyWithRecovery('issues', () => import('./pages/ptms/IssuesPage'))
+const ChangesPage = lazyWithRecovery('changes', () => import('./pages/ptms/ChangesPage'))
+const PTMSReportsPage = lazyWithRecovery('ptms-reports', () => import('./pages/ptms/PTMSReportsPage'))
+const PTMSDocumentsPage = lazyWithRecovery('ptms-documents', () => import('./pages/ptms/PTMSDocumentsPage'))
 
 function App() {
   const token = localStorage.getItem('token')
   const mustChangePassword = !!token && localStorage.getItem('force-password-change') === '1'
 
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'sans-serif' }}>در حال بارگذاری...</div>}>
+    <AppErrorBoundary>
+    <Suspense fallback={<div dir="rtl" style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', fontFamily: 'Tahoma,sans-serif', color:'#721052' }}>در حال بارگذاری سامانه...</div>}>
       <Routes>
       {/* مسیرهای مشتری */}
       <Route path="/customer-login" element={<CustomerLoginPage />} />
@@ -104,6 +134,7 @@ function App() {
       )}
       </Routes>
     </Suspense>
+    </AppErrorBoundary>
   )
 }
 
