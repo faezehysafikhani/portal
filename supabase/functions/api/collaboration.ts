@@ -207,7 +207,11 @@ async function workflow(auth: AuthContext) {
   ]); check(current.error); check(all.error)
   const users=(all.data??[]).map(person)
   const resolve=(reference:unknown)=>{const key=String(reference??'').trim().toLowerCase();return users.find((u:any)=>u.id.toLowerCase()===key||String(u.username??'').toLowerCase()===key||u.fullName.toLowerCase()===key)}
-  const manager=resolve(current.data.DirectManager),hrManager=resolve(current.data.HrManager)
+  const manager=resolve(current.data.DirectManager)
+  const isCurrentUserHr=[current.data.Position,current.data.Department].some(value=>/منابع\s*انسانی|\bHR\b/i.test(String(value??'')))
+  // مسئول منابع انسانی برای درخواست شخصی خودش، مسئول مرحلهٔ نهایی نیز هست.
+  // بنابراین اگر HrManager جداگانه‌ای در پروفایلش تنظیم نشده باشد، خود او انتخاب می‌شود.
+  const hrManager=resolve(current.data.HrManager)??(isCurrentUserHr?person(current.data):undefined)
   return { submitter:person(current.data), manager, hrManager, isConfigured:Boolean(manager&&hrManager), message:manager&&hrManager?undefined:'مدیر مستقیم یا مسئول منابع انسانی در پروفایل کاربر تنظیم نشده است.', users }
 }
 
@@ -267,9 +271,10 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     if(input.action==='return'&&!String(input.note??'').trim())throw new HttpError(400,'ثبت دلیل برگشت برای اصلاح الزامی است')
     const current = await db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('Id', action[1]).eq('IsDeleted', false).single(); check(current.error)
     const form = current.data
-    // تفکیک وظایف: هیچ‌کس (حتی مدیر سیستم) نمی‌تواند فرم ثبت‌شده توسط خودش را تأیید/رد کند.
-    if (form.SubmitterUserId === auth.userId) throw new HttpError(403, 'شما نمی‌توانید فرمی را که خودتان ثبت کرده‌اید تأیید یا رد کنید')
     const isManager = form.ManagerUserId === auth.userId && form.Status === 'manager_pending'; const isHr = form.HrUserId === auth.userId && form.Status === 'hr_pending'
+    // تنها استثنای تأیید فرم شخصی، مرحلهٔ نهایی منابع انسانی است؛ مسئول منابع انسانی
+    // باید بتواند درخواست مرخصی خودش را پس از تأیید مدیر مستقیم نهایی کند.
+    if (form.SubmitterUserId === auth.userId && !isHr) throw new HttpError(403, 'شما نمی‌توانید فرمی را که خودتان ثبت کرده‌اید در مرحله مدیر مستقیم تأیید یا رد کنید')
     if (!isManager && !isHr) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
     const personnel=form.FormType==='personnel'
     let status = form.Status
