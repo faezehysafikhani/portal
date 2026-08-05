@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox, Descriptions } from 'antd'
+import { Card, Row, Col, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox, Descriptions } from 'antd'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import PersianDatePicker from '../components/PersianDatePicker'
@@ -488,24 +488,15 @@ export default function DashboardPage() {
         <Col xs={24} lg={8} style={{order:1,display:'flex',flexDirection:'column',gap:0,background:'linear-gradient(180deg,#6f0f50 0%,#982b70 15%,#c77da8 32%,#ecd2e2 54%,#fff8fc 76%,#ffffff 100%)',border:'1px solid #e5c5d8',borderRadius:12,overflow:'hidden',filter:'drop-shadow(0 6px 20px rgba(94,20,68,0.12))'}}>
           <DashboardHeader />
           <Card
-            title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.filter(n=>!n.isRead).length} style={{ background: '#fa8c16' }} /></Space>}
-            styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
-            style={{ borderRadius: '0 0 12px 12px', border:'none', borderTop:'1px solid rgba(255,255,255,0.45)', background:'transparent', flex: 1 }}
+            styles={{ body: { padding: '8px 16px 16px' } }}
+            style={{ borderRadius: '0 0 12px 12px', border:'none', background:'transparent', flex: 1 }}
           >
-            {notifications.map(n => (
-              <div key={n.id} onClick={()=>openNotification(n)} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start',cursor:n.link?'pointer':'default',background:n.isRead?'transparent':'#faf5ff',borderRadius:6 }}>
-                <div style={{ width: 30, height: 30, borderRadius: '50%', background: `${n.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: n.color, fontSize: 13, flexShrink: 0 }}>
-                  {n.icon}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: '#333', lineHeight: 1.4 }}>{n.text}</div>
-                  <div style={{ fontSize: 10, color: '#8c8c8c', marginTop: 2 }}>{n.time}</div>
-                </div>
-              </div>
-            ))}
-            {notifications.length===0&&<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="اعلان جدیدی ندارید" />}
-            <Divider style={{margin:'12px 0'}} />
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {notifications.map(n=><button key={n.id} type="button" onClick={()=>openNotification(n)} style={{width:'100%',border:'1px solid rgba(139,26,107,0.10)',background:'rgba(255,255,255,0.72)',backdropFilter:'blur(4px)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:n.link?'pointer':'default',textAlign:'right',color:'#333',fontFamily:'inherit',boxShadow:'0 2px 8px rgba(94,20,68,0.04)'}}>
+                <span style={{width:34,height:34,borderRadius:9,display:'grid',placeItems:'center',background:`${n.color}14`,color:n.color,fontSize:17,flexShrink:0}}>{n.icon}</span>
+                <span style={{fontSize:12,fontWeight:700,lineHeight:1.7}}>{n.text}</span>
+                {n.link&&<LeftOutlined style={{marginRight:'auto',fontSize:10,color:'#aaa'}}/>}
+              </button>)}
               {quickLinks.map(item=><button key={item.key} type="button" onClick={()=>item.path&&navigate(item.path)} style={{width:'100%',border:'1px solid rgba(139,26,107,0.10)',background:'rgba(255,255,255,0.72)',backdropFilter:'blur(4px)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:item.path?'pointer':'default',textAlign:'right',color:'#333',fontFamily:'inherit',boxShadow:'0 2px 8px rgba(94,20,68,0.04)'}}>
                 <span style={{width:34,height:34,borderRadius:9,display:'grid',placeItems:'center',background:`${item.color}14`,color:item.color,fontSize:17,flexShrink:0}}>{item.icon}</span>
                 <span style={{fontSize:12,fontWeight:700,lineHeight:1.7}}>{item.text}</span>
