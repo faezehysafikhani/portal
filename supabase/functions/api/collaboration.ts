@@ -117,6 +117,7 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
   }
 
   if (request.method === 'POST' && path === '/chat/groups') {
+    requirePermission(auth, 'chat.create_group')
     const input=await body<Obj>(request), name=String(input.name??'').trim(), dangerous=/<[^>]+>|javascript\s*:|--|\/\*|\*\/|;\s*(select|insert|update|delete|drop|alter|exec)|\b(union\s+select|drop\s+table)/i
     if(!/^[\p{L}\p{M}\p{N}\s\u200c_-]{3,60}$/u.test(name)||dangerous.test(name))throw new HttpError(400,'نام گروه باید بین ۳ تا ۶۰ کاراکتر و فقط شامل حروف، عدد، فاصله، خط تیره یا زیرخط باشد')
     const requested=[...new Set((Array.isArray(input.memberUserIds)?input.memberUserIds:[]).map(String).filter((id:string)=>id&&id!==auth.userId))].slice(0,49)
@@ -149,12 +150,14 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
   }
 
   if (request.method === 'POST' && groupMembers) {
+    requirePermission(auth, 'chat.add_member')
     const groupId=groupMembers[1],input=await body<Obj>(request),[group,membership,existing]=await Promise.all([db.from('InternalChatGroups').select('Name,OwnerUserId').eq('TenantId',auth.tenantId).eq('Id',groupId).eq('IsDeleted',false).maybeSingle(),db.from('InternalChatGroupMembers').select('IsAdmin').eq('TenantId',auth.tenantId).eq('GroupId',groupId).eq('UserId',auth.userId).eq('IsDeleted',false).maybeSingle(),db.from('InternalChatGroupMembers').select('UserId').eq('TenantId',auth.tenantId).eq('GroupId',groupId).eq('IsDeleted',false)]);check(group.error);check(membership.error);check(existing.error);if(!group.data)throw new HttpError(404,'گروه یافت نشد');if(!membership.data||(!membership.data.IsAdmin&&group.data.OwnerUserId!==auth.userId))throw new HttpError(403,'اجازه افزودن عضو را ندارید')
     const existingIds=new Set((existing.data??[]).map((x:Obj)=>x.UserId)),requested=[...new Set((Array.isArray(input.memberUserIds)?input.memberUserIds:[]).map(String).filter((id:string)=>id&&!existingIds.has(id)))].slice(0,Math.max(0,50-existingIds.size)),usersR=requested.length?await db.from('Users').select('Id').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('IsActive',true).in('Id',requested):({data:[],error:null} as any);check(usersR.error);const active=(usersR.data??[]).map((x:Obj)=>x.Id)
     if(active.length){const added=await db.from('InternalChatGroupMembers').insert(active.map((id:string)=>({...base(auth),GroupId:groupId,UserId:id,IsAdmin:false,LastReadAt:null})));check(added.error);const actor=await userName(auth.userId);await createNotifications(db,auth,active,{title:`عضویت در گروه «${group.data.Name}»`,body:`${actor} شما را به گروه چت اضافه کرد`,type:notificationType.chat,actionUrl:`/chat?group=${groupId}`,entityId:groupId,entityType:'ChatGroup',actorName:actor})}
     return json(request,{added:active.length,message:`${active.length} عضو اضافه شد`})
   }
   if (request.method === 'DELETE' && groupMember) {
+    requirePermission(auth, 'chat.remove_member')
     const groupId=groupMember[1],userId=groupMember[2]
     const [group,membership,target]=await Promise.all([
       db.from('InternalChatGroups').select('OwnerUserId').eq('TenantId',auth.tenantId).eq('Id',groupId).eq('IsDeleted',false).maybeSingle(),

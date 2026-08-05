@@ -436,6 +436,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
           { key: 'view', label: 'مشاهده' },
           { key: 'send', label: 'ارسال پیام' },
           { key: 'create_group', label: 'ایجاد گروه' },
+          { key: 'add_member', label: 'افزودن عضو به گروه' },
+          { key: 'remove_member', label: 'حذف عضو از گروه' },
           { key: 'delete_own', label: 'حذف پیام خود' },
           { key: 'delete_all', label: 'حذف پیام همه' },
           { key: 'send_file', label: 'ارسال فایل' },

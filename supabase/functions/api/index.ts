@@ -38,6 +38,7 @@ const permissionDependencies: Record<string, string[]> = {
   'positions.view': ['positions.create', 'positions.edit', 'positions.delete'],
   'reports.view': ['reports.export'],
   'company.view': ['company.edit'],
+  'chat.view': ['chat.create_group', 'chat.add_member', 'chat.remove_member'],
   'ai.view': ['ai.use', 'ai.settings'],
 }
 
@@ -650,6 +651,16 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
   requirePermission(auth, 'users.view')
   if (path === '/users/permissions' && request.method === 'GET') {
     requireAdmin(auth)
+    const chatPermissions = [
+      { Code: 'chat.create_group', Name: 'ایجاد گروه چت', Module: 'chat' },
+      { Code: 'chat.add_member', Name: 'افزودن عضو به گروه چت', Module: 'chat' },
+      { Code: 'chat.remove_member', Name: 'حذف عضو از گروه چت', Module: 'chat' },
+    ]
+    const existingChatPermissions = await db.from('Permissions').select('Code').eq('TenantId', auth.tenantId).in('Code', chatPermissions.map(item => item.Code))
+    failOnDb(existingChatPermissions.error)
+    const existingCodes = new Set((existingChatPermissions.data ?? []).map(item => item.Code))
+    const missingPermissions = chatPermissions.filter(item => !existingCodes.has(item.Code)).map(item => ({ ...baseInsert(auth), ...item }))
+    if (missingPermissions.length) { const inserted = await db.from('Permissions').insert(missingPermissions); failOnDb(inserted.error) }
     const result = await db.from('Permissions').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('Module').order('Code')
     failOnDb(result.error); return json(request, asCamel(result.data))
   }
