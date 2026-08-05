@@ -7,7 +7,6 @@ import { currentJalali, isLeapJalali, jalaliToDate, formatJalaliDate } from '../
 import { getIranHoliday } from '../utils/iranHolidays'
 import { useNavigate } from 'react-router-dom'
 import { useNotificationStore } from '../store/notificationStore'
-import NotificationDropdown from '../components/NotificationDropdown'
 import {
   MailOutlined, CheckSquareOutlined, CustomerServiceOutlined,
   PlusOutlined, BellOutlined, ClockCircleOutlined,
@@ -94,27 +93,24 @@ function DashboardHeader() {
 
   return (
     <Card
-      style={{ borderRadius: '12px 12px 0 0', background: 'linear-gradient(180deg, #7a145c 0%, #a94385 38%, #d9a9c8 70%, #fffafd 100%)', border: '1px solid #ead4e2', borderBottom: 'none', boxShadow: 'none' }}
-      styles={{ body: { padding: '12px 14px' } }}
+      style={{ borderRadius: '12px 12px 0 0', background: 'linear-gradient(180deg, #6f0f50 0%, #9b2e73 48%, #d39abb 100%)', border: '1px solid #c67fa9', borderBottom: 'none', boxShadow: 'none' }}
+      styles={{ body: { padding: '16px 16px' } }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.35)', flexShrink: 0 }}>
             <UserOutlined style={{ fontSize: 18, color: 'white' }} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>خوش آمدید،</span>
-            <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>{user.fullName || 'مدیر سیستم'}</span>
-            <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>({user.position || 'مدیرعامل'})</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.55 }}>
+            <span style={{ color: 'rgba(255,255,255,0.78)', fontSize: 11 }}>خوش آمدید</span>
+            <span style={{ color: 'white', fontWeight: 800, fontSize: 15 }}>{user.fullName || 'مدیر سیستم'}</span>
+            <span style={{ color: 'rgba(255,255,255,0.72)', fontSize: 11 }}>{user.position || 'مدیرعامل'}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <NotificationDropdown />
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', direction: 'rtl', lineHeight: 1.3 }}>
-            <span style={{ color: '#5d1747', fontWeight: 800, fontSize: 17, letterSpacing: 1 }}>{persianTime}</span>
-            <span style={{ color: '#6f4962', fontSize: 12, fontWeight: 600 }}>{persianDate}</span>
-            <span style={{ color: '#9b7f91', fontSize: 10, direction: 'ltr' }}>{gregorianDate}</span>
-          </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', direction: 'rtl', lineHeight: 1.35 }}>
+          <span style={{ color: 'white', fontWeight: 800, fontSize: 18, letterSpacing: 1 }}>{persianTime}</span>
+          <span style={{ color: 'rgba(255,255,255,0.88)', fontSize: 12, fontWeight: 600 }}>{persianDate}</span>
+          <span style={{ color: 'rgba(255,255,255,0.62)', fontSize: 10, direction: 'ltr' }}>{gregorianDate}</span>
         </div>
       </div>
     </Card>

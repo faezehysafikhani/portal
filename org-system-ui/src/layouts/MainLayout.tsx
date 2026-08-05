@@ -168,7 +168,7 @@ export default function MainLayout() {
               )}
               {location.pathname === '/dashboard' && <div />}   
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {location.pathname !== '/dashboard' && <NotificationDropdown />}
+            <NotificationDropdown />
             <Dropdown menu={{
               items: [
                 { key: 'profile', icon: <UserOutlined />, label: 'پروفایل', onClick: () => navigate('/profile') },
