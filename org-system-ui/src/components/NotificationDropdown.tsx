@@ -89,7 +89,8 @@ export default function NotificationDropdown() {
     Object.fromEntries(NOTIFICATION_SETTINGS.map(s => [s.key, true]))
   )
 
-  const unreadCount = notifications.filter(n => !n.isRead).length
+  const visibleNotifications = notifications.filter(n => n.type !== 'chat' || !n.isRead)
+  const unreadCount = visibleNotifications.filter(n => !n.isRead).length
   const headers = { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
   const loadNotifications = async () => { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}}))} }
   useEffect(()=>{const refresh=()=>void loadNotifications();refresh();const timer=setInterval(refresh,5000);const onVisible=()=>{if(document.visibilityState==='visible')refresh()};let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{}window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisible)}},[])
@@ -97,7 +98,7 @@ export default function NotificationDropdown() {
   const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers})}
   const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}
   const removeAll=()=>{clearAll();void apiFetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers})}
-  const unreadNotifications = notifications.filter(n => !n.isRead)
+  const unreadNotifications = visibleNotifications.filter(n => !n.isRead)
   const groupChatNotifications = (rows: Notification[]): DisplayNotification[] => {
     const chats = rows.filter(n => n.type === 'chat')
     const otherNotifications: DisplayNotification[] = rows.filter(n => n.type !== 'chat')
@@ -112,7 +113,7 @@ export default function NotificationDropdown() {
       isRead: chats.every(n => n.isRead),
     }, ...otherNotifications]
   }
-  const displayNotifications = groupChatNotifications(notifications)
+  const displayNotifications = groupChatNotifications(visibleNotifications)
   const displayUnreadNotifications = groupChatNotifications(unreadNotifications)
 
   const content = (
@@ -129,7 +130,7 @@ export default function NotificationDropdown() {
               همه خوانده شد
             </Button>
           )}
-          {notifications.length > 0 && (
+          {visibleNotifications.length > 0 && (
             <Button size="small" danger icon={<DeleteOutlined />} onClick={removeAll}>
               پاک کردن
             </Button>
@@ -145,7 +146,7 @@ export default function NotificationDropdown() {
           items={[
             {
               key: '1',
-              label: <span>همه <Badge count={notifications.length} size="small" /></span>,
+              label: <span>همه <Badge count={visibleNotifications.length} size="small" /></span>,
               children: (
                 <div>
                   {displayNotifications.length === 0 ? (

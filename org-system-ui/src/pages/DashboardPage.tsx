@@ -94,26 +94,26 @@ function DashboardHeader() {
 
   return (
     <Card
-      style={{ borderRadius: 14, background: 'linear-gradient(90deg, #ffffff 0%, #f8eaf3 42%, #8B1A6B 100%)', border: '1px solid #f0dce9', boxShadow: '0 5px 20px rgba(94,20,68,0.12)' }}
-      styles={{ body: { padding: '10px 20px' } }}
+      style={{ borderRadius: 12, background: 'linear-gradient(90deg, #fffafd 0%, #ecd2e2 48%, #8B1A6B 100%)', border: '1px solid #ead4e2', boxShadow: '0 5px 18px rgba(94,20,68,0.12)' }}
+      styles={{ body: { padding: '12px 14px' } }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.35)', flexShrink: 0 }}>
-            <UserOutlined style={{ fontSize: 20, color: 'white' }} />
+          <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid rgba(255,255,255,0.35)', flexShrink: 0 }}>
+            <UserOutlined style={{ fontSize: 18, color: 'white' }} />
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>خوش آمدید،</span>
-            <span style={{ color: 'white', fontWeight: 700, fontSize: 16 }}>{user.fullName || 'مدیر سیستم'}</span>
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>{user.fullName || 'مدیر سیستم'}</span>
             <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>({user.position || 'مدیرعامل'})</span>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <NotificationDropdown />
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', direction: 'rtl', lineHeight: 1.3 }}>
-            <span style={{ color: '#5d1747', fontWeight: 800, fontSize: 20, letterSpacing: 1 }}>{persianTime}</span>
-            <span style={{ color: '#6f4962', fontSize: 13, fontWeight: 600 }}>{persianDate}</span>
-            <span style={{ color: '#9b7f91', fontSize: 11, direction: 'ltr' }}>{gregorianDate}</span>
+            <span style={{ color: '#5d1747', fontWeight: 800, fontSize: 17, letterSpacing: 1 }}>{persianTime}</span>
+            <span style={{ color: '#6f4962', fontSize: 12, fontWeight: 600 }}>{persianDate}</span>
+            <span style={{ color: '#9b7f91', fontSize: 10, direction: 'ltr' }}>{gregorianDate}</span>
           </div>
         </div>
       </div>
@@ -396,7 +396,7 @@ export default function DashboardPage() {
   }[type]||{color:'#8B1A6B',icon:<BellOutlined/>})
   const rawNotifications:any[] = storedNotifications.length?storedNotifications:(summary.notifications||[]).map((n:any)=>({id:n.id,type:String(n.type).toLowerCase(),title:n.title,description:n.body,time:new Date(n.createdAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),link:n.actionUrl,isRead:n.isRead,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}))
   const notificationGroups = new Map<string,any>()
-  rawNotifications.forEach(n=>{
+  rawNotifications.filter(n=>String(n.type||'').toLowerCase()!=='chat'||!n.isRead).forEach(n=>{
     const actor=n.actorName||String(n.title||'').match(/(?:از|توسط)\s+(.+)$/)?.[1]?.trim()||'سامانه'
     const category=n.entityType==='LetterReferral'?'referral':String(n.type||'warning').toLowerCase()
     // Chat alerts are intentionally combined so the dashboard never exposes
@@ -429,11 +429,8 @@ export default function DashboardPage() {
         people={peopleOptions} letters={letterOptions} tasks={taskOptions} persianDate={persianEventDate} setPersianDate={setPersianEventDate} relatedPeople={relatedPeople} setRelatedPeople={setRelatedPeople}
         relatedLetters={relatedLetters} setRelatedLetters={setRelatedLetters} relatedTasks={relatedTasks} setRelatedTasks={setRelatedTasks}/>
 
-      {/* هدر */}
-      <DashboardHeader />
-
       {/* تقویم + اعلان‌ها */}
-      <Row gutter={[12, 12]}>
+      <Row gutter={[12, 12]} align="stretch">
         <Col xs={24} lg={16} style={{order:2}}>
           <Card
             styles={{ body: { padding: 16 } }}
@@ -492,11 +489,12 @@ export default function DashboardPage() {
           </Card>
         </Col>
 
-        <Col xs={24} lg={8} style={{order:1}}>
+        <Col xs={24} lg={8} style={{order:1,display:'flex',flexDirection:'column',gap:12}}>
+          <DashboardHeader />
           <Card
             title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.filter(n=>!n.isRead).length} style={{ background: '#fa8c16' }} /></Space>}
             styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
-            style={{ borderRadius: 12, height: '100%' }}
+            style={{ borderRadius: 12, flex: 1 }}
           >
             {notifications.map(n => (
               <div key={n.id} onClick={()=>openNotification(n)} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start',cursor:n.link?'pointer':'default',background:n.isRead?'transparent':'#faf5ff',borderRadius:6 }}>
