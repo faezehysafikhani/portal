@@ -93,7 +93,7 @@ function DashboardHeader() {
 
   return (
     <Card
-      style={{ borderRadius: '12px 12px 0 0', background: 'linear-gradient(180deg, #6f0f50 0%, #9b2e73 48%, #d39abb 100%)', border: '1px solid #c67fa9', borderBottom: 'none', boxShadow: 'none' }}
+      style={{ borderRadius: '12px 12px 0 0', background: 'transparent', border: 'none', boxShadow: 'none' }}
       styles={{ body: { padding: '16px 16px' } }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
@@ -485,12 +485,12 @@ export default function DashboardPage() {
           </Card>
         </Col>
 
-        <Col xs={24} lg={8} style={{order:1,display:'flex',flexDirection:'column',gap:0,filter:'drop-shadow(0 5px 18px rgba(94,20,68,0.10))'}}>
+        <Col xs={24} lg={8} style={{order:1,display:'flex',flexDirection:'column',gap:0,background:'linear-gradient(180deg,#6f0f50 0%,#982b70 15%,#c77da8 32%,#ecd2e2 54%,#fff8fc 76%,#ffffff 100%)',border:'1px solid #e5c5d8',borderRadius:12,overflow:'hidden',filter:'drop-shadow(0 6px 20px rgba(94,20,68,0.12))'}}>
           <DashboardHeader />
           <Card
             title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.filter(n=>!n.isRead).length} style={{ background: '#fa8c16' }} /></Space>}
             styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
-            style={{ borderRadius: '0 0 12px 12px', borderTop: 'none', flex: 1 }}
+            style={{ borderRadius: '0 0 12px 12px', border:'none', borderTop:'1px solid rgba(255,255,255,0.45)', background:'transparent', flex: 1 }}
           >
             {notifications.map(n => (
               <div key={n.id} onClick={()=>openNotification(n)} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start',cursor:n.link?'pointer':'default',background:n.isRead?'transparent':'#faf5ff',borderRadius:6 }}>
@@ -506,7 +506,7 @@ export default function DashboardPage() {
             {notifications.length===0&&<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="اعلان جدیدی ندارید" />}
             <Divider style={{margin:'12px 0'}} />
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
-              {quickLinks.map(item=><button key={item.key} type="button" onClick={()=>item.path&&navigate(item.path)} style={{width:'100%',border:'1px solid #eee',background:'linear-gradient(90deg,#fff 0%,#fcf7fa 100%)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:item.path?'pointer':'default',textAlign:'right',color:'#333',fontFamily:'inherit'}}>
+              {quickLinks.map(item=><button key={item.key} type="button" onClick={()=>item.path&&navigate(item.path)} style={{width:'100%',border:'1px solid rgba(139,26,107,0.10)',background:'rgba(255,255,255,0.72)',backdropFilter:'blur(4px)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:item.path?'pointer':'default',textAlign:'right',color:'#333',fontFamily:'inherit',boxShadow:'0 2px 8px rgba(94,20,68,0.04)'}}>
                 <span style={{width:34,height:34,borderRadius:9,display:'grid',placeItems:'center',background:`${item.color}14`,color:item.color,fontSize:17,flexShrink:0}}>{item.icon}</span>
                 <span style={{fontSize:12,fontWeight:700,lineHeight:1.7}}>{item.text}</span>
                 {item.path&&<LeftOutlined style={{marginRight:'auto',fontSize:10,color:'#aaa'}}/>}
