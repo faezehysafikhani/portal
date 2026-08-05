@@ -609,14 +609,11 @@ export default function LettersPage() {
     return <LetterComposePage initialData={editingDraft} defaultType={requestedType} onSave={handleSaveLetter} onCancel={() => { setComposing(false); setEditingDraft(null); navigate(new URLSearchParams(location.search).has('type')?`/letters/registry/${requestedType}`:'/letters') }} />
   }
 
-  const registryLabels={Internal:'داخلی',Incoming:'وارده',Outgoing:'صادره'} as const
-  const registryCreateAllowed=registryType==='Incoming'?allowed('letters.type.incoming'):registryType==='Outgoing'?allowed('letters.type.outgoing'):registryType==='Internal'?allowed('letters.type.internal'):false
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?`📚 دبیرخانه نامه‌های ${registryType?registryLabels[registryType]:'سازمان'}`:isReferrals?'↩️ ارجاعات من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
-        <Space><Button icon={<SyncOutlined/>} onClick={()=>fetchLetters()} loading={loading}>به‌روزرسانی</Button>{isRegistry&&registryType&&registryCreateAllowed?<Button type="primary" icon={<PlusOutlined/>} onClick={()=>navigate(`/letters/new?type=${registryTypeKey}`)} style={{background:'#8B1A6B',borderColor:'#8B1A6B'}}>{registryType==='Incoming'?'ثبت نامه وارده':`نامه ${registryLabels[registryType]} جدید`}</Button>:!isRegistry&&allowed('letters.create')&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>{setComposing(true);navigate('/letters/new')}} style={{background:'#8B1A6B',borderColor:'#8B1A6B'}}>نامه جدید</Button>}</Space>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?'📚 دبیرخانه':isReferrals?'↩️ ارجاعات من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
+        <Space><Button icon={<SyncOutlined/>} onClick={()=>fetchLetters()} loading={loading}>به‌روزرسانی</Button>{allowed('letters.create')&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>{setComposing(true);navigate('/letters/new')}} style={{background:'#8B1A6B',borderColor:'#8B1A6B'}}>نامه جدید</Button>}</Space>
       </div>
 
       <AdvancedSearch onSearch={f => setSearchFilters(f)} onReset={() => setSearchFilters(EMPTY_FILTERS)} />
