@@ -93,6 +93,7 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
   const kindName=(value:unknown)=>['Text','File','Voice'][Number(value)]??String(value??'Text')
   const groupMessages=path.match(/^\/chat\/groups\/([0-9a-f-]+)\/messages$/i)
   const groupMembers=path.match(/^\/chat\/groups\/([0-9a-f-]+)\/members$/i)
+  const groupMember=path.match(/^\/chat\/groups\/([0-9a-f-]+)\/members\/([0-9a-f-]+)$/i)
   const userName=async(userId:string)=>{const r=await db.from('Users').select('Username,FirstName,LastName').eq('TenantId',auth.tenantId).eq('Id',userId).maybeSingle();check(r.error);return r.data?`${r.data.FirstName??''} ${r.data.LastName??''}`.trim()||r.data.Username:auth.username}
 
   if (request.method === 'GET' && path === '/chat/groups') {
@@ -152,6 +153,20 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
     const existingIds=new Set((existing.data??[]).map((x:Obj)=>x.UserId)),requested=[...new Set((Array.isArray(input.memberUserIds)?input.memberUserIds:[]).map(String).filter((id:string)=>id&&!existingIds.has(id)))].slice(0,Math.max(0,50-existingIds.size)),usersR=requested.length?await db.from('Users').select('Id').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('IsActive',true).in('Id',requested):({data:[],error:null} as any);check(usersR.error);const active=(usersR.data??[]).map((x:Obj)=>x.Id)
     if(active.length){const added=await db.from('InternalChatGroupMembers').insert(active.map((id:string)=>({...base(auth),GroupId:groupId,UserId:id,IsAdmin:false,LastReadAt:null})));check(added.error);const actor=await userName(auth.userId);await createNotifications(db,auth,active,{title:`عضویت در گروه «${group.data.Name}»`,body:`${actor} شما را به گروه چت اضافه کرد`,type:notificationType.chat,actionUrl:`/chat?group=${groupId}`,entityId:groupId,entityType:'ChatGroup',actorName:actor})}
     return json(request,{added:active.length,message:`${active.length} عضو اضافه شد`})
+  }
+  if (request.method === 'DELETE' && groupMember) {
+    const groupId=groupMember[1],userId=groupMember[2]
+    const [group,membership,target]=await Promise.all([
+      db.from('InternalChatGroups').select('OwnerUserId').eq('TenantId',auth.tenantId).eq('Id',groupId).eq('IsDeleted',false).maybeSingle(),
+      db.from('InternalChatGroupMembers').select('IsAdmin').eq('TenantId',auth.tenantId).eq('GroupId',groupId).eq('UserId',auth.userId).eq('IsDeleted',false).maybeSingle(),
+      db.from('InternalChatGroupMembers').select('Id').eq('TenantId',auth.tenantId).eq('GroupId',groupId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle(),
+    ]);check(group.error);check(membership.error);check(target.error)
+    if(!group.data)throw new HttpError(404,'گروه یافت نشد')
+    if(!membership.data||(!membership.data.IsAdmin&&group.data.OwnerUserId!==auth.userId))throw new HttpError(403,'اجازه حذف عضو را ندارید')
+    if(userId===group.data.OwnerUserId)throw new HttpError(400,'مدیر اصلی گروه قابل حذف نیست')
+    if(!target.data)throw new HttpError(404,'عضو گروه یافت نشد')
+    const removed=await db.from('InternalChatGroupMembers').delete().eq('TenantId',auth.tenantId).eq('Id',target.data.Id);check(removed.error)
+    return json(request,{message:'عضو از گروه حذف شد'})
   }
   if (request.method === 'GET' && path === '/chat/users') {
     const [users,contacts,messages] = await Promise.all([
