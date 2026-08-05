@@ -34,13 +34,17 @@ const NOTIFICATION_SETTINGS = [
   { key: 'warning', label: 'هشدارهای سیستم', icon: '🔔' },
 ]
 
+type DisplayNotification = Notification & { groupedIds?: string[]; groupedCount?: number }
+
 function NotificationItem({ notification, onRead, onDelete }: {
-  notification: Notification
+  notification: DisplayNotification
   onRead: (id: string) => void
   onDelete: (id: string) => void
 }) {
   const navigate = useNavigate()
   const config = TYPE_CONFIG[notification.type]
+  const notificationIds = notification.groupedIds || [notification.id]
+  const isChatGroup = notification.type === 'chat'
 
   return (
     <div
@@ -51,7 +55,7 @@ function NotificationItem({ notification, onRead, onDelete }: {
         transition: 'background 0.2s',
         borderRight: notification.isRead ? 'none' : `3px solid ${config.color}`,
       }}
-      onClick={() => { onRead(notification.id); if (notification.link) navigate(notification.link) }}
+      onClick={() => { notificationIds.forEach(onRead); if (notification.link) navigate(notification.link) }}
     >
       <Avatar
         size={36}
@@ -60,10 +64,10 @@ function NotificationItem({ notification, onRead, onDelete }: {
       />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ fontWeight: notification.isRead ? 400 : 600, fontSize: 13, lineHeight: 1.4 }}>{notification.title}</div>
+          <div style={{ fontWeight: notification.isRead ? 400 : 600, fontSize: 13, lineHeight: 1.4 }}>{isChatGroup ? `شما ${Number(notification.groupedCount || 1).toLocaleString('fa-IR')} پیام دارید` : notification.title}</div>
           {!notification.isRead && <div style={{ width: 8, height: 8, borderRadius: '50%', background: config.color, flexShrink: 0, marginTop: 4 }} />}
         </div>
-        <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notification.description}</div>
+        {!isChatGroup && <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notification.description}</div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
           <Tag color={config.color} style={{ fontSize: 9, margin: 0 }}>{config.label}</Tag>
           <span style={{ fontSize: 10, color: '#bbb' }}>{notification.date} {notification.time}</span>
@@ -72,7 +76,7 @@ function NotificationItem({ notification, onRead, onDelete }: {
       <Button
         size="small" type="text" danger icon={<DeleteOutlined />}
         style={{ flexShrink: 0, opacity: 0.5 }}
-        onClick={e => { e.stopPropagation(); onDelete(notification.id) }}
+        onClick={e => { e.stopPropagation(); notificationIds.forEach(onDelete) }}
       />
     </div>
   )
@@ -94,7 +98,22 @@ export default function NotificationDropdown() {
   const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}
   const removeAll=()=>{clearAll();void apiFetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers})}
   const unreadNotifications = notifications.filter(n => !n.isRead)
-  const readNotifications = notifications.filter(n => n.isRead)
+  const groupChatNotifications = (rows: Notification[]): DisplayNotification[] => {
+    const chats = rows.filter(n => n.type === 'chat')
+    const otherNotifications: DisplayNotification[] = rows.filter(n => n.type !== 'chat')
+    if (!chats.length) return otherNotifications
+    return [{
+      ...chats[0],
+      title: '',
+      description: '',
+      link: '/chat',
+      groupedIds: chats.map(n => n.id),
+      groupedCount: chats.length,
+      isRead: chats.every(n => n.isRead),
+    }, ...otherNotifications]
+  }
+  const displayNotifications = groupChatNotifications(notifications)
+  const displayUnreadNotifications = groupChatNotifications(unreadNotifications)
 
   const content = (
     <div style={{ width: 380, maxHeight: 520, display: 'flex', flexDirection: 'column' }}>
@@ -129,10 +148,10 @@ export default function NotificationDropdown() {
               label: <span>همه <Badge count={notifications.length} size="small" /></span>,
               children: (
                 <div>
-                  {notifications.length === 0 ? (
+                  {displayNotifications.length === 0 ? (
                     <Empty description="اعلانی وجود ندارد" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 30 }} />
                   ) : (
-                    notifications.map(n => (
+                    displayNotifications.map(n => (
                       <NotificationItem key={n.id} notification={n} onRead={readOne} onDelete={removeOne} />
                     ))
                   )}
@@ -144,10 +163,10 @@ export default function NotificationDropdown() {
               label: <span>خوانده نشده <Badge count={unreadCount} size="small" style={{ background: '#8B1A6B' }} /></span>,
               children: (
                 <div>
-                  {unreadNotifications.length === 0 ? (
+                  {displayUnreadNotifications.length === 0 ? (
                     <Empty description="همه اعلان‌ها خوانده شده‌اند" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 30 }} />
                   ) : (
-                    unreadNotifications.map(n => (
+                    displayUnreadNotifications.map(n => (
                       <NotificationItem key={n.id} notification={n} onRead={readOne} onDelete={removeOne} />
                     ))
                   )}
