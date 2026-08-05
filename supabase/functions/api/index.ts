@@ -811,12 +811,14 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
     const result = await query; failOnDb(result.error); return result.count ?? 0
   }
   const tehranNow=new Date(Date.now()+3.5*60*60*1000),tehranStart=new Date(Date.UTC(tehranNow.getUTCFullYear(),tehranNow.getUTCMonth(),tehranNow.getUTCDate())-3.5*60*60*1000),tehranEnd=new Date(tehranStart.getTime()+86400000)
-  const [unreadLetters,totalLetters,activeTasks,openTickets,usersCount,contactsCount,todayEvents,recentLettersResult,recentNotifications] = await Promise.all([
+  const [unreadLetters,totalLetters,activeTasks,openTickets,usersCount,onlineUsers,contactsCount,todayEvents,recentLettersResult,recentNotifications] = await Promise.all([
     count('LetterRecipients', (q) => q.eq('UserId', auth.userId).eq('IsRead', false)),
     count('Letters'),
     count('Tasks', (q) => q.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`).not('Status', 'in', '(3,4)')),
     count('Tickets', (q) => q.not('Status', 'in', '(closed,resolved)')),
-    count('Users', (q) => q.eq('IsActive', true)), count('Contacts'),
+    count('Users', (q) => q.eq('IsActive', true)),
+    count('Users', (q) => q.eq('IsActive', true).gte('LastLoginAt',new Date(Date.now()-15*60*1000).toISOString())),
+    count('Contacts'),
     count('CalendarEvents',(q)=>q.gte('StartAt',tehranStart.toISOString()).lt('StartAt',tehranEnd.toISOString())),
     db.from('Letters').select('Id,Subject,FromUserName,Status,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(5),
     db.from('Notifications').select('Id,Title,Body,Type,ActionUrl,CreatedAt,IsRead,ActorUserId,ActorName,RelatedEntityType').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(20),
@@ -827,7 +829,7 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
   failOnDb(recentTasksResult.error)
   return json(request, {
     unreadLetters,newLetters:unreadLetters,totalLetters,activeTasks,openTickets,todayEvents,
-    users: usersCount, contacts: contactsCount, recentLetters:(recentLettersResult.data??[]).map(item=>({id:item.Id,subject:item.Subject,fromUserName:item.FromUserName,status:typeof item.Status==='number'?['Draft','Sent','Received','InReview','Signed','Referred','Archived','Cancelled'][item.Status]:item.Status,createdAt:item.CreatedAt})),
+    users: usersCount, onlineUsers, contacts: contactsCount, recentLetters:(recentLettersResult.data??[]).map(item=>({id:item.Id,subject:item.Subject,fromUserName:item.FromUserName,status:typeof item.Status==='number'?['Draft','Sent','Received','InReview','Signed','Referred','Archived','Cancelled'][item.Status]:item.Status,createdAt:item.CreatedAt})),
     notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead,actorUserId:item.ActorUserId,actorName:item.ActorName,relatedEntityType:item.RelatedEntityType})),
     recentTasks: (recentTasksResult.data ?? []).map(taskDto),
   })

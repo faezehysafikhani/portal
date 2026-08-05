@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Layout, Menu, Avatar, Dropdown, Badge, notification } from 'antd'
+import { Layout, Menu, Avatar, Dropdown, notification } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   DashboardOutlined, MailOutlined, TeamOutlined, CheckSquareOutlined,
   CustomerServiceOutlined, FormOutlined, BarChartOutlined, MessageOutlined,
-  UserOutlined, LogoutOutlined, BellOutlined, RobotOutlined, SettingOutlined,
+  UserOutlined, LogoutOutlined, RobotOutlined, SettingOutlined,
   ContactsOutlined, ProjectOutlined, UnorderedListOutlined,
   FolderOutlined, InboxOutlined, EditOutlined, BookOutlined,
   DollarOutlined, WarningOutlined, BugOutlined, SwapOutlined, 
-  FileTextOutlined, SendOutlined
+  FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined
 } from '@ant-design/icons'
-import { usePermissionStore } from '../store/permissionStore'
 import NotificationDropdown from '../components/NotificationDropdown'
 
 const { Header, Sider, Content } = Layout
@@ -20,11 +19,8 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [user,setUser]=useState<any>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
-  const [company,setCompany]=useState<{name?:string;logoUrl?:string|null}>(()=>{try{return JSON.parse(localStorage.getItem('company')||'{}')}catch{return {}}})
   useEffect(()=>{const sync=()=>setUser(JSON.parse(localStorage.getItem('user')||'{}'));window.addEventListener('profile-updated',sync);return()=>window.removeEventListener('profile-updated',sync)},[])
-  useEffect(()=>{const sync=(event:Event)=>setCompany((event as CustomEvent).detail||{});window.addEventListener('company-updated',sync);return()=>window.removeEventListener('company-updated',sync)},[])
   useEffect(()=>{const name=sessionStorage.getItem('welcome-user');if(name){sessionStorage.removeItem('welcome-user');notification.success({message:`کاربر ${name}، خوش آمدید`,description:'ورود شما به سامانه با موفقیت انجام شد.',placement:'topLeft'})}},[])
-  const { hasPermission } = usePermissionStore()
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
   const allowed = (code: string) => isAdmin || serverPermissions.includes(code)
@@ -132,6 +128,7 @@ export default function MainLayout() {
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
+        trigger={<div style={{height:48,display:'flex',alignItems:'center',justifyContent:'center',gap:collapsed?0:14}}><img src="/portal-mark.jpg" alt="نشان پرتال" style={{width:collapsed?31:38,height:31,objectFit:'contain',borderRadius:6}}/>{collapsed?<LeftOutlined/>:<RightOutlined/>}</div>}
         style={{ background: '#001529' }}
         width={230}
       >
@@ -142,14 +139,7 @@ export default function MainLayout() {
           borderBottom: '1px solid rgba(255,255,255,0.1)',
           padding: '0 8px', textAlign: 'center'
         }}>
-          {collapsed ? (
-            company.logoUrl ? <img src={company.logoUrl} alt="لوگوی شرکت" style={{ width: 36, height: 36, objectFit: 'contain' }} /> : <span>🏢</span>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {company.logoUrl ? <img src={company.logoUrl} alt="لوگوی شرکت" style={{ width: 36, height: 36, objectFit: 'contain' }} /> : <span style={{ fontSize: 24 }}>🏢</span>}
-              <span style={{ fontSize: 13, fontWeight: 700 }}>{company.name || 'مدیریت پروژه پارس'}</span>
-            </div>
-          )}
+          <span style={{fontSize:collapsed?11:13,fontWeight:800,lineHeight:1.6}}>{collapsed?'پرتال':'پرتال مدیریت پروژه پارس'}</span>
         </div>
         <Menu
           theme="dark"
@@ -178,7 +168,7 @@ export default function MainLayout() {
               )}
               {location.pathname === '/dashboard' && <div />}   
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <NotificationDropdown />
+            {location.pathname !== '/dashboard' && <NotificationDropdown />}
             <Dropdown menu={{
               items: [
                 { key: 'profile', icon: <UserOutlined />, label: 'پروفایل', onClick: () => navigate('/profile') },

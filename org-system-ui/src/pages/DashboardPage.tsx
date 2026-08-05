@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Progress, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox, Descriptions } from 'antd'
+import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Divider, Tabs, Empty, DatePicker, TimePicker, Alert, message, Checkbox, Descriptions } from 'antd'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import PersianDatePicker from '../components/PersianDatePicker'
@@ -7,6 +7,7 @@ import { currentJalali, isLeapJalali, jalaliToDate, formatJalaliDate } from '../
 import { getIranHoliday } from '../utils/iranHolidays'
 import { useNavigate } from 'react-router-dom'
 import { useNotificationStore } from '../store/notificationStore'
+import NotificationDropdown from '../components/NotificationDropdown'
 import {
   MailOutlined, CheckSquareOutlined, CustomerServiceOutlined,
   PlusOutlined, BellOutlined, ClockCircleOutlined,
@@ -93,7 +94,7 @@ function DashboardHeader() {
 
   return (
     <Card
-      style={{ borderRadius: 12, background: 'linear-gradient(120deg, #8B1A6B 0%, #ad2185 45%, #bd579f 100%)', border: 'none', boxShadow: '0 4px 18px rgba(139,26,107,0.25)' }}
+      style={{ borderRadius: 14, background: 'linear-gradient(90deg, #ffffff 0%, #f8eaf3 42%, #8B1A6B 100%)', border: '1px solid #f0dce9', boxShadow: '0 5px 20px rgba(94,20,68,0.12)' }}
       styles={{ body: { padding: '10px 20px' } }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -107,10 +108,13 @@ function DashboardHeader() {
             <span style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>({user.position || 'مدیرعامل'})</span>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', direction: 'rtl', lineHeight: 1.3 }}>
-          <span style={{ color: 'white', fontWeight: 700, fontSize: 20, letterSpacing: 1 }}>{persianTime}</span>
-          <span style={{ color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: 500 }}>{persianDate}</span>
-          <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, direction: 'ltr' }}>{gregorianDate}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <NotificationDropdown />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', direction: 'rtl', lineHeight: 1.3 }}>
+            <span style={{ color: '#5d1747', fontWeight: 800, fontSize: 20, letterSpacing: 1 }}>{persianTime}</span>
+            <span style={{ color: '#6f4962', fontSize: 13, fontWeight: 600 }}>{persianDate}</span>
+            <span style={{ color: '#9b7f91', fontSize: 11, direction: 'ltr' }}>{gregorianDate}</span>
+          </div>
         </div>
       </div>
     </Card>
@@ -355,7 +359,7 @@ export default function DashboardPage() {
   const [relatedPeople,setRelatedPeople]=useState<string[]>([]),[relatedLetters,setRelatedLetters]=useState<string[]>([]),[relatedTasks,setRelatedTasks]=useState<string[]>([])
   const [persianEventDate,setPersianEventDate]=useState('')
   const [calendarError,setCalendarError]=useState(''),[savingEvent,setSavingEvent]=useState(false)
-  const [summary,setSummary]=useState<any>({newLetters:0,activeTasks:0,openTickets:0,todayEvents:0,recentLetters:[],recentTasks:[]})
+  const [summary,setSummary]=useState<any>({newLetters:0,activeTasks:0,openTickets:0,todayEvents:0,onlineUsers:0,recentLetters:[],recentTasks:[]})
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
@@ -387,15 +391,6 @@ export default function DashboardPage() {
   const handleSaveEvent=async()=>{const v=await eventForm.validateFields() as {title:string;type:string;startTime:Dayjs;endTime:Dayjs;location?:string;organizer?:string;description?:string;sendSms?:boolean};if(!persianEventDate){message.error('تاریخ شمسی را انتخاب کنید');return}const start=jalaliToDate(persianEventDate),end=jalaliToDate(persianEventDate);start.setHours(v.startTime.hour(),v.startTime.minute(),0,0);end.setHours(v.endTime.hour(),v.endTime.minute(),0,0);if(end<=start){message.error('ساعت پایان باید بعد از شروع باشد');return}const person=(k:string,r:string)=>{const p=peopleOptions.find(x=>x.key===k);return p?{personType:p.type,personId:p.id,displayName:p.name,role:r}:null};setSavingEvent(true);try{const res=await fetch(`${API}/calendar${editingEvent?`/${editingEvent.id}`:''}`,{method:editingEvent?'PUT':'POST',headers:authHeaders(),body:JSON.stringify({title:v.title,description:v.description,startAt:start.toISOString(),endAt:end.toISOString(),isAllDay:false,timeZone:'Asia/Tehran',eventType:v.type,location:v.location,onlineMeetingUrl:null,organizer:v.organizer?person(v.organizer,'organizer'):null,participants:relatedPeople.map(k=>person(k,'attendee')).filter(Boolean),relatedLetterIds:relatedLetters,relatedTaskIds:relatedTasks,sendSms:!!v.sendSms})});if(!res.ok)throw new Error((await res.json()).message||(editingEvent?'ویرایش ناموفق بود':'ثبت ناموفق بود'));message.success(editingEvent?'رویداد ویرایش شد':'رویداد ثبت شد');setEventModal(false);setEditingEvent(null);setPersianEventDate('');await loadCalendar()}catch(e){message.error(e instanceof Error?e.message:'خطا')}finally{setSavingEvent(false)}}
   const handleDeleteEvent=(event:CalEvent)=>Modal.confirm({title:'حذف رویداد',content:`رویداد «${event.title}» حذف شود؟`,okText:'حذف',cancelText:'انصراف',okButtonProps:{danger:true},onOk:async()=>{const response=await fetch(`${API}/calendar/${event.id}`,{method:'DELETE',headers:authHeaders()});if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.message||'حذف رویداد انجام نشد')}message.success('رویداد حذف شد');setSelectedEvent(null);setDayEventsModal(false);await loadCalendar()}})
 
-  const stats = [
-    { label: 'نامه‌های جدید', value: summary.newLetters, icon: <MailOutlined />, color: '#8B1A6B', bg: '#8B1A6B11', change: 'خوانده‌نشده' },
-    { label: 'وظایف جاری', value: summary.activeTasks, icon: <CheckSquareOutlined />, color: '#1677ff', bg: '#e6f4ff', change: 'فعال' },
-    { label: 'تیکت‌های باز', value: summary.openTickets, icon: <CustomerServiceOutlined />, color: '#fa8c16', bg: '#fff7e6', change: 'تخصیص‌یافته' },
-    { label: 'رویدادهای امروز', value: summary.todayEvents, icon: <CalendarOutlined />, color: '#722ed1', bg: '#f9f0ff', change: 'امروز' },
-    { label: 'کل نامه‌ها', value: summary.totalLetters||0, icon: <FileTextOutlined />, color: '#13c2c2', bg: '#e6fffb', change: 'ثبت‌شده در سامانه' },
-    { label: 'کاربران فعال', value: summary.users||0, icon: <TeamOutlined />, color: '#52c41a', bg: '#f6ffed', change: 'کاربر فعال' },
-  ]
-
   const notificationVisual=(type:string)=>({
     letter:{color:'#8B1A6B',icon:<MailOutlined/>},task:{color:'#1677ff',icon:<CheckSquareOutlined/>},ticket:{color:'#fa8c16',icon:<CustomerServiceOutlined/>},form:{color:'#52c41a',icon:<FileTextOutlined/>},calendar:{color:'#722ed1',icon:<CalendarOutlined/>},project:{color:'#2f54eb',icon:<TeamOutlined/>},chat:{color:'#13c2c2',icon:<MessageOutlined/>},warning:{color:'#f5222d',icon:<BellOutlined/>}
   }[type]||{color:'#8B1A6B',icon:<BellOutlined/>})
@@ -415,21 +410,13 @@ export default function DashboardPage() {
     return{id:n.id,ids:n.ids,text:`${labels[n.category]||'اعلان جدید'} از ${n.actor}${n.count>1?` (${n.count} مورد)`:''}`,time:n.time||'',color:visual.color,icon:visual.icon,link:n.link,isRead:Boolean(n.isRead)}
   })
   const openNotification=(item:{id:string;ids:string[];link?:string})=>{item.ids.forEach(id=>{markAsRead(id);void fetch(`${API}/notifications/${id}/read`,{method:'PATCH',headers:authHeaders()})});if(item.link)navigate(item.link)}
-
-  const recentLetters = summary.recentLetters.map((l:any)=>({id:l.id,subject:l.subject,from:l.fromUserName||'—',date:new Date(l.createdAt).toLocaleDateString('fa-IR'),status:String(l.status).toLowerCase(),color:'#8B1A6B'}))
-
-  const STATUS_LABELS: Record<string, string> = {
-    signed: 'امضا شده', sent: 'ارسال شده', received: 'دریافت', draft: 'پیش‌نویس'
-  }
-
-  const recentTasks = summary.recentTasks.map((t:any)=>({id:t.id,title:t.title,project:'',priority:String(t.priority).toLowerCase(),progress:t.progress}))
-
-  const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
-    critical: { label: 'بحرانی', color: 'red' },
-    high: { label: 'زیاد', color: 'orange' },
-    medium: { label: 'متوسط', color: 'blue' },
-    low: { label: 'کم', color: 'default' },
-  }
+  const todayMeetingCount=events.filter(event=>event.type==='meeting'&&event.date===`${today.year}/${today.month}/${today.day}`).length
+  const quickLinks=[
+    {key:'meetings',text:`شما امروز ${todayMeetingCount.toLocaleString('fa-IR')} جلسه دارید`,path:'/calendar',icon:<CalendarOutlined/>,color:'#722ed1'},
+    {key:'letters',text:`شما ${Number(summary.newLetters||0).toLocaleString('fa-IR')} نامه جدید دارید`,path:'/letters',icon:<MailOutlined/>,color:'#8B1A6B'},
+    {key:'tasks',text:`شما ${Number(summary.activeTasks||0).toLocaleString('fa-IR')} وظیفه جاری دارید`,path:'/ptms/tasks/mine',icon:<CheckSquareOutlined/>,color:'#1677ff'},
+    {key:'online',text:`اکنون ${Number(summary.onlineUsers||0).toLocaleString('fa-IR')} نفر در پرتال آنلاین هستند`,path:'/chat',icon:<TeamOutlined/>,color:'#13a86b'},
+  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -440,33 +427,9 @@ export default function DashboardPage() {
       {/* هدر */}
       <DashboardHeader />
 
-      {/* آمار */}
-      <Row gutter={[12, 12]}>
-        {stats.map((s, i) => (
-          <Col xs={12} md={8} lg={4} key={i}>
-            <Card
-              style={{ background: s.bg, border: 'none', borderRadius: 10, borderRight: `3px solid ${s.color}`, boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}
-              styles={{ body: { padding: '8px 12px' } }}
-              className="stat-card"
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1.1 }}>{s.value}</div>
-                  <div style={{ fontSize: 12, color: '#444', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
-                  <div style={{ fontSize: 10, color: '#999', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.change}</div>
-                </div>
-                <div style={{ width: 34, height: 34, borderRadius: 9, background: `${s.color}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: s.color, flexShrink: 0 }}>
-                  {s.icon}
-                </div>
-              </div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
       {/* تقویم + اعلان‌ها */}
       <Row gutter={[12, 12]}>
-        <Col xs={24} lg={16}>
+        <Col xs={24} lg={16} style={{order:2}}>
           <Card
             styles={{ body: { padding: 16 } }}
             style={{ borderRadius: 12 }}
@@ -524,7 +487,7 @@ export default function DashboardPage() {
           </Card>
         </Col>
 
-        <Col xs={24} lg={8}>
+        <Col xs={24} lg={8} style={{order:1}}>
           <Card
             title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.filter(n=>!n.isRead).length} style={{ background: '#fa8c16' }} /></Space>}
             styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
@@ -542,52 +505,14 @@ export default function DashboardPage() {
               </div>
             ))}
             {notifications.length===0&&<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="اعلان جدیدی ندارید" />}
-          </Card>
-        </Col>
-      </Row>
-
-      {/* نامه‌ها + وظایف */}
-      <Row gutter={[12, 12]}>
-        <Col xs={24} lg={12}>
-          <Card
-            title={<Space><MailOutlined style={{ color: '#8B1A6B' }} /><span>آخرین نامه‌ها</span></Space>}
-            extra={<Button type="link" size="small">همه نامه‌ها</Button>}
-            styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
-            style={{ borderRadius: 12 }}
-          >
-            {recentLetters.map((l: any) => (
-              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
-                <Avatar size={32} style={{ background: l.color, fontSize: 13, flexShrink: 0 }}>{l.from.charAt(0)}</Avatar>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.subject}</div>
-                  <div style={{ fontSize: 10, color: '#8c8c8c' }}>{l.from} — {l.date}</div>
-                </div>
-                <Tag color={l.color} style={{ fontSize: 10, flexShrink: 0 }}>{STATUS_LABELS[l.status] || l.status}</Tag>
-              </div>
-            ))}
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={12}>
-          <Card
-            title={<Space><CheckSquareOutlined style={{ color: '#1677ff' }} /><span>وظایف جاری</span></Space>}
-            extra={<Button type="link" size="small">همه وظایف</Button>}
-            styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
-            style={{ borderRadius: 12 }}
-          >
-            {recentTasks.map((t: any) => (
-              <div key={t.id} style={{ padding: '6px 0', borderBottom: '1px solid #fafafa' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: 8 }}>{t.title}</div>
-                  <Tag color={PRIORITY_CONFIG[t.priority].color} style={{ fontSize: 10, flexShrink: 0 }}>{PRIORITY_CONFIG[t.priority].label}</Tag>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Progress percent={t.progress} size="small" style={{ flex: 1, marginBottom: 0 }} strokeColor={t.priority === 'critical' ? '#f5222d' : t.priority === 'high' ? '#fa8c16' : '#8B1A6B'} />
-                  <span style={{ fontSize: 10, color: '#8c8c8c', width: 28 }}>{t.progress}%</span>
-                </div>
-                <div style={{ fontSize: 10, color: '#8c8c8c' }}>{t.project}</div>
-              </div>
-            ))}
+            <Divider style={{margin:'12px 0'}} />
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {quickLinks.map(item=><button key={item.key} type="button" onClick={()=>navigate(item.path)} style={{width:'100%',border:'1px solid #eee',background:'linear-gradient(90deg,#fff 0%,#fcf7fa 100%)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:'pointer',textAlign:'right',color:'#333',fontFamily:'inherit'}}>
+                <span style={{width:34,height:34,borderRadius:9,display:'grid',placeItems:'center',background:`${item.color}14`,color:item.color,fontSize:17,flexShrink:0}}>{item.icon}</span>
+                <span style={{fontSize:12,fontWeight:700,lineHeight:1.7}}>{item.text}</span>
+                <LeftOutlined style={{marginRight:'auto',fontSize:10,color:'#aaa'}}/>
+              </button>)}
+            </div>
           </Card>
         </Col>
       </Row>
