@@ -12,7 +12,9 @@ const lazyWithRecovery = <T extends { default: ComponentType<any> }>(name: strin
     const isChunkFailure = /dynamically imported module|loading chunk|module script|failed to fetch/i.test(message)
     if (isChunkFailure && sessionStorage.getItem(recoveryKey) !== '1') {
       sessionStorage.setItem(recoveryKey, '1')
-      window.location.reload()
+      const freshUrl = new URL(window.location.href)
+      freshUrl.searchParams.set('__chunk', Date.now().toString())
+      window.location.replace(freshUrl.toString())
       return new Promise<T>(() => undefined)
     }
     sessionStorage.removeItem(recoveryKey)

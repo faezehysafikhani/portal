@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Badge, Popover, Button, List, Tag, Space, Tabs, Switch, Divider, Empty, Avatar } from 'antd'
 import { BellOutlined, MailOutlined, CheckSquareOutlined, CustomerServiceOutlined, FormOutlined, CalendarOutlined, WarningOutlined, MessageOutlined, DeleteOutlined, CheckOutlined, ProjectOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -92,8 +92,14 @@ export default function NotificationDropdown() {
   const visibleNotifications = notifications.filter(n => n.type !== 'chat' || !n.isRead)
   const unreadCount = visibleNotifications.filter(n => !n.isRead).length
   const headers = { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
-  const loadNotifications = async () => { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}}))} }
-  useEffect(()=>{const refresh=()=>void loadNotifications();refresh();const timer=setInterval(refresh,5000);const onVisible=()=>{if(document.visibilityState==='visible')refresh()};let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{}window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisible)}},[])
+  const notificationRequestInFlight = useRef(false)
+  const loadNotifications = async () => {
+    if(notificationRequestInFlight.current || !localStorage.getItem('token')) return
+    notificationRequestInFlight.current=true
+    try { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}}))} }
+    finally { notificationRequestInFlight.current=false }
+  }
+  useEffect(()=>{const refresh=()=>void loadNotifications();refresh();const timer=setInterval(refresh,20000);const onVisible=()=>{if(document.visibilityState==='visible')refresh()};let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{}window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisible)}},[])
   const readOne=(id:string)=>{markAsRead(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers})}
   const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers})}
   const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}
