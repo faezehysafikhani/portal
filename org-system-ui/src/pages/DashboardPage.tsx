@@ -94,7 +94,7 @@ function DashboardHeader() {
 
   return (
     <Card
-      style={{ borderRadius: 12, background: 'linear-gradient(90deg, #fffafd 0%, #ecd2e2 48%, #8B1A6B 100%)', border: '1px solid #ead4e2', boxShadow: '0 5px 18px rgba(94,20,68,0.12)' }}
+      style={{ borderRadius: '12px 12px 0 0', background: 'linear-gradient(180deg, #7a145c 0%, #a94385 38%, #d9a9c8 70%, #fffafd 100%)', border: '1px solid #ead4e2', borderBottom: 'none', boxShadow: 'none' }}
       styles={{ body: { padding: '12px 14px' } }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -489,12 +489,12 @@ export default function DashboardPage() {
           </Card>
         </Col>
 
-        <Col xs={24} lg={8} style={{order:1,display:'flex',flexDirection:'column',gap:12}}>
+        <Col xs={24} lg={8} style={{order:1,display:'flex',flexDirection:'column',gap:0,filter:'drop-shadow(0 5px 18px rgba(94,20,68,0.10))'}}>
           <DashboardHeader />
           <Card
             title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span><Badge count={notifications.filter(n=>!n.isRead).length} style={{ background: '#fa8c16' }} /></Space>}
             styles={{ body: { padding: '8px 16px' }, header: { minHeight: 44 } }}
-            style={{ borderRadius: 12, flex: 1 }}
+            style={{ borderRadius: '0 0 12px 12px', borderTop: 'none', flex: 1 }}
           >
             {notifications.map(n => (
               <div key={n.id} onClick={()=>openNotification(n)} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start',cursor:n.link?'pointer':'default',background:n.isRead?'transparent':'#faf5ff',borderRadius:6 }}>
