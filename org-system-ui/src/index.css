@@ -115,3 +115,37 @@ body {
   pointer-events: none;
   animation: floatOrb 9s ease-in-out infinite;
 }
+
+/* انیمیشن‌های سبک و بدون کتابخانه برای ایموجی‌های چت */
+.chat-emoji {
+  display: inline-block;
+  margin: 0 1px;
+  font-size: 23px;
+  line-height: 1;
+  vertical-align: middle;
+  transform-origin: center bottom;
+}
+@keyframes chatEmojiLaugh {
+  0%, 100% { transform: translateY(0) rotate(0) scale(1); }
+  10%, 30%, 50%, 70%, 90% { transform: translateY(-2px) rotate(-8deg) scale(1.08); }
+  20%, 40%, 60%, 80% { transform: translateY(1px) rotate(8deg) scale(1.03); }
+}
+@keyframes chatEmojiCry {
+  0%, 100% { transform: translateY(0) scale(1); }
+  20%, 60% { transform: translateY(2px) scale(0.97); }
+  40%, 80% { transform: translateY(-1px) scale(1.04); }
+}
+@keyframes chatEmojiBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  18% { transform: translateY(-5px) scale(1.08); }
+  36% { transform: translateY(0) scale(0.98); }
+  54% { transform: translateY(-2px) scale(1.04); }
+  72% { transform: translateY(0) scale(1); }
+}
+.chat-emoji--laugh { animation: chatEmojiLaugh 1s ease-in-out 5; }
+.chat-emoji--cry { animation: chatEmojiCry 1.25s ease-in-out 4; }
+.chat-emoji--bounce { animation: chatEmojiBounce 1.25s ease-in-out 4; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-emoji { animation: none !important; }
+}
