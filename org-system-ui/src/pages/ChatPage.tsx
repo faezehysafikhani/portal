@@ -33,10 +33,11 @@ function GroupConversation({group,users,onClose,onChanged}:{group:ChatGroup;user
   const [newMemberIds,setNewMemberIds]=useState<string[]>([]),[addingMembers,setAddingMembers]=useState(false)
   const [emojiOpen,setEmojiOpen]=useState(false)
   const end=useRef<HTMLDivElement>(null)
+  const sendLockRef=useRef(false)
   const load=async(silent=false)=>{const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`);if(!response.ok){if(!silent)message.error('پیام‌های گروه دریافت نشد');return}setItems(await response.json())}
   useEffect(()=>{load();const timer=window.setInterval(()=>load(true),10000);return()=>window.clearInterval(timer)},[group.groupId])
   useEffect(()=>{end.current?.scrollIntoView({behavior:'smooth'})},[items])
-  const send=async()=>{const content=text.trim();if(!content||sending)return;if(content.length>2000||codePattern.test(content)){message.error('متن پیام معتبر نیست');return}setSending(true);const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})});const result=await response.json().catch(()=>({}));setSending(false);if(!response.ok){message.error(result.message||'ارسال پیام گروه انجام نشد');return}setItems(current=>[...current,result]);setText('');onChanged()}
+  const send=async()=>{const content=text.trim();if(!content||sending||sendLockRef.current)return;if(content.length>2000||codePattern.test(content)){message.error('متن پیام معتبر نیست');return}sendLockRef.current=true;setSending(true);try{const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})});const result=await response.json().catch(()=>({}));if(!response.ok){message.error(result.message||'ارسال پیام گروه انجام نشد');return}setItems(current=>current.some(item=>item.id===result.id)?current:[...current,result]);setText('');onChanged()}finally{sendLockRef.current=false;setSending(false)}}
   const addMembers=async()=>{if(!newMemberIds.length)return;setAddingMembers(true);const response=await apiFetch(`${API}/chat/groups/${group.groupId}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({memberUserIds:newMemberIds})});const result=await response.json().catch(()=>({}));setAddingMembers(false);if(!response.ok){message.error(result.message||'افزودن عضو انجام نشد');return}message.success(result.message);setNewMemberIds([]);onChanged()}
   const addEmoji=(emoji:string)=>{setText(current=>`${current}${emoji}`.slice(0,2000));setEmojiOpen(false)}
   const emojiPicker=<div style={{width:340,maxWidth:'calc(100vw - 64px)',maxHeight:240,overflowY:'auto',display:'grid',gridTemplateColumns:'repeat(10,minmax(28px,1fr))',gap:3,direction:'ltr',padding:'2px 4px 2px 0'}}>{CHAT_EMOJIS.map(emoji=><Button key={emoji} type="text" onClick={()=>addEmoji(emoji)} aria-label={`ایموجی ${emoji}`} style={{fontSize:25,padding:0,height:36,minWidth:0,lineHeight:'36px',borderRadius:7}}>{emoji}</Button>)}</div>
@@ -78,6 +79,7 @@ export default function ChatPage(){
   const recordTimerRef=useRef<number|null>(null)
   const recordSecondsRef=useRef(0)
   const draftsRef=useRef<Record<string,string>>({})
+  const sendLockRef=useRef(false)
   const selected=users.find(x=>x.id===selectedId)
 
   const loadUsers=async(silent=false)=>{
@@ -99,14 +101,16 @@ export default function ChatPage(){
   useEffect(()=>()=>stopRecordingResources(),[])
 
   const postMessage=async(payload:Record<string,unknown>)=>{
-    if(!selectedId||sending)return false
-    setSending(true)
-    const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientUserId:selected?.personId,...payload})})
-    const result=await response.json().catch(()=>({}));setSending(false)
-    if(!response.ok){message.error(result.message||'ارسال پیام انجام نشد');return false}
-    setMessages(prev=>[...prev,result]);
-    const last=result.kind==='Voice'?'🎤 پیام صوتی':result.kind==='File'?`📎 ${result.attachmentName}`:result.content
-    setUsers(prev=>prev.map(x=>x.id===selectedId?{...x,lastMessage:last,lastMessageAt:result.createdAt}:x));return true
+    if(!selectedId||sending||sendLockRef.current)return false
+    sendLockRef.current=true;setSending(true)
+    try{
+      const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientUserId:selected?.personId,...payload})})
+      const result=await response.json().catch(()=>({}))
+      if(!response.ok){message.error(result.message||'ارسال پیام انجام نشد');return false}
+      setMessages(prev=>prev.some(item=>item.id===result.id)?prev:[...prev,result]);
+      const last=result.kind==='Voice'?'🎤 پیام صوتی':result.kind==='File'?`📎 ${result.attachmentName}`:result.content
+      setUsers(prev=>prev.map(x=>x.id===selectedId?{...x,lastMessage:last,lastMessageAt:result.createdAt}:x));return true
+    }finally{sendLockRef.current=false;setSending(false)}
   }
   const send=async()=>{
     const content=text.trim();if(!selectedId||(!content&&!selectedFile))return
@@ -162,11 +166,11 @@ export default function ChatPage(){
   if(loading)return <Card style={{minHeight:420,borderRadius:14}} styles={{body:{minHeight:420,display:'grid',placeItems:'center'}}}><Space direction="vertical" align="center" size={14}><Spin size="large"/><b>در حال دریافت گفتگوها...</b><span style={{color:'#888',fontSize:12}}>اولین بارگذاری ممکن است چند ثانیه زمان ببرد.</span></Space></Card>
   return <div style={{height:'calc(100vh - 125px)',display:'flex',gap:14,minHeight:520}}>
     <Card title={<Space>💬 <span>ایجاد گروه</span><Badge count={users.reduce((s,x)=>s+x.unread,0)+groups.reduce((s,x)=>s+x.unread,0)}/></Space>} extra={<Tooltip title="ایجاد گروه"><Button size="small" type="primary" icon={<PlusOutlined/>} onClick={()=>setCreateGroupOpen(true)} style={{background:'#8b1a6b'}}/></Tooltip>} style={{width:280,flexShrink:0,borderRadius:14,overflow:'hidden'}} styles={{body:{padding:0,height:'calc(100% - 58px)',display:'flex',flexDirection:'column'}}}>
-      <div style={{padding:12,borderBottom:'1px solid #f0f0f0'}}><Input allowClear prefix={<SearchOutlined/>} value={search} onChange={e=>setSearch(e.target.value)} placeholder="جستجوی همکار..."/></div>
-      <div style={{overflowY:'auto',flex:1}}>{groups.length>0&&<><Divider titlePlacement="right" plain style={{fontSize:11,margin:'8px 0'}}>گروه‌ها</Divider>{groups.filter(group=>group.name.includes(search.trim())).map(group=><div key={group.groupId} onClick={()=>location.assign(`/chat?group=${group.groupId}`)} style={{padding:'8px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:activeGroup?.groupId===group.groupId?'#f1e7ff':'#fffafc',borderRight:activeGroup?.groupId===group.groupId?'4px solid #722ed1':'4px solid transparent'}}><div style={{display:'flex',alignItems:'center',gap:9}}><Avatar size={36} icon={<TeamOutlined/>} style={{background:'#722ed1'}}/><div style={{flex:1,minWidth:0}}><b style={{fontSize:12}}>{group.name}</b><div style={{fontSize:10,color:'#888'}}>{group.memberCount.toLocaleString('fa-IR')} عضو • {group.lastMessage||'بدون پیام'}</div></div>{group.unread>0&&<Badge count={group.unread} style={{background:'#722ed1'}}/>}</div></div>)}</>}{groups.length>0&&<Divider titlePlacement="right" plain style={{fontSize:11,margin:'8px 0'}}>گفتگوهای مستقیم</Divider>}{filtered.length===0?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="کاربری یافت نشد"/>:filtered.map(user=><div key={user.id} onClick={()=>choose(user.id)} style={{padding:'7px 14px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:!activeGroup&&selectedId===user.id?'#f7eaf3':'#fff',borderRight:!activeGroup&&selectedId===user.id?'4px solid #8b1a6b':'4px solid transparent'}}>
-        <div style={{display:'flex',gap:10,alignItems:'center'}}><Badge dot color={user.isOnline?'#52c41a':'#bfbfbf'} offset={[-4,30]}><Avatar size={36} src={user.avatarUrl} icon={<UserOutlined/>} style={{background:'#8b1a6b'}}/></Badge>
+      <div style={{padding:'8px 10px',borderBottom:'1px solid #f0f0f0'}}><Input size="small" allowClear prefix={<SearchOutlined/>} value={search} onChange={e=>setSearch(e.target.value)} placeholder="جستجوی همکار..."/></div>
+      <div style={{overflowY:'auto',flex:1}}>{groups.length>0&&<><Divider titlePlacement="right" plain style={{fontSize:10,margin:'5px 0'}}>گروه‌ها</Divider>{groups.filter(group=>group.name.includes(search.trim())).map(group=><div key={group.groupId} onClick={()=>location.assign(`/chat?group=${group.groupId}`)} style={{padding:'5px 12px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:activeGroup?.groupId===group.groupId?'#f1e7ff':'#fffafc',borderRight:activeGroup?.groupId===group.groupId?'4px solid #722ed1':'4px solid transparent'}}><div style={{display:'flex',alignItems:'center',gap:8}}><Avatar size={30} icon={<TeamOutlined/>} style={{background:'#722ed1'}}/><div style={{flex:1,minWidth:0}}><b style={{fontSize:12}}>{group.name}</b><div style={{fontSize:9,color:'#888',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{group.memberCount.toLocaleString('fa-IR')} عضو • {group.lastMessage||'بدون پیام'}</div></div>{group.unread>0&&<Badge count={group.unread} style={{background:'#722ed1'}}/>}</div></div>)}</>}{groups.length>0&&<Divider titlePlacement="right" plain style={{fontSize:10,margin:'5px 0'}}>گفتگوهای مستقیم</Divider>}{filtered.length===0?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="کاربری یافت نشد"/>:filtered.map(user=><div key={user.id} onClick={()=>choose(user.id)} style={{padding:'4px 12px',cursor:'pointer',borderBottom:'1px solid #f5f5f5',background:!activeGroup&&selectedId===user.id?'#f7eaf3':'#fff',borderRight:!activeGroup&&selectedId===user.id?'4px solid #8b1a6b':'4px solid transparent'}}>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}><Badge dot color={user.isOnline?'#52c41a':'#bfbfbf'} offset={[-3,26]}><Avatar size={30} src={user.avatarUrl} icon={<UserOutlined/>} style={{background:'#8b1a6b'}}/></Badge>
           <div style={{flex:1,minWidth:0}}><div style={{display:'flex',justifyContent:'space-between'}}><b style={{fontSize:13}}>{user.fullName}</b><small style={{color:'#999'}}>{faTime(user.lastMessageAt)}</small></div>
-            <div style={{fontSize:11,color:'#888'}}>{user.position||user.department||(user.personType==='contact'?'مخاطب خارجی':'کاربر داخلی')}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:3}}><span style={{fontSize:11,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:155}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
+            <div style={{fontSize:10,color:'#888',lineHeight:1.25}}>{user.position||user.department||(user.personType==='contact'?'مخاطب خارجی':'کاربر داخلی')}</div><div style={{display:'flex',justifyContent:'space-between',marginTop:1}}><span style={{fontSize:10,color:'#777',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:155}}>{user.lastMessage||'هنوز پیامی ردوبدل نشده'}</span>{user.unread>0&&<Badge count={user.unread} style={{background:'#8b1a6b'}}/>}</div></div>
         </div></div>)}</div>
     </Card>
     <Card style={{flex:1,borderRadius:14,overflow:'hidden'}} styles={{body:{height:'100%',padding:0,display:'flex',flexDirection:'column'}}}>
