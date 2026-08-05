@@ -27,6 +27,8 @@ function requireAdmin(auth: AuthContext): void {
 const permissionDependencies: Record<string, string[]> = {
   'users.view': ['users.create', 'users.edit', 'users.delete', 'users.password.reset'],
   'letters.inbox.view': ['letters.create', 'letters.edit', 'letters.sign', 'letters.send', 'letters.refer', 'letters.archive', 'letters.delete', 'letters.print'],
+  'letters.create': ['letters.type.internal', 'letters.type.incoming', 'letters.type.outgoing'],
+  'letters.sign': ['letters.sign.internal', 'letters.sign.outgoing'],
   'tickets.view': ['tickets.create', 'tickets.edit', 'tickets.comment', 'tickets.delete'],
   'contacts.view': ['contacts.create', 'contacts.edit', 'contacts.delete'],
   'calendar.view': ['calendar.create', 'calendar.edit', 'calendar.delete', 'calendar.respond'],
@@ -651,15 +653,21 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
   requirePermission(auth, 'users.view')
   if (path === '/users/permissions' && request.method === 'GET') {
     requireAdmin(auth)
-    const chatPermissions = [
+    const detailedPermissions = [
       { Code: 'chat.create_group', Name: 'ایجاد گروه چت', Module: 'chat' },
       { Code: 'chat.add_member', Name: 'افزودن عضو به گروه چت', Module: 'chat' },
       { Code: 'chat.remove_member', Name: 'حذف عضو از گروه چت', Module: 'chat' },
+      { Code: 'letters.type.internal', Name: 'ایجاد نامه داخلی', Module: 'letters' },
+      { Code: 'letters.registry.internal.view', Name: 'مشاهده دبیرخانه نامه‌های داخلی', Module: 'letters' },
+      { Code: 'letters.registry.incoming.view', Name: 'مشاهده دبیرخانه نامه‌های وارده', Module: 'letters' },
+      { Code: 'letters.registry.outgoing.view', Name: 'مشاهده دبیرخانه نامه‌های صادره', Module: 'letters' },
+      { Code: 'letters.sign.internal', Name: 'امضای نامه داخلی', Module: 'letters' },
+      { Code: 'letters.sign.outgoing', Name: 'امضای نامه صادره', Module: 'letters' },
     ]
-    const existingChatPermissions = await db.from('Permissions').select('Code').eq('TenantId', auth.tenantId).in('Code', chatPermissions.map(item => item.Code))
-    failOnDb(existingChatPermissions.error)
-    const existingCodes = new Set((existingChatPermissions.data ?? []).map(item => item.Code))
-    const missingPermissions = chatPermissions.filter(item => !existingCodes.has(item.Code)).map(item => ({ ...baseInsert(auth), ...item }))
+    const existingDetailedPermissions = await db.from('Permissions').select('Code').eq('TenantId', auth.tenantId).in('Code', detailedPermissions.map(item => item.Code))
+    failOnDb(existingDetailedPermissions.error)
+    const existingCodes = new Set((existingDetailedPermissions.data ?? []).map(item => item.Code))
+    const missingPermissions = detailedPermissions.filter(item => !existingCodes.has(item.Code)).map(item => ({ ...baseInsert(auth), ...item }))
     if (missingPermissions.length) { const inserted = await db.from('Permissions').insert(missingPermissions); failOnDb(inserted.error) }
     const result = await db.from('Permissions').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('Module').order('Code')
     failOnDb(result.error); return json(request, asCamel(result.data))

@@ -116,6 +116,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
         label: 'دبیرخانه',
         actions: [
           { key: 'view', label: 'مشاهده' },
+          { key: 'view_internal', label: 'مشاهده دبیرخانه داخلی' },
+          { key: 'view_incoming', label: 'مشاهده دبیرخانه وارده' },
+          { key: 'view_outgoing', label: 'مشاهده دبیرخانه صادره' },
           { key: 'manage', label: 'مدیریت تنظیمات' },
           { key: 'numbering', label: 'مدیریت شمارنده' },
         ]

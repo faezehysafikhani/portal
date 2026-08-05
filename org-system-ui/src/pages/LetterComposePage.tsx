@@ -73,6 +73,7 @@ export interface LetterComposeProps {
   onSave: (data: Record<string, any>) => Promise<boolean>
   onCancel: () => void
   initialData?: any
+  defaultType?: 'internal' | 'incoming' | 'outgoing'
 }
 
 function RichEditor({ onChange, initialHtml = '' }: { onChange: (html: string) => void; initialHtml?: string }) {
@@ -122,14 +123,14 @@ function RichEditor({ onChange, initialHtml = '' }: { onChange: (html: string) =
   )
 }
 
-export default function LetterComposePage({ onSave, onCancel, initialData }: LetterComposeProps) {
+export default function LetterComposePage({ onSave, onCancel, initialData, defaultType='internal' }: LetterComposeProps) {
   const [form] = Form.useForm()
   const [saving,setSaving]=useState(false)
   const clientRequestId=useRef(crypto.randomUUID())
   const [users, setUsers] = useState<ApiUser[]>([])
   const [contacts, setContacts] = useState<ApiContact[]>([])
-  const [letterType, setLetterType] = useState<'internal' | 'incoming' | 'outgoing'>('internal')
-  const [registry, setRegistry] = useState(REGISTRIES[0])
+  const [letterType, setLetterType] = useState<'internal' | 'incoming' | 'outgoing'>(defaultType)
+  const [registry, setRegistry] = useState(REGISTRIES.find(item=>item.type===defaultType)||REGISTRIES[0])
   const [paperSize, setPaperSize] = useState('A4')
   const [hasHeader, setHasHeader] = useState(true)
   const [hasFooter, setHasFooter] = useState(true)
@@ -185,6 +186,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       if(chosen){setPaperSize(chosen.size);setHasHeader(chosen.hasHeader);setHasFooter(chosen.hasFooter)}
     }).catch(()=>{})
     if (!initialData) {
+      setLetterType(defaultType);setRegistry(REGISTRIES.find(item=>item.type===defaultType)||REGISTRIES[0]);setHasSignature(defaultType!=='incoming')
       const parts = new Intl.DateTimeFormat('en-US-u-ca-persian', { year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date())
       const get = (type:string) => parts.find(x=>x.type===type)?.value || ''
       form.setFieldValue('letterDate', `${get('year')}/${get('month')}/${get('day')}`)
@@ -197,7 +199,8 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     setLetterType(type); setRegistry(REGISTRIES.find(r=>r.type===type) || REGISTRIES[0])
     setBodyHtml(initialData.body || ''); setClassification(initialData.classification || 'normal')
     const recipient = initialData.recipients?.find((r:any)=>r.userId)
-    form.setFieldsValue({ subject:initialData.subject, fromUser:initialData.fromUserName, letterDate:initialData.letterDate ? new Intl.DateTimeFormat('fa-IR-u-nu-latn').format(new Date(initialData.letterDate)).replace(/-/g,'/') : undefined, toUser:recipient?.userId, toExternal:initialData.toExternalName, toExternalOrg:initialData.toExternalOrg, incomingNumber:initialData.incomingNumber, incomingDate:initialData.incomingDate })
+    setHasSignature(type!=='incoming'&&Boolean(initialData.signedByName||initialData.senderSignatureDataUrl))
+    form.setFieldsValue({ subject:initialData.subject, fromUser:initialData.fromUserName, letterDate:initialData.letterDate ? new Intl.DateTimeFormat('fa-IR-u-nu-latn').format(new Date(initialData.letterDate)).replace(/-/g,'/') : undefined, toUser:recipient?.userId, toExternal:initialData.toExternalName, toExternalOrg:initialData.toExternalOrg, fromOrg:initialData.incomingFromOrg, incomingNumber:initialData.incomingNumber, incomingDate:initialData.incomingDate })
   }, [initialData, form])
 
   const letterNumber = initialData?.letterNumber || `${registry.prefix}/جدید`
@@ -207,18 +210,23 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
     setLetterType(type)
     const reg = REGISTRIES.find(r => r.type === type)
     if (reg) setRegistry(reg)
-    form.setFieldsValue({ toUser: undefined, toExternal: undefined, toExternalOrg: undefined })
+    setHasSignature(type!=='incoming')
+    form.setFieldsValue({ toUser: undefined, toExternal: undefined, toExternalOrg: undefined, fromOrg:undefined, incomingNumber:undefined, incomingDate:undefined })
   }
 
   const handleAction = async (status: string) => {
     if(saving)return
     try {
       const values = status === 'draft' ? form.getFieldsValue() : await form.validateFields()
-      if(status!=='draft' && letterType==='internal' && !values.toUser) throw new Error('انتخاب گیرنده داخلی الزامی است')
-      if(status!=='draft' && letterType!=='internal' && !values.toExternal) throw new Error('انتخاب مخاطب گیرنده الزامی است')
+      if(letterType==='incoming'&&status!=='registered')throw new Error('نامه وارده فقط از طریق دکمه ثبت نامه وارده ذخیره می‌شود')
+      if(status!=='draft' && (letterType==='internal'||letterType==='incoming') && !values.toUser) throw new Error('انتخاب گیرنده داخلی الزامی است')
+      if(status!=='draft' && letterType==='outgoing' && !values.toExternal) throw new Error('انتخاب مخاطب گیرنده الزامی است')
+      if(letterType==='incoming'&&!values.fromOrg)throw new Error('سازمان فرستنده الزامی است')
+      if(letterType==='incoming'&&!values.incomingNumber)throw new Error('شماره نامه وارده الزامی است')
+      if(letterType==='incoming'&&!values.incomingDate)throw new Error('تاریخ نامه وارده الزامی است')
       const primary: Recipient[]=[]
-      if(letterType==='internal'&&values.toUser){const u=users.find(x=>x.id===values.toUser);if(u)primary.push({id:`primary-${u.id}`,personId:u.id,name:u.fullName,type:'internal',referralType:'اصل',phoneNumber:u.phoneNumber,sendSms:!!values.sendPrimarySms})}
-      if(letterType!=='internal'&&values.toExternal){const c=contacts.find(x=>x.id===values.toExternal);if(c)primary.push({id:`primary-${c.id}`,personId:c.id,name:c.fullName,organization:c.companyName,type:'external',referralType:'اصل',phoneNumber:c.mobile||c.phone,sendSms:!!values.sendPrimarySms})}
+      if((letterType==='internal'||letterType==='incoming')&&values.toUser){const u=users.find(x=>x.id===values.toUser);if(u)primary.push({id:`primary-${u.id}`,personId:u.id,name:u.fullName,type:'internal',referralType:'اصل',phoneNumber:u.phoneNumber,sendSms:!!values.sendPrimarySms})}
+      if(letterType==='outgoing'&&values.toExternal){const c=contacts.find(x=>x.id===values.toExternal);if(c)primary.push({id:`primary-${c.id}`,personId:c.id,name:c.fullName,organization:c.companyName,type:'external',referralType:'اصل',phoneNumber:c.mobile||c.phone,sendSms:!!values.sendPrimarySms})}
       setSaving(true)
       await onSave({ ...values, toExternal:contacts.find(x=>x.id===values.toExternal)?.fullName||values.toExternal, toExternalOrg:contacts.find(x=>x.id===values.toExternal)?.companyName||values.toExternalOrg, status, paperSize, hasHeader, hasFooter, hasSignature, classification, priority, body: bodyHtml, attachments, recipients:[...primary,...recipients.filter(r=>!primary.some(p=>p.personId===r.personId))], letterType, letterNumber, clientRequestId:clientRequestId.current, letterTemplateId:selectedTemplate?.databaseId||null, templateKey:selectedTemplate?.templateKey||selectedTemplate?.id })
     } catch(error) {
@@ -285,7 +293,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
 
   const LetterPreview = ({ minimal = false }: { minimal?: boolean }) => {
     const v = form.getFieldsValue()
-    const receiverText = letterType === 'internal' ? users.find(x=>x.id===v.toUser)?.fullName : contacts.find(x=>x.id===v.toExternal)?.fullName || v.toExternal
+    const receiverText = letterType === 'outgoing' ? contacts.find(x=>x.id===v.toExternal)?.fullName || v.toExternal : users.find(x=>x.id===v.toUser)?.fullName
     const showTemplate = !minimal && !!selectedTemplate?.imageData
     const receiverTop=showTemplate?pageMetrics.receiverTopWithTemplate:pageMetrics.receiverTopPlain
     const metaTop=showTemplate?pageMetrics.metaTopWithTemplate:pageMetrics.metaTopPlain
@@ -303,7 +311,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
         <div style={{position:'absolute',top:subjectTop,right:pageMetrics.x,left:pageMetrics.x,fontWeight:700,textAlign:'right',fontSize:paperSize==='A5'?12:15}}>{v.subject && <>موضوع: {v.subject}</>}</div>
         <div style={{ minHeight:paperSize==='A5'?120:200, fontSize:paperSize==='A5'?11:13, lineHeight:2.1, flex:'1 0 auto' }} dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(bodyHtml || 'متن نامه...') }} />
         {attachments.length > 0 && <div style={{ marginTop: 12, fontSize: 12 }}><strong>پیوست:</strong><ul style={{ paddingRight: 16 }}>{attachments.map((f, i) => <li key={i}>{getFileIcon(f.name)} {f.name}</li>)}</ul></div>}
-        {hasSignature && <div style={{ marginTop:paperSize==='A5'?'12mm':'18mm', marginRight:'auto', width:paperSize==='A5'?'44mm':'58mm', textAlign:'center',fontSize:paperSize==='A5'?10:12,breakInside:'avoid',pageBreakInside:'avoid' }}><p style={{ fontWeight:600, marginBottom:4 }}>{signerName}</p>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
+        {letterType!=='incoming'&&hasSignature && <div style={{ marginTop:paperSize==='A5'?'12mm':'18mm', marginRight:'auto', width:paperSize==='A5'?'44mm':'58mm', textAlign:'center',fontSize:paperSize==='A5'?10:12,breakInside:'avoid',pageBreakInside:'avoid' }}><p style={{ fontWeight:600, marginBottom:4 }}>{signerName}</p>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
         {!showTemplate && hasFooter && <div style={{position:'absolute',bottom:'8mm',left:pageMetrics.x,right:pageMetrics.x,borderTop:'1px solid #eee',paddingTop:8,textAlign:'center',fontSize:9,color:'#999'}}>این نامه با سیستم مدیریت اسناد سازمانی صادر شده است</div>}
       </div>
     )
@@ -350,12 +358,14 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
       <div style={{ background: '#1e3a5f', padding: '8px 16px', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderRadius: '8px 8px 0 0' }}>
         <Button icon={<ArrowRightOutlined />} size="small" onClick={onCancel} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>بازگشت</Button>
         <Divider type="vertical" style={{ background: 'rgba(255,255,255,0.2)', height: 20 }} />
-        {allowed('letters.send') && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('sent')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ذخیره و ارسال</Button>}
-        {allowed('letters.sign') && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<CheckCircleOutlined />} size="small" onClick={() => handleAction('signed')} style={{ background: '#13c2c2', color: 'white', border: 'none' }}>تأیید و امضا</Button>}
-        {(initialData ? allowed('letters.edit') : allowed('letters.create')) && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('draft')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>ذخیره پیش‌نویس</Button>}
-        {initialData && initialData.status !== 'Draft' && initialData.status !== 'Cancelled' && allowed('letters.edit') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction(String(initialData.status).toLowerCase())} style={{ background:'#1677ff',color:'white',border:'none' }}>ذخیره ویرایش</Button>}
-        {allowed('letters.refer') && <Button icon={<SwapLeftOutlined />} size="small" onClick={() => setReferralModal(true)} style={{ background: '#fa8c16', color: 'white', border: 'none' }}>ارجاع</Button>}
-        {allowed('letters.print') && <Dropdown menu={{
+        {letterType==='incoming'&&allowed('letters.type.incoming')&&<Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('registered')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ثبت نامه وارده</Button>}
+        {letterType!=='incoming'&&allowed('letters.send') && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('sent')} style={{ background: '#52c41a', color: 'white', border: 'none' }}>ذخیره و ارسال</Button>}
+        {letterType==='internal'&&allowed('letters.sign')&&allowed('letters.sign.internal')&&(!initialData||initialData.status==='Draft')&&<Button loading={saving} disabled={saving} icon={<CheckCircleOutlined/>} size="small" onClick={()=>handleAction('signed')} style={{background:'#13c2c2',color:'white',border:'none'}}>تأیید و امضا</Button>}
+        {letterType==='outgoing'&&allowed('letters.sign')&&allowed('letters.sign.outgoing')&&(!initialData||initialData.status==='Draft')&&<Button loading={saving} disabled={saving} icon={<CheckCircleOutlined/>} size="small" onClick={()=>handleAction('signed')} style={{background:'#13c2c2',color:'white',border:'none'}}>تأیید و امضا</Button>}
+        {letterType!=='incoming'&&(initialData ? allowed('letters.edit') : allowed('letters.create')) && (!initialData || initialData.status === 'Draft') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction('draft')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: 'none' }}>ذخیره پیش‌نویس</Button>}
+        {initialData && initialData.status !== 'Draft' && initialData.status !== 'Cancelled' && allowed('letters.edit') && <Button loading={saving} disabled={saving} icon={<SaveOutlined />} size="small" onClick={() => handleAction(letterType==='incoming'?'registered':String(initialData.status).toLowerCase())} style={{ background:'#1677ff',color:'white',border:'none' }}>ذخیره ویرایش</Button>}
+        {letterType!=='incoming'&&allowed('letters.refer') && <Button icon={<SwapLeftOutlined />} size="small" onClick={() => setReferralModal(true)} style={{ background: '#fa8c16', color: 'white', border: 'none' }}>ارجاع</Button>}
+        {letterType!=='incoming'&&allowed('letters.print') && <Dropdown menu={{
           items: [
             { key: 'full', label: 'چاپ کامل', icon: <PrinterOutlined />, onClick: () => { setPrintMode('full'); setPrintModal(true) } },
             { key: 'minimal', label: 'چاپ روی سربرگ فیزیکی', icon: <FileTextOutlined />, onClick: () => { setPrintMode('minimal'); setPrintModal(true) } },
@@ -375,7 +385,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 3 }}>نوع نامه</div>
               <Radio.Group disabled={structuralFieldsLocked} value={letterType} onChange={e => handleLetterTypeChange(e.target.value)} size="small" buttonStyle="solid">
                 {(allowed('letters.type.outgoing') || letterType === 'outgoing') && <Radio.Button value="outgoing" disabled={!allowed('letters.type.outgoing')}>صادره</Radio.Button>}
-                <Radio.Button value="internal">داخلی</Radio.Button>
+                {(allowed('letters.type.internal')||letterType==='internal')&&<Radio.Button value="internal" disabled={!allowed('letters.type.internal')}>داخلی</Radio.Button>}
                 {(allowed('letters.type.incoming') || letterType === 'incoming') && <Radio.Button value="incoming" disabled={!allowed('letters.type.incoming')}>وارده</Radio.Button>}
               </Radio.Group>
             </Col>
@@ -423,7 +433,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
         <Form form={form} layout="inline">
           <Row gutter={[12, 8]} style={{ width: '100%' }} align="middle">
             <Col xs={24} md={5}>
-              <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>فرستنده نامه</div>
+              <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>{letterType==='incoming'?'ثبت‌کننده نامه':'فرستنده نامه'}</div>
               <Form.Item name="fromUser" style={{ margin: 0 }} rules={[{ required: true, message: 'الزامی' }]}>
                 <Input size="small" readOnly value={currentUser.fullName||currentUser.username} />
               </Form.Item>
@@ -433,9 +443,9 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             </Col>
             <Col xs={24} md={6}>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>
-                گیرنده نامه {letterType === 'internal' ? '(داخلی)' : '(خارجی)'}
+                گیرنده نامه {letterType === 'outgoing' ? '(خارجی)' : '(داخلی سازمان)'}
               </div>
-              {letterType === 'internal' ? (
+              {letterType !== 'outgoing' ? (
                 <Form.Item name="toUser" style={{ margin: 0 }} rules={[{ required: true, message: 'الزامی' }]}>
                   <Select disabled={recipientsLocked} size="small" style={{ width: '100%' }} placeholder="انتخاب گیرنده" showSearch>
                     {users.map(u => <Select.Option key={u.id} value={u.id}>{u.fullName}</Select.Option>)}
@@ -455,7 +465,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             {letterType === 'incoming' && (
               <Col xs={24} md={4}>
                 <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>سازمان فرستنده</div>
-                <Form.Item name="fromOrg" style={{ margin: 0 }}>
+                <Form.Item name="fromOrg" style={{ margin: 0 }} rules={[{required:true,message:'سازمان فرستنده الزامی است'}]}>
                   <Select size="small" showSearch allowClear placeholder="انتخاب سازمان/مخاطب" options={contacts.map(c=>({value:c.companyName||c.fullName,label:c.companyName||c.fullName}))}/>
                 </Form.Item>
               </Col>
@@ -471,13 +481,13 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             <Row gutter={[12, 8]} style={{ width: '100%', marginTop: 8 }} align="middle">
               <Col xs={24} md={5}>
                 <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>شماره نامه وارده</div>
-                <Form.Item name="incomingNumber" style={{ margin: 0 }}>
+                <Form.Item name="incomingNumber" style={{ margin: 0 }} rules={[{required:true,message:'شماره نامه الزامی است'}]}>
                   <Input size="small" placeholder="شماره نامه فرستنده" />
                 </Form.Item>
               </Col>
               <Col xs={24} md={5}>
                 <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>تاریخ نامه وارده</div>
-                <Form.Item name="incomingDate" style={{ margin: 0 }}>
+                <Form.Item name="incomingDate" style={{ margin: 0 }} rules={[{required:true,message:'تاریخ نامه الزامی است'}]}>
                   <PersianDatePicker style={{ minHeight: 24, padding: '0 8px', fontSize: 12 }} placeholder="۱۴۰۳/۰۴/۱۰" />
                 </Form.Item>
               </Col>
@@ -507,11 +517,11 @@ export default function LetterComposePage({ onSave, onCancel, initialData }: Let
             children: (
               <div style={{ padding: '12px 0', overflowX:'auto' }}>
                 <div style={{ width:pageMetrics.width, minHeight:pageMetrics.height, margin:'0 auto', padding:`${selectedTemplate?.imageData?pageMetrics.contentTopWithTemplate:pageMetrics.contentTopPlain} ${pageMetrics.x} ${pageMetrics.bottom}`, boxSizing:'border-box', position:'relative', backgroundColor:'#fff', backgroundImage:selectedTemplate?.imageData?`url(${selectedTemplate.imageData})`:undefined, backgroundSize:'100% 100%', backgroundPosition:'top center', backgroundRepeat:'no-repeat', boxShadow:'0 2px 18px #0002' }}>
-                  <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.receiverTopWithTemplate:pageMetrics.receiverTopPlain,right:pageMetrics.x,fontSize:paperSize==='A5'?10:12,textAlign:'right'}}><strong>گیرنده:</strong> {letterType==='internal' ? users.find(x=>x.id===watchedToUser)?.fullName || '—' : contacts.find(x=>x.id===watchedToExternal)?.fullName || '—'}</div>
+                  <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.receiverTopWithTemplate:pageMetrics.receiverTopPlain,right:pageMetrics.x,fontSize:paperSize==='A5'?10:12,textAlign:'right'}}><strong>گیرنده:</strong> {letterType==='outgoing' ? contacts.find(x=>x.id===watchedToExternal)?.fullName || '—' : users.find(x=>x.id===watchedToUser)?.fullName || '—'}</div>
                   <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.metaTopWithTemplate:pageMetrics.metaTopPlain,left:pageMetrics.x,fontSize:paperSize==='A5'?10:12,textAlign:'left'}}><div><strong>تاریخ:</strong> {watchedDate || '—'}</div><div><strong>شماره:</strong> {letterNumber}</div><div><strong>پیوست:</strong> {attachments.length?'دارد':'ندارد'}</div></div>
                   <div style={{position:'absolute',top:selectedTemplate?.imageData?pageMetrics.subjectTopWithTemplate:pageMetrics.subjectTopPlain,right:pageMetrics.x,left:pageMetrics.x,fontWeight:700,textAlign:'right',fontSize:paperSize==='A5'?12:15}}>{watchedSubject && <>موضوع: {watchedSubject}</>}</div>
                   <RichEditor onChange={setBodyHtml} initialHtml={bodyHtml} />
-                  {hasSignature && <div style={{textAlign:'center',position:'absolute',left:pageMetrics.x,bottom:pageMetrics.signatureBottom,fontSize:paperSize==='A5'?10:13}}><strong>{signerName}</strong><br/>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
+                  {letterType!=='incoming'&&hasSignature && <div style={{textAlign:'center',position:'absolute',left:pageMetrics.x,bottom:pageMetrics.signatureBottom,fontSize:paperSize==='A5'?10:13}}><strong>{signerName}</strong><br/>{signer?.signatureDataUrl && <img src={signer.signatureDataUrl} alt="امضا" style={{width:paperSize==='A5'?80:110,height:paperSize==='A5'?44:60,objectFit:'contain'}}/>}</div>}
                 </div>
               </div>
             )

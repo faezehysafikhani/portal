@@ -119,6 +119,9 @@ function App() {
           <Route path="/letters" element={<LettersPage />} />
           <Route path="/letters/new" element={<LettersPage />} />
           <Route path="/letters/registry" element={<LettersPage />} />
+          <Route path="/letters/registry/incoming" element={<LettersPage />} />
+          <Route path="/letters/registry/outgoing" element={<LettersPage />} />
+          <Route path="/letters/registry/internal" element={<LettersPage />} />
           <Route path="/letters/referrals" element={<LettersPage />} />
           <Route path="/letters/drafts" element={<LettersPage />} />
           <Route path="/tickets" element={<TicketsPage />} />

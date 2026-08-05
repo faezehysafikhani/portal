@@ -31,16 +31,18 @@ export default function MainLayout() {
 
   const menuItems = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'داشبورد' },
-    ...((allowed('letters.inbox.view') || allowed('letters.registry.view')) ? [{
+    ...((allowed('letters.inbox.view') || allowed('letters.registry.view') || allowed('letters.registry.internal.view') || allowed('letters.registry.incoming.view') || allowed('letters.registry.outgoing.view')) ? [{
       key: 'letters-group',
       icon: <MailOutlined />,
       label: 'نامه‌نگاری',
       children: [
         ...(allowed('letters.inbox.view') ? [{ key: '/letters', icon: <InboxOutlined />, label: 'کارتابل نامه' }] : []),
         ...(allowed('letters.inbox.view') ? [{ key: '/letters/referrals', icon: <SwapOutlined />, label: 'ارجاعات من' }] : []),
-        ...(allowed('letters.create') ? [{ key: '/letters/drafts', icon: <FileTextOutlined />, label: 'پیش‌نویس‌های من' }] : []),
-        ...(allowed('letters.create') ? [{ key: '/letters/new', icon: <EditOutlined />, label: 'نامه جدید' }] : []),
-        ...(allowed('letters.registry.view') ? [{ key: '/letters/registry', icon: <BookOutlined />, label: 'دبیرخانه' }] : []),
+        ...((allowed('letters.type.internal') || allowed('letters.type.outgoing')) ? [{ key: '/letters/drafts', icon: <FileTextOutlined />, label: 'پیش‌نویس‌های من' }] : []),
+        ...((allowed('letters.type.internal') || allowed('letters.type.outgoing')) ? [{ key: '/letters/new', icon: <EditOutlined />, label: 'نامه جدید' }] : []),
+        ...(allowed('letters.registry.incoming.view') ? [{ key: '/letters/registry/incoming', icon: <BookOutlined />, label: 'دبیرخانه وارده' }] : []),
+        ...(allowed('letters.registry.outgoing.view') ? [{ key: '/letters/registry/outgoing', icon: <SendOutlined />, label: 'دبیرخانه صادره' }] : []),
+        ...(allowed('letters.registry.internal.view') ? [{ key: '/letters/registry/internal', icon: <FileTextOutlined />, label: 'دبیرخانه داخلی' }] : []),
       ]
     }] : []),
     ...(allowed('tasks.view') ? [{
@@ -84,6 +86,9 @@ export default function MainLayout() {
       '/letters': 'کارتابل نامه',
       '/letters/new': 'نامه جدید',
       '/letters/registry': 'دبیرخانه',
+      '/letters/registry/incoming': 'دبیرخانه نامه‌های وارده',
+      '/letters/registry/outgoing': 'دبیرخانه نامه‌های صادره',
+      '/letters/registry/internal': 'دبیرخانه نامه‌های داخلی',
       '/letters/referrals': 'ارجاعات من',
       '/letters/drafts': 'پیش‌نویس‌های من',
       '/tickets': 'تیکت‌ها',

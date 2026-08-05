@@ -22,6 +22,10 @@ interface Letter {
   classification: string
   fromUserName: string
   toExternalName?: string
+  incomingNumber?: string
+  incomingDate?: string
+  incomingFromOrg?: string
+  recipients?: Array<{name:string;userId?:string;recipientType?:string}>
   hasAttachment: boolean
   recipientCount: number
   isRead: boolean
@@ -281,7 +285,10 @@ export default function LettersPage() {
   const [printSettingsOpen,setPrintSettingsOpen]=useState(false)
   const [printSettings,setPrintSettings]=useState<{paperSize:'auto'|'A4'|'A5';orientation:'portrait'|'landscape';margin:number;includeReferrals:boolean}>(()=>{try{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true,...JSON.parse(localStorage.getItem('letter-print-settings')||'{}')}}catch{return{paperSize:'auto',orientation:'portrait',margin:0,includeReferrals:true}}})
 
-  const isRegistry = location.pathname === '/letters/registry'
+  const isRegistry = location.pathname.startsWith('/letters/registry')
+  const registryType: 'Internal'|'Incoming'|'Outgoing'|undefined = location.pathname.endsWith('/internal')?'Internal':location.pathname.endsWith('/incoming')?'Incoming':location.pathname.endsWith('/outgoing')?'Outgoing':undefined
+  const registryTypeKey=registryType?.toLowerCase() as 'internal'|'incoming'|'outgoing'|undefined
+  const requestedType=(new URLSearchParams(location.search).get('type')||registryTypeKey||'internal') as 'internal'|'incoming'|'outgoing'
   const isReferrals=location.pathname==='/letters/referrals'
   const isDrafts=location.pathname==='/letters/drafts'
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
@@ -290,7 +297,7 @@ export default function LettersPage() {
 
   useEffect(() => {
     if (location.pathname === '/letters/new') setComposing(true)
-    else {setComposing(false);if(location.pathname==='/letters/referrals')setActiveTab('all');else if(location.pathname==='/letters/drafts')setActiveTab('draft');else if(location.pathname==='/letters/registry')setActiveTab('all')}
+    else {setComposing(false);if(location.pathname==='/letters/referrals')setActiveTab('all');else if(location.pathname==='/letters/drafts')setActiveTab('draft');else if(isRegistry)setActiveTab(registryTypeKey||'all')}
   }, [location.pathname])
 
   const fetchLetters = async (silent=false) => {
@@ -298,7 +305,8 @@ export default function LettersPage() {
       if(!silent)setLoading(true)
       const scope=isRegistry?'registry':isReferrals?'referrals':'mailbox'
       const status=isDrafts?'&status=Draft':''
-      const res = await apiFetch(`${API}/letters?scope=${scope}${status}`, { headers: authHeaders(),cache:'no-store' })
+      const type=registryType?`&type=${registryType}`:''
+      const res = await apiFetch(`${API}/letters?scope=${scope}${status}${type}`, { headers: authHeaders(),cache:'no-store' })
       if (!res.ok) { const e=await res.json().catch(()=>({})); throw new Error(e.message||`خطای ${res.status}`) }
       setLetters(await res.json())
     } catch (e) {
@@ -326,7 +334,7 @@ export default function LettersPage() {
     const onVisibility=()=>{if(document.visibilityState==='visible')refresh()}
     window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisibility)
     return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisibility)}
-  }, [isRegistry,isReferrals,isDrafts])
+  }, [isRegistry,isReferrals,isDrafts,registryType])
 
   const handleViewLetter = async (letter: Letter) => {
     setSelectedLetter(letter)
@@ -442,7 +450,7 @@ export default function LettersPage() {
   const handleSaveLetter = async (data: Record<string, any>) => {
     try {
       const typeMap: Record<string, string> = { internal: 'Internal', incoming: 'Incoming', outgoing: 'Outgoing' }
-      const statusMap: Record<string, string> = { draft: 'Draft', sent: 'Sent', signed: 'Signed', cancelled: 'Cancelled' }
+      const statusMap: Record<string, string> = { draft: 'Draft', sent: 'Sent', registered:'Received', signed: 'Signed', cancelled: 'Cancelled' }
       const priorityMap: Record<string, string> = { 'عادی': 'Normal', 'فوری': 'High', 'خیلی فوری': 'Urgent', 'آنی': 'Urgent' }
 
       const body = {
@@ -453,8 +461,8 @@ export default function LettersPage() {
         priority: priorityMap[data.priority] || 'Normal',
         classification: data.classification || 'normal',
         letterDate: new Date().toISOString(),
-        toExternalName: data.toExternal || null,
-        toExternalOrg: data.toExternalOrg || null,
+        toExternalName: data.letterType==='outgoing' ? data.toExternal || null : null,
+        toExternalOrg: data.letterType==='outgoing' ? data.toExternalOrg || null : null,
         incomingNumber: data.incomingNumber || null,
         incomingDate: data.incomingDate || null,
         incomingFromOrg: data.fromOrg || null,
@@ -489,7 +497,7 @@ export default function LettersPage() {
       notification.success({ message: result.letterNumber ? `نامه با شماره ${result.letterNumber} ثبت شد` : 'پیش‌نویس ذخیره شد' })
       setComposing(false)
       setEditingDraft(null)
-      navigate('/letters')
+      navigate(new URLSearchParams(location.search).has('type')?`/letters/registry/${data.letterType}`:'/letters')
       fetchLetters()
       return true
     } catch {
@@ -512,7 +520,7 @@ export default function LettersPage() {
   }
 
   const tabFilteredLetters = letters.filter(l => isRegistry ? (
-    activeTab === 'all' ||
+    (registryType ? l.type===registryType : activeTab === 'all') ||
     (activeTab === 'incoming' && l.type === 'Incoming') ||
     (activeTab === 'outgoing' && l.type === 'Outgoing') ||
     (activeTab === 'draft' && l.status === 'Draft') ||
@@ -568,11 +576,22 @@ export default function LettersPage() {
           <Tooltip title="مشاهده"><Button size="small" icon={<EyeOutlined />} onClick={() => handleViewLetter(r)} /></Tooltip>
           {allowed('letters.edit') && r.status === 'Draft' && r.isSender && <Tooltip title="ادامه ویرایش پیش‌نویس"><Button size="small" type="primary" icon={<EditOutlined />} onClick={async()=>{const res=await apiFetch(`${API}/letters/${r.id}`,{headers:authHeaders()});if(res.ok){setEditingDraft(await res.json());setComposing(true);setViewModal(false)}}}/></Tooltip>}
           {allowed('letters.archive') && r.status !== 'Archived' && <Tooltip title="بایگانی"><Button size="small" icon={<FolderOutlined />} onClick={() => handleArchive(r.id)} /></Tooltip>}
-          {allowed('letters.sign') && r.isSender && r.status === 'Sent' && <Tooltip title="امضا"><Button size="small" icon={<FileTextOutlined />} style={{ color: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleSign(r.id)} /></Tooltip>}
+          {allowed('letters.sign')&&r.isSender&&r.status==='Sent'&&((r.type==='Internal'&&allowed('letters.sign.internal'))||(r.type==='Outgoing'&&allowed('letters.sign.outgoing')))&&<Tooltip title="امضا"><Button size="small" icon={<FileTextOutlined/>} style={{color:'#13c2c2',borderColor:'#13c2c2'}} onClick={()=>handleSign(r.id)}/></Tooltip>}
           {allowed('letters.delete') && <Popconfirm title="این نامه حذف شود؟" okText="حذف" cancelText="انصراف" onConfirm={()=>handleDeleteLetter(r.id)}><Tooltip title="حذف"><Button size="small" danger icon={<DeleteOutlined/>}/></Tooltip></Popconfirm>}
         </Space>
       )
     },
+  ]
+
+  const incomingRegistryColumns = [
+    {title:'موضوع',dataIndex:'subject',key:'subject',render:(value:string)=><strong>{value}</strong>},
+    {title:'شماره نامه وارده',dataIndex:'incomingNumber',key:'incomingNumber',width:145,render:(value:string)=>value||'—'},
+    {title:'تاریخ نامه',dataIndex:'incomingDate',key:'incomingDate',width:120,render:(value:string)=>value||'—'},
+    {title:'سازمان فرستنده',dataIndex:'incomingFromOrg',key:'incomingFromOrg',width:170,render:(value:string)=>value||'—'},
+    {title:'گیرنده داخلی',key:'recipient',width:150,render:(_:unknown,row:Letter)=>row.recipients?.[0]?.name||'—'},
+    {title:'ثبت‌کننده',dataIndex:'fromUserName',key:'registeredBy',width:140},
+    {title:'تاریخ ثبت',dataIndex:'createdAt',key:'createdAt',width:120,render:(value:string)=>value?new Intl.DateTimeFormat('fa-IR').format(new Date(value)):'—'},
+    {title:'عملیات',key:'actions',width:120,render:(_:unknown,row:Letter)=><Space onClick={event=>event.stopPropagation()}><Tooltip title="مشاهده"><Button size="small" icon={<EyeOutlined/>} onClick={()=>handleViewLetter(row)}/></Tooltip>{allowed('letters.archive')&&row.status!=='Archived'&&<Tooltip title="بایگانی"><Button size="small" icon={<FolderOutlined/>} onClick={()=>handleArchive(row.id)}/></Tooltip>}{allowed('letters.delete')&&<Popconfirm title="این نامه حذف شود؟" okText="حذف" cancelText="انصراف" onConfirm={()=>handleDeleteLetter(row.id)}><Button size="small" danger icon={<DeleteOutlined/>}/></Popconfirm>}</Space>},
   ]
 
   const referralColumns = [
@@ -587,19 +606,22 @@ export default function LettersPage() {
   ]
 
   if (composing) {
-    return <LetterComposePage initialData={editingDraft} onSave={handleSaveLetter} onCancel={() => { setComposing(false); setEditingDraft(null); navigate('/letters') }} />
+    return <LetterComposePage initialData={editingDraft} defaultType={requestedType} onSave={handleSaveLetter} onCancel={() => { setComposing(false); setEditingDraft(null); navigate(new URLSearchParams(location.search).has('type')?`/letters/registry/${requestedType}`:'/letters') }} />
   }
+
+  const registryLabels={Internal:'داخلی',Incoming:'وارده',Outgoing:'صادره'} as const
+  const registryCreateAllowed=registryType==='Incoming'?allowed('letters.type.incoming'):registryType==='Outgoing'?allowed('letters.type.outgoing'):registryType==='Internal'?allowed('letters.type.internal'):false
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?'📚 دبیرخانه — همه نامه‌های سازمان':isReferrals?'↩️ ارجاعات من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
-        <Space><Button icon={<SyncOutlined/>} onClick={()=>fetchLetters()} loading={loading}>به‌روزرسانی</Button>{allowed('letters.create') && <Button type="primary" icon={<PlusOutlined />} onClick={() => { setComposing(true); navigate('/letters/new') }} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>نامه جدید</Button>}</Space>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?`📚 دبیرخانه نامه‌های ${registryType?registryLabels[registryType]:'سازمان'}`:isReferrals?'↩️ ارجاعات من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
+        <Space><Button icon={<SyncOutlined/>} onClick={()=>fetchLetters()} loading={loading}>به‌روزرسانی</Button>{isRegistry&&registryType&&registryCreateAllowed?<Button type="primary" icon={<PlusOutlined/>} onClick={()=>navigate(`/letters/new?type=${registryTypeKey}`)} style={{background:'#8B1A6B',borderColor:'#8B1A6B'}}>{registryType==='Incoming'?'ثبت نامه وارده':`نامه ${registryLabels[registryType]} جدید`}</Button>:!isRegistry&&allowed('letters.create')&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>{setComposing(true);navigate('/letters/new')}} style={{background:'#8B1A6B',borderColor:'#8B1A6B'}}>نامه جدید</Button>}</Space>
       </div>
 
       <AdvancedSearch onSearch={f => setSearchFilters(f)} onReset={() => setSearchFilters(EMPTY_FILTERS)} />
 
-      {!isReferrals && <Tabs activeKey={activeTab} onChange={setActiveTab} items={(isRegistry?[
+      {!isReferrals&&!isRegistry && <Tabs activeKey={activeTab} onChange={setActiveTab} items={(isRegistry?[
         { key: 'all', label: <span><MailOutlined /> همه نامه‌ها <Badge count={letters.length} style={{ background: '#8B1A6B' }} /></span> },
         { key: 'incoming', label: <span>📥 وارده</span> },
         { key: 'outgoing', label: <span><SendOutlined /> صادره</span> },
@@ -618,7 +640,7 @@ export default function LettersPage() {
         <span style={{ fontSize: 12, color: '#8c8c8c' }}>{filteredLetters.length} نامه</span>
       </div>
 
-      <Table columns={isReferrals ? referralColumns : columns} dataSource={filteredLetters} rowKey={row => isReferrals ? `${row.id}-${row.referralCreatedAt}-${row.referredToName}` : row.id} loading={loading} size="small" scroll={{ x: isReferrals ? 1200 : 1000 }}
+      <Table columns={isReferrals?referralColumns:isRegistry&&registryType==='Incoming'?incomingRegistryColumns:columns} dataSource={filteredLetters} rowKey={row => isReferrals ? `${row.id}-${row.referralCreatedAt}-${row.referredToName}` : row.id} loading={loading} size="small" scroll={{ x: isReferrals ? 1200 : 1000 }}
         onRow={r => ({ onClick: () => handleViewLetter(r), style: { cursor: 'pointer' } })} />
 
       {/* Modal مشاهده نامه */}
@@ -644,7 +666,7 @@ export default function LettersPage() {
             >
               ارجاع
             </Button>}
-            {allowed('letters.sign') && letterDetail.status === 'Sent' && (
+            {allowed('letters.sign')&&letterDetail.status==='Sent'&&((letterDetail.type==='Internal'&&allowed('letters.sign.internal'))||(letterDetail.type==='Outgoing'&&allowed('letters.sign.outgoing'))) && (
               <Button icon={<FileTextOutlined />} style={{ color: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleSign(letterDetail.id)}>امضا</Button>
             )}
             {allowed('letters.sign.revoke') && letterDetail.canRevokeSignature && <Popconfirm title="امضای خود را پس می‌گیرید؟" okText="پس گرفتن" cancelText="انصراف" onConfirm={()=>handleRevokeSignature(letterDetail.id)}><Button danger icon={<FileTextOutlined/>}>پس گرفتن امضا</Button></Popconfirm>}
