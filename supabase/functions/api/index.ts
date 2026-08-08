@@ -492,7 +492,7 @@ async function directory(request: Request, auth: AuthContext): Promise<Response>
 
 const taskStatus = ['Todo', 'InProgress', 'InReview', 'Done', 'Cancelled']
 const taskPriority = ['Low', 'Medium', 'High', 'Critical']
-const recurrenceTypes = ['Daily', 'Monthly', 'Yearly', 'EveryNDays', 'LastWeekdayOfMonth']
+const recurrenceTypes = ['Daily', 'Monthly', 'Yearly', 'EveryNDays', 'LastWeekdayOfMonth', 'FirstWeekdayOfMonth']
 function stringArray(value: unknown, max = 50): string[] {
   let source: unknown = value
   if (typeof source === 'string') {
@@ -538,6 +538,10 @@ function nextOccurrence(current: Date, type: string, interval: number, weekday?:
       next.setUTCMonth(next.getUTCMonth() + 1, 0)
       const target = Math.max(0, Math.min(6, Number(weekday ?? 1)))
       next.setUTCDate(next.getUTCDate() - ((next.getUTCDay() - target + 7) % 7))
+    } else if (type === 'FirstWeekdayOfMonth') {
+      next.setUTCDate(1)
+      const target = Math.max(0, Math.min(6, Number(weekday ?? 1)))
+      next.setUTCDate(1 + ((target - next.getUTCDay() + 7) % 7))
     }
   }
   return next
@@ -555,6 +559,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
   requirePermission(auth, 'tasks.view')
   const taskMatch = path.match(/^\/tasks\/([0-9a-f-]+)$/i)
   const logMatch = path.match(/^\/tasks\/([0-9a-f-]+)\/logs$/i)
+  const subtaskMatch = path.match(/^\/tasks\/([0-9a-f-]+)\/subtasks$/i)
   const viewMatch = path.match(/^\/tasks\/views\/([0-9a-f-]+)$/i)
   if (request.method === 'GET' && path === '/tasks/views') {
     const result = await db.from('TaskSavedViews').select('*').eq('TenantId', auth.tenantId)
@@ -602,6 +607,41 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       delete dto.detailsJson
       return dto
     }))
+  }
+  if (request.method === 'POST' && subtaskMatch) {
+    requirePermission(auth, 'tasks.create')
+    const parentResult = await db.from('Tasks').select('*').eq('Id', subtaskMatch[1]).eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
+    failOnDb(parentResult.error)
+    const parent = parentResult.data as JsonObject | null
+    if (!parent || (!canManageTasks(auth) && !taskIncludesUser(parent, auth.userId))) throw new HttpError(404, 'وظیفه والد یافت نشد')
+    const input = await body<JsonObject>(request)
+    const title = String(input.title ?? '').trim()
+    if (!title || title.length > 200) throw new HttpError(400, 'عنوان زیروظیفه باید بین ۱ تا ۲۰۰ نویسه باشد')
+    const assignees = stringArray(input.assigneeUserIds ?? parent.AssigneeUserIdsJson, 25)
+    if (!assignees.length) assignees.push(String(parent.AssignedToUserId ?? auth.userId))
+    if (assignees.some((id) => id !== auth.userId)) requirePermission(auth, 'tasks.assign')
+    const row = {
+      ...baseInsert(auth), Title: title, Description: input.description ?? null,
+      Priority: enumValue(input.priority ?? parent.Priority ?? 1, taskPriority), Status: 0,
+      ProjectId: parent.ProjectId ?? null, ProjectIdsJson: String(parent.ProjectIdsJson ?? '[]'),
+      StartDate: now(), DueDate: input.dueDate ?? parent.DueDate ?? null,
+      AssignedByUserId: auth.userId, AssignedToUserId: assignees[0], AssigneeUserIdsJson: JSON.stringify(assignees),
+      ParentTaskId: String(parent.Id), EstimatedHours: input.estimatedHours ?? null, Progress: 0,
+      TagsJson: JSON.stringify(stringArray(input.tags, 30)), IsRecurring: false, RecurrenceType: null,
+      RecurrenceInterval: 1, RecurrenceWeekday: null, RecurrenceEndDate: null, RecurrenceCount: null,
+      RecurrenceSeriesId: null, RecurrenceSequence: 1,
+      RequiresCompletionApproval: parent.RequiresCompletionApproval !== false,
+      CompletionRequestedAt: null, CompletionRequestedByUserId: null, IsCompletionApproved: false,
+      CompletionApprovedAt: null, CompletionApprovedByUserId: null,
+    }
+    const result = await db.from('Tasks').insert(row).select().single()
+    failOnDb(result.error)
+    await addTaskLog(auth, String(result.data.Id), 'Created', { parentTaskId: parent.Id })
+    await addTaskLog(auth, String(parent.Id), 'SubtaskCreated', { subtaskId: result.data.Id, title })
+    for (const assignee of assignees.filter((id) => id !== auth.userId)) {
+      await createNotification(db, auth, { userId: assignee, title: 'زیروظیفه جدید برای شما ثبت شد', body: title, type: notificationType.task, actionUrl: '/tasks', entityId: String(result.data.Id), entityType: 'Task' })
+    }
+    return json(request, taskDto(result.data), 201)
   }
   if (request.method === 'GET' && !taskMatch && path === '/tasks') {
     let query = db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)

@@ -21,7 +21,7 @@ const FALLBACK_PROJECT_ID = SAMPLE_PROJECTS[0]?.id || '1'
 
 type TaskStatus = 'Todo' | 'InProgress' | 'InReview' | 'Done' | 'Cancelled'
 type TaskPriority = 'Low' | 'Medium' | 'High' | 'Critical'
-type RecurrenceType = 'Daily' | 'Monthly' | 'Yearly' | 'EveryNDays' | 'LastWeekdayOfMonth'
+type RecurrenceType = 'Daily' | 'Monthly' | 'Yearly' | 'EveryNDays' | 'LastWeekdayOfMonth' | 'FirstWeekdayOfMonth'
 
 interface TaskItem {
   id: string; title: string; description?: string; projectId?: string; projectIds: string[]
@@ -68,7 +68,8 @@ const PRIORITIES: Array<{ value: TaskPriority; label: string; color: string }> =
 
 const RECURRENCES: Array<{ value: RecurrenceType; label: string }> = [
   { value: 'Daily', label: 'روزانه' }, { value: 'EveryNDays', label: 'هر چند روز یک‌بار' },
-  { value: 'Monthly', label: 'ماهانه' }, { value: 'LastWeekdayOfMonth', label: 'آخرین روز مشخص هفته در ماه' },
+  { value: 'Monthly', label: 'ماهانه' }, { value: 'LastWeekdayOfMonth', label: 'آخرین چندشنبه ماه' },
+  { value: 'FirstWeekdayOfMonth', label: 'اولین چندشنبه ماه' },
   { value: 'Yearly', label: 'سالانه' },
 ]
 
@@ -79,6 +80,7 @@ const WEEKDAYS = [
 
 const ACTION_LABELS: Record<string, string> = {
   Created: 'وظیفه ایجاد شد', Updated: 'وظیفه ویرایش شد', Reassigned: 'وظیفه مجدداً ارجاع شد',
+  SubtaskCreated: 'زیروظیفه ایجاد و به وظیفه اصلی متصل شد',
   CompletionRequested: 'انجام‌دهنده پایان کار را اعلام کرد', CompletionApproved: 'نویسنده پایان کار را تأیید کرد',
   CompletionRejected: 'نویسنده پایان کار را برای اصلاح بازگرداند', Deleted: 'وظیفه حذف شد',
 }
@@ -110,6 +112,7 @@ export default function TasksMainPage() {
   const [saving, setSaving] = useState(false)
   const [view, setView] = useState<'board' | 'list'>('board')
   const [createOpen, setCreateOpen] = useState(false)
+  const [subtaskParent, setSubtaskParent] = useState<TaskItem>()
   const [filterOpen, setFilterOpen] = useState(false)
   const [saveViewOpen, setSaveViewOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<TaskItem>()
@@ -120,6 +123,7 @@ export default function TasksMainPage() {
   const [quickTitle, setQuickTitle] = useState('')
   const [reassignIds, setReassignIds] = useState<string[]>([])
   const [form] = Form.useForm()
+  const [subtaskForm] = Form.useForm()
   const [viewForm] = Form.useForm()
   const currentUser: { id?: string; fullName?: string } = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} }
@@ -177,11 +181,11 @@ export default function TasksMainPage() {
       && (!filters.dueTo || (due !== undefined && due <= jalaliToDate(filters.dueTo).getTime() + 86_399_999))
   }), [tasks, filters, projectId, userById])
 
-  const openCreate = (status: TaskStatus = 'Todo', parentTaskId?: string) => {
+  const openCreate = (status: TaskStatus = 'Todo') => {
     form.resetFields()
     form.setFieldsValue({
       status, priority: 'Medium', assigneeUserIds: currentUser.id ? [currentUser.id] : [], projectIds: [projectId],
-      parentTaskId, requiresCompletionApproval: true, recurrenceInterval: 1, recurrenceCount: 5,
+      requiresCompletionApproval: true, recurrenceInterval: 1, recurrenceCount: 5,
     })
     setCreateOpen(true)
   }
@@ -232,6 +236,29 @@ export default function TasksMainPage() {
     finally { setSaving(false) }
   }
 
+  const openSubtask = (parent: TaskItem) => {
+    subtaskForm.resetFields()
+    subtaskForm.setFieldsValue({ assigneeUserIds: parent.assigneeUserIds, priority: parent.priority })
+    setSubtaskParent(parent)
+  }
+
+  const createSubtask = async () => {
+    if (!subtaskParent) return
+    const values = await subtaskForm.validateFields()
+    setSaving(true)
+    try {
+      const response = await apiFetch(`${API}/tasks/${subtaskParent.id}/subtasks`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...values, dueDate: toIso(values.dueDate) }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'ایجاد زیروظیفه انجام نشد')
+      message.success('زیروظیفه ایجاد و به وظیفه والد متصل شد')
+      setSubtaskParent(undefined); await load()
+    } catch (error) { message.error(error instanceof Error ? error.message : 'ایجاد زیروظیفه انجام نشد') }
+    finally { setSaving(false) }
+  }
+
   const saveView = async () => {
     const values = await viewForm.validateFields()
     setSaving(true)
@@ -264,11 +291,11 @@ export default function TasksMainPage() {
 
     <Card size="small" style={{ borderRadius: 12 }}>
       <Row gutter={[10, 10]} align="middle">
-        <Col flex="auto"><Input allowClear prefix={<SearchOutlined />} value={filters.query} onChange={event => setFilters(previous => ({ ...previous, query: event.target.value }))} placeholder="جستجو در عنوان، توضیح، برچسب و نام انجام‌دهنده..." /></Col>
+        <Col flex="320px"><Input allowClear prefix={<SearchOutlined />} value={filters.query} onChange={event => setFilters(previous => ({ ...previous, query: event.target.value }))} placeholder="جستجو در وظایف..." style={{ maxWidth: 320 }} /></Col>
         <Col><Select allowClear placeholder="نماهای ذخیره‌شده" style={{ width: 190 }} options={savedViews.map(item => ({ value: item.id, label: item.name }))} onChange={id => {
           const selected = savedViews.find(item => item.id === id); if (selected) setFilters({ ...EMPTY_FILTERS, ...selected.filters })
         }} /></Col>
-        <Col><Badge count={activeFilterCount} size="small"><Button icon={<FilterOutlined />} onClick={() => setFilterOpen(true)}>فیلتر دقیق</Button></Badge></Col>
+        <Col><Badge count={activeFilterCount} size="small"><Button icon={<FilterOutlined />} onClick={() => setFilterOpen(true)}>فیلتر</Button></Badge></Col>
         <Col><Button icon={<SaveOutlined />} onClick={() => setSaveViewOpen(true)}>ذخیره به‌عنوان نما</Button></Col>
         <Col><Segmented value={view} onChange={value => setView(value as 'board' | 'list')} options={[{ value: 'board', icon: <AppstoreOutlined />, label: 'برد کانبان' }, { value: 'list', icon: <UnorderedListOutlined />, label: 'فهرست' }]} /></Col>
       </Row>
@@ -283,9 +310,9 @@ export default function TasksMainPage() {
         : <ListView tasks={filteredTasks} users={userById} onOpen={task => { setLogs([]); setSelectedTask(task) }} onStatusChange={(task, status) => void patchTask(task, { status }, status === 'Done' ? 'پایان وظیفه برای تأیید ارسال شد' : 'وضعیت تغییر کرد')} />}
     </Spin>
 
-    <TaskCreateModal open={createOpen} form={form} users={users} tasks={tasks} saving={saving} onCancel={() => setCreateOpen(false)} onSubmit={() => void createTask()} />
+    <TaskCreateModal open={createOpen} form={form} users={users} saving={saving} onCancel={() => setCreateOpen(false)} onSubmit={() => void createTask()} />
 
-    <Drawer open={filterOpen} onClose={() => setFilterOpen(false)} title="فیلتر دقیق وظایف" width={460} extra={<Button type="link" onClick={() => setFilters({ ...EMPTY_FILTERS, projectIds: [projectId] })}>پاک‌کردن</Button>}>
+    <Drawer open={filterOpen} onClose={() => setFilterOpen(false)} title="فیلتر وظایف" width={460} extra={<Button type="link" onClick={() => setFilters({ ...EMPTY_FILTERS, projectIds: [projectId] })}>پاک‌کردن</Button>}>
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <FilterSelect label="انجام‌دهنده" value={filters.assigneeUserIds} onChange={value => setFilters(previous => ({ ...previous, assigneeUserIds: value }))} options={users.map(user => ({ value: user.id, label: `${userLabel(user)}${user.position ? ` — ${user.position}` : ''}` }))} />
         <FilterSelect label="وضعیت" value={filters.statuses} onChange={value => setFilters(previous => ({ ...previous, statuses: value as TaskStatus[] }))} options={STATUS_COLUMNS.map(item => ({ value: item.key, label: item.title }))} />
@@ -301,11 +328,21 @@ export default function TasksMainPage() {
       <Form form={viewForm} layout="vertical"><Form.Item name="name" label="نام نما" rules={[{ required: true, message: 'نام نما را وارد کنید' }, { max: 80 }]}><Input maxLength={80} placeholder="مثلاً وظایف فوری این هفته" /></Form.Item></Form>
     </Modal>
 
-    <TaskDetails task={selectedTask} users={userById} currentUserId={currentUser.id} subtasks={subtasks} logs={logs} logsLoading={logsLoading} saving={saving} reassignIds={reassignIds} onReassignIds={setReassignIds} onClose={() => setSelectedTask(undefined)} onPatch={patchTask} onDelete={deleteTask} onAddSubtask={task => openCreate('Todo', task.id)} />
+    <TaskDetails task={selectedTask} users={userById} currentUserId={currentUser.id} subtasks={subtasks} logs={logs} logsLoading={logsLoading} saving={saving} reassignIds={reassignIds} onReassignIds={setReassignIds} onClose={() => setSelectedTask(undefined)} onPatch={patchTask} onDelete={deleteTask} onAddSubtask={openSubtask} />
+
+    <Modal open={Boolean(subtaskParent)} title={subtaskParent ? `زیروظیفه جدید برای «${subtaskParent.title}»` : 'زیروظیفه جدید'} onCancel={() => setSubtaskParent(undefined)} onOk={() => void createSubtask()} confirmLoading={saving} okText="ایجاد زیروظیفه" cancelText="انصراف" centered maskClosable={false} okButtonProps={{ style: { background: PRIMARY } }}>
+      <Form form={subtaskForm} layout="vertical">
+        <Form.Item name="title" label="عنوان زیروظیفه" rules={[{ required: true, message: 'عنوان زیروظیفه را وارد کنید' }, { max: 200 }]}><Input maxLength={200} showCount autoFocus /></Form.Item>
+        <Form.Item name="description" label="شرح"><Input.TextArea rows={3} maxLength={1500} showCount /></Form.Item>
+        <Row gutter={12}><Col span={12}><Form.Item name="assigneeUserIds" label="انجام‌دهندگان" rules={[{ required: true, message: 'حداقل یک نفر را انتخاب کنید' }]}><Select mode="multiple" showSearch optionFilterProp="label" options={users.map(user => ({ value: user.id, label: userLabel(user) }))} /></Form.Item></Col><Col span={12}><Form.Item name="priority" label="اولویت"><Select options={PRIORITIES.map(item => ({ value: item.value, label: item.label }))} /></Form.Item></Col></Row>
+        <Form.Item name="dueDate" label="تاریخ پایان"><PersianDatePicker style={{ width: '100%' }} /></Form.Item>
+        <Typography.Text type="secondary">پروژه‌ها و تنظیم تأیید پایان از وظیفه والد به‌صورت خودکار به ارث می‌رسند.</Typography.Text>
+      </Form>
+    </Modal>
   </div>
 }
 
-function TaskCreateModal({ open, form, users, tasks, saving, onCancel, onSubmit }: { open: boolean; form: ReturnType<typeof Form.useForm>[0]; users: DirectoryUser[]; tasks: TaskItem[]; saving: boolean; onCancel: () => void; onSubmit: () => void }) {
+function TaskCreateModal({ open, form, users, saving, onCancel, onSubmit }: { open: boolean; form: ReturnType<typeof Form.useForm>[0]; users: DirectoryUser[]; saving: boolean; onCancel: () => void; onSubmit: () => void }) {
   const recurring = Form.useWatch('isRecurring', form)
   const recurrenceType = Form.useWatch('recurrenceType', form)
   return <Modal open={open} onCancel={onCancel} onOk={onSubmit} confirmLoading={saving} title="ایجاد وظیفه جدید" okText="ایجاد وظیفه" cancelText="انصراف" width={860} centered maskClosable={false} okButtonProps={{ style: { background: PRIMARY } }}>
@@ -328,8 +365,7 @@ function TaskCreateModal({ open, form, users, tasks, saving, onCancel, onSubmit 
             <Col span={12}><Form.Item name="dueDate" label="تاریخ پایان" dependencies={['startDate']} rules={[({ getFieldValue }) => ({ validator(_, value) { const start = getFieldValue('startDate'); return !start || !value || jalaliToDate(value) >= jalaliToDate(start) ? Promise.resolve() : Promise.reject(new Error('تاریخ پایان نباید قبل از شروع باشد')) } })]}><PersianDatePicker style={{ width: '100%' }} placeholder="انتخاب تاریخ پایان" /></Form.Item></Col>
           </Row>
           <Row gutter={12}>
-            <Col span={12}><Form.Item name="tags" label="تگ یا برچسب"><Select mode="tags" tokenSeparators={[',', '،']} maxTagCount="responsive" placeholder="مثلاً فوری، طراحی، مشتری" /></Form.Item></Col>
-            <Col span={12}><Form.Item name="parentTaskId" label="زیروظیفه‌ی"><Select allowClear showSearch optionFilterProp="label" options={tasks.map(task => ({ value: task.id, label: task.title }))} placeholder="در صورت نیاز وظیفه والد را انتخاب کنید" /></Form.Item></Col>
+            <Col span={24}><Form.Item name="tags" label="تگ یا برچسب"><Select mode="tags" tokenSeparators={[',', '،']} maxTagCount="responsive" placeholder="مثلاً فوری، طراحی، مشتری" /></Form.Item></Col>
           </Row>
           <Form.Item name="requiresCompletionApproval" valuePropName="checked"><Checkbox>پس از اعلام پایان توسط انجام‌دهنده، تأیید نویسنده الزامی باشد</Checkbox></Form.Item>
         </> },
@@ -338,9 +374,9 @@ function TaskCreateModal({ open, form, users, tasks, saving, onCancel, onSubmit 
           {recurring && <>
             <Row gutter={12}>
               <Col span={12}><Form.Item name="recurrenceType" label="الگوی تکرار" rules={[{ required: true, message: 'الگوی تکرار را انتخاب کنید' }]}><Select options={RECURRENCES} /></Form.Item></Col>
-              <Col span={12}><Form.Item name="recurrenceInterval" label={recurrenceType === 'EveryNDays' ? 'هر چند روز یک‌بار' : 'فاصله دوره‌ها'} rules={[{ required: true }]}><InputNumber min={1} max={365} style={{ width: '100%' }} addonAfter={recurrenceType === 'Yearly' ? 'سال' : recurrenceType === 'Monthly' || recurrenceType === 'LastWeekdayOfMonth' ? 'ماه' : 'روز'} /></Form.Item></Col>
+              <Col span={12}><Form.Item name="recurrenceInterval" label={recurrenceType === 'EveryNDays' ? 'هر چند روز یک‌بار' : 'فاصله دوره‌ها'} rules={[{ required: true }]}><InputNumber min={1} max={365} style={{ width: '100%' }} addonAfter={recurrenceType === 'Yearly' ? 'سال' : ['Monthly', 'LastWeekdayOfMonth', 'FirstWeekdayOfMonth'].includes(String(recurrenceType)) ? 'ماه' : 'روز'} /></Form.Item></Col>
             </Row>
-            {recurrenceType === 'LastWeekdayOfMonth' && <Form.Item name="recurrenceWeekday" label="آخرین کدام روز هفته؟" initialValue={1} rules={[{ required: true }]}><Select options={WEEKDAYS} /></Form.Item>}
+            {['LastWeekdayOfMonth', 'FirstWeekdayOfMonth'].includes(String(recurrenceType)) && <Form.Item name="recurrenceWeekday" label={recurrenceType === 'LastWeekdayOfMonth' ? 'آخرین چندشنبه ماه؟' : 'اولین چندشنبه ماه؟'} initialValue={1} rules={[{ required: true }]}><Select options={WEEKDAYS} /></Form.Item>}
             <Row gutter={12}>
               <Col span={12}><Form.Item name="recurrenceEndDate" label="تاریخ پایان دوره‌های تکرار"><PersianDatePicker style={{ width: '100%' }} /></Form.Item></Col>
               <Col span={12}><Form.Item name="recurrenceCount" label="تعداد کل تکرار"><InputNumber min={1} max={100} style={{ width: '100%' }} /></Form.Item></Col>

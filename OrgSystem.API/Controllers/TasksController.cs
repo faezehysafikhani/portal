@@ -82,6 +82,34 @@ public class TasksController(AppDbContext db) : ControllerBase
         return Ok(logs.Select(x => new { x.Id, x.TaskId, x.ActorUserId, x.Action, Details = ParseObject(x.DetailsJson), x.CreatedAt }));
     }
 
+    [HttpPost("{id:guid}/subtasks")]
+    [RequirePermission("tasks.create")]
+    public async Task<IActionResult> CreateSubtask(Guid id, SubtaskRequest request, CancellationToken ct)
+    {
+        var parent = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (parent == null || (!CanManage && !IncludesUser(parent, UserId))) return NotFound(new { message = "وظیفه والد یافت نشد" });
+        var title = (request.Title ?? string.Empty).Trim();
+        if (title.Length is < 1 or > 200) return BadRequest(new { message = "عنوان زیروظیفه باید بین ۱ تا ۲۰۰ نویسه باشد" });
+        var assignees = Distinct(request.AssigneeUserIds?.Count > 0 ? request.AssigneeUserIds : ParseGuids(parent.AssigneeUserIdsJson));
+        if (assignees.Count == 0 && parent.AssignedToUserId.HasValue) assignees.Add(parent.AssignedToUserId.Value);
+        if (assignees.Count == 0) assignees.Add(UserId);
+        if (assignees.Any(x => x != UserId) && !CanManage) return Forbid();
+        var item = new TaskItem
+        {
+            TenantId = TenantId, Title = title, Description = request.Description, ProjectId = parent.ProjectId,
+            ProjectIdsJson = parent.ProjectIdsJson, Status = TaskItemStatus.Todo, Priority = request.Priority ?? parent.Priority,
+            StartDate = DateTime.UtcNow, DueDate = request.DueDate ?? parent.DueDate, AssignedByUserId = UserId,
+            AssignedToUserId = assignees[0], AssigneeUserIdsJson = JsonSerializer.Serialize(assignees), ParentTaskId = parent.Id,
+            EstimatedHours = request.EstimatedHours, TagsJson = JsonSerializer.Serialize(DistinctStrings(request.Tags ?? [])),
+            RequiresCompletionApproval = parent.RequiresCompletionApproval,
+        };
+        db.Tasks.Add(item);
+        db.TaskActivityLogs.Add(Log(item.Id, "Created", new { parentTaskId = parent.Id }));
+        db.TaskActivityLogs.Add(Log(parent.Id, "SubtaskCreated", new { subtaskId = item.Id, title }));
+        await db.SaveChangesAsync(ct);
+        return CreatedAtAction(nameof(List), ToDto(item));
+    }
+
     [HttpPost]
     [RequirePermission("tasks.create")]
     public async Task<IActionResult> Create(TaskRequest request, CancellationToken ct)
@@ -226,7 +254,14 @@ public class TasksController(AppDbContext db) : ControllerBase
         if (type == "EveryNDays") return current.AddDays(interval);
         if (type == "Yearly") return current.AddYears(interval);
         var next = current.AddMonths(interval);
-        if (type != "LastWeekdayOfMonth") return next;
+        if (type != "LastWeekdayOfMonth" && type != "FirstWeekdayOfMonth") return next;
+        if (type == "FirstWeekdayOfMonth")
+        {
+            var first = new DateTime(next.Year, next.Month, 1, next.Hour, next.Minute, next.Second, next.Kind);
+            var firstTarget = (DayOfWeek)Math.Clamp(weekday ?? 1, 0, 6);
+            while (first.DayOfWeek != firstTarget) first = first.AddDays(1);
+            return first;
+        }
         var last = new DateTime(next.Year, next.Month, DateTime.DaysInMonth(next.Year, next.Month), next.Hour, next.Minute, next.Second, next.Kind);
         var target = (DayOfWeek)Math.Clamp(weekday ?? 1, 0, 6);
         while (last.DayOfWeek != target) last = last.AddDays(-1);
@@ -287,6 +322,17 @@ public class UpdateTaskRequest
     public bool RequestCompletion { get; set; }
     public bool ApproveCompletion { get; set; }
     public bool RejectCompletion { get; set; }
+}
+
+public class SubtaskRequest
+{
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public List<Guid>? AssigneeUserIds { get; set; }
+    public TaskPriority? Priority { get; set; }
+    public DateTime? DueDate { get; set; }
+    public int? EstimatedHours { get; set; }
+    public List<string>? Tags { get; set; }
 }
 
 public record SaveTaskViewRequest(string? Name, object? Filters);
