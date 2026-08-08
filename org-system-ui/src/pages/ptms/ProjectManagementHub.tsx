@@ -1,8 +1,9 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { Button, Card, Col, Descriptions, Form, Input, Modal, Progress, Row, Select, Space, Table, Tabs, Tag, Timeline } from 'antd'
+import { useState, type ReactNode } from 'react'
+import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline } from 'antd'
 import { AppstoreOutlined, FileTextOutlined, PlusOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons'
 import ProjectContextHeader from './ProjectContextHeader'
-import { SAMPLE_PROJECTS, SAMPLE_TASKS, USERS } from './ptmsData'
+import ProjectExecutionViews from './ProjectExecutionViews'
+import { SAMPLE_PROJECTS, USERS } from './ptmsData'
 
 const controlSeed = [
   { id: '1', type: 'ریسک', title: 'تأخیر تأمین زیرساخت', owner: 'علی محمدی', status: 'نیازمند اقدام' },
@@ -24,7 +25,6 @@ export default function ProjectManagementHub({ projectId, onProjectChange, statu
   const [projectForm] = Form.useForm()
   const [controlForm] = Form.useForm()
   const project = SAMPLE_PROJECTS.find(p => p.id === projectId) || SAMPLE_PROJECTS[0]
-  const tasks = useMemo(() => SAMPLE_TASKS.filter(t => t.projectId === projectId), [projectId])
 
   const saveProject = async () => {
     await projectForm.validateFields()
@@ -38,39 +38,12 @@ export default function ProjectManagementHub({ projectId, onProjectChange, statu
     controlForm.resetFields()
   }
 
-  const ganttColumns = [
-    { title: 'فعالیت', dataIndex: 'title', width: 260 },
-    { title: 'مسئول', dataIndex: 'assignee', width: 140 },
-    { title: 'شروع', dataIndex: 'startDate', width: 120 },
-    { title: 'پایان', dataIndex: 'deadline', width: 120 },
-    { title: 'مدت', dataIndex: 'estimatedHours', width: 100, render: (v: number) => `${v} ساعت` },
-    { title: 'وابستگی', key: 'dependency', width: 150, render: (_: unknown, __: unknown, index: number) => index ? tasks[index - 1]?.code : '—' },
-    { title: 'نمودار گانت', key: 'gantt', width: 320, render: (_: unknown, r: typeof tasks[number]) => <div style={{ minWidth: 260, background: '#f5f5f5', height: 18, borderRadius: 9, overflow: 'hidden' }}><div style={{ width: `${Math.max(r.progress, 12)}%`, height: '100%', background: '#8B1A6B', color: 'white', fontSize: 10, textAlign: 'center' }}>{r.progress}٪</div></div> },
-  ]
-
-  const executionViews = <Tabs type="card" items={[
-    {
-      key: 'kanban', label: 'کانبان', children: <Table size="middle" rowKey="id" pagination={false} scroll={{ x: 1100 }} dataSource={tasks} columns={[
-        { title: 'کد', dataIndex: 'code', width: 100 }, { title: 'کارت وظیفه', dataIndex: 'title', width: 300 }, { title: 'ستون کانبان', dataIndex: 'status', width: 160, render: (v: string) => <Tag color="purple">{v}</Tag> },
-        { title: 'مسئول', dataIndex: 'assignee', width: 150 }, { title: 'اولویت', dataIndex: 'priority', width: 110, render: (v: string) => <Tag>{v}</Tag> }, { title: 'سررسید', dataIndex: 'deadline', width: 130 }, { title: 'پیشرفت', dataIndex: 'progress', width: 190, render: (v: number) => <Progress percent={v} size="small" strokeColor="#8B1A6B" /> },
-      ]} />
-    },
-    {
-      key: 'scrum', label: 'اسکرام', children: <Table size="middle" rowKey="id" pagination={false} scroll={{ x: 1150 }} dataSource={tasks} columns={[
-        { title: 'آیتم بک‌لاگ', dataIndex: 'title', width: 300 }, { title: 'اسپرینت', key: 'sprint', width: 140, render: (_: unknown, __: unknown, i: number) => `اسپرینت ${Math.floor(i / 3) + 1}` },
-        { title: 'امتیاز داستان', dataIndex: 'estimatedHours', width: 130, render: (v: number) => Math.max(1, Math.round(v / 8)) }, { title: 'مسئول', dataIndex: 'assignee', width: 150 },
-        { title: 'وضعیت', dataIndex: 'status', width: 150, render: (v: string) => <Tag color="blue">{v}</Tag> }, { title: 'برچسب‌ها', dataIndex: 'tags', width: 220, render: (v: string[]) => v.map(x => <Tag key={x}>{x}</Tag>) },
-      ]} />
-    },
-    { key: 'gantt', label: 'گانت', children: <Table size="middle" rowKey="id" pagination={false} scroll={{ x: 1250 }} dataSource={tasks} columns={ganttColumns} /> },
-  ]} />
-
   return (
     <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 16 } }}>
       <ProjectContextHeader title="مدیریت پروژه‌ها" projectId={projectId} onProjectChange={onProjectChange} onAdd={() => setNewProjectOpen(true)} addLabel="پروژه جدید" />
       <Tabs destroyOnHidden style={{ marginTop: 12 }} items={[
         { key: 'status', label: <span><ProjectOutlined /> داشبورد وضعیت</span>, children: statusContent },
-        { key: 'views', label: <span><AppstoreOutlined /> نماهای اجرا</span>, children: executionViews },
+        { key: 'views', label: <span><AppstoreOutlined /> نماهای اجرا</span>, children: <ProjectExecutionViews key={projectId} projectId={projectId} /> },
         {
           key: 'charter', label: <span><FileTextOutlined /> منشور پروژه</span>, children: <Row gutter={[12, 12]}>
             <Col xs={24} xl={10}><Card size="small" title="منشور و اطلاعات پایه"><Descriptions column={1} size="small" items={[
