@@ -6,12 +6,12 @@ import {
 } from 'antd'
 import {
   AppstoreOutlined, CheckCircleOutlined, CheckOutlined, ClockCircleOutlined,
-  DeleteOutlined, FilterOutlined, HistoryOutlined, PlusOutlined, RedoOutlined, SaveOutlined,
+  CalendarOutlined, DeleteOutlined, FilterOutlined, HistoryOutlined, LeftOutlined, PlusOutlined, RedoOutlined, RightOutlined, SaveOutlined,
   SearchOutlined, TagsOutlined, UnorderedListOutlined, UserSwitchOutlined, UserOutlined,
 } from '@ant-design/icons'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { apiFetch } from '../../utils/api'
-import { formatJalaliDate, jalaliToDate } from '../../utils/jalali'
+import { currentJalali, dateToJalali, formatJalaliDate, isLeapJalali, jalaliToDate } from '../../utils/jalali'
 import ProjectContextHeader from './ProjectContextHeader'
 import { SAMPLE_PROJECTS } from './ptmsData'
 
@@ -110,7 +110,7 @@ export default function TasksMainPage() {
   const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [view, setView] = useState<'board' | 'list'>('board')
+  const [view, setView] = useState<'board' | 'list' | 'calendar'>('board')
   const [createOpen, setCreateOpen] = useState(false)
   const [subtaskParent, setSubtaskParent] = useState<TaskItem>()
   const [filterOpen, setFilterOpen] = useState(false)
@@ -181,11 +181,11 @@ export default function TasksMainPage() {
       && (!filters.dueTo || (due !== undefined && due <= jalaliToDate(filters.dueTo).getTime() + 86_399_999))
   }), [tasks, filters, projectId, userById])
 
-  const openCreate = (status: TaskStatus = 'Todo') => {
+  const openCreate = (status: TaskStatus = 'Todo', dueDate?: string) => {
     form.resetFields()
     form.setFieldsValue({
       status, priority: 'Medium', assigneeUserIds: currentUser.id ? [currentUser.id] : [], projectIds: [projectId],
-      requiresCompletionApproval: true, recurrenceInterval: 1, recurrenceCount: 5,
+      requiresCompletionApproval: true, recurrenceInterval: 1, recurrenceCount: 5, dueDate,
     })
     setCreateOpen(true)
   }
@@ -297,7 +297,7 @@ export default function TasksMainPage() {
         }} /></Col>
         <Col><Badge count={activeFilterCount} size="small"><Button icon={<FilterOutlined />} onClick={() => setFilterOpen(true)}>فیلتر</Button></Badge></Col>
         <Col><Button icon={<SaveOutlined />} onClick={() => setSaveViewOpen(true)}>ذخیره به‌عنوان نما</Button></Col>
-        <Col><Segmented value={view} onChange={value => setView(value as 'board' | 'list')} options={[{ value: 'board', icon: <AppstoreOutlined />, label: 'برد کانبان' }, { value: 'list', icon: <UnorderedListOutlined />, label: 'فهرست' }]} /></Col>
+        <Col><Segmented value={view} onChange={value => setView(value as 'board' | 'list' | 'calendar')} options={[{ value: 'board', icon: <AppstoreOutlined />, label: 'برد کانبان' }, { value: 'list', icon: <UnorderedListOutlined />, label: 'فهرست' }, { value: 'calendar', icon: <CalendarOutlined />, label: 'تقویم' }]} /></Col>
       </Row>
       {savedViews.length > 0 && <Space wrap style={{ marginTop: 10 }}>{savedViews.map(item => <Tag key={item.id} closable onClose={event => { event.preventDefault(); void deleteView(item.id) }} onClick={() => setFilters({ ...EMPTY_FILTERS, ...item.filters })} style={{ cursor: 'pointer' }}>{item.name}</Tag>)}</Space>}
     </Card>
@@ -307,7 +307,9 @@ export default function TasksMainPage() {
         ? <BoardView tasks={filteredTasks} users={userById} draggingId={draggingId} onDrag={setDraggingId} onDrop={(id, status) => {
           const task = tasks.find(item => item.id === id); if (task) void patchTask(task, { status }, status === 'Done' ? 'پایان وظیفه برای تأیید نویسنده ارسال شد' : 'وضعیت وظیفه تغییر کرد')
         }} onOpen={task => { setLogs([]); setSelectedTask(task) }} quickStatus={quickStatus} quickTitle={quickTitle} onQuickStatus={setQuickStatus} onQuickTitle={setQuickTitle} onQuickCreate={() => quickStatus && void createTask({ title: quickTitle, status: quickStatus })} onCreate={openCreate} saving={saving} />
-        : <ListView tasks={filteredTasks} users={userById} onOpen={task => { setLogs([]); setSelectedTask(task) }} onStatusChange={(task, status) => void patchTask(task, { status }, status === 'Done' ? 'پایان وظیفه برای تأیید ارسال شد' : 'وضعیت تغییر کرد')} />}
+        : view === 'list'
+          ? <ListView tasks={filteredTasks} users={userById} onOpen={task => { setLogs([]); setSelectedTask(task) }} onStatusChange={(task, status) => void patchTask(task, { status }, status === 'Done' ? 'پایان وظیفه برای تأیید ارسال شد' : 'وضعیت تغییر کرد')} />
+          : <CalendarView tasks={filteredTasks} onOpen={task => { setLogs([]); setSelectedTask(task) }} onCreate={date => openCreate('Todo', date)} />}
     </Spin>
 
     <TaskCreateModal open={createOpen} form={form} users={users} saving={saving} onCancel={() => setCreateOpen(false)} onSubmit={() => void createTask()} />
@@ -429,6 +431,109 @@ function ListView({ tasks, users, onOpen, onStatusChange }: { tasks: TaskItem[];
     { title: 'شروع', dataIndex: 'startDate', width: 120, render: safeDate }, { title: 'پایان', dataIndex: 'dueDate', width: 120, render: safeDate },
     { title: 'وضعیت', dataIndex: 'status', width: 155, render: (value: TaskStatus, task: TaskItem) => <Select size="small" value={value} onClick={event => event.stopPropagation()} onChange={status => onStatusChange(task, status)} style={{ width: 145 }} options={STATUS_COLUMNS.map(item => ({ value: item.key, label: item.title }))} /> },
   ]} /></Card>
+}
+
+const JALALI_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
+const CALENDAR_WEEKDAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه']
+
+interface CalendarMarker { task: TaskItem; kind: 'start' | 'due' | 'both' }
+
+function taskJalaliDate(value?: string) {
+  if (!value) return undefined
+  const direct = value.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/)
+  if (direct && Number(direct[1]) < 1700) return { year: Number(direct[1]), month: Number(direct[2]), day: Number(direct[3]) }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  const result = dateToJalali(date)
+  return { year: result.jy, month: result.jm, day: result.jd }
+}
+
+function CalendarView({ tasks, onOpen, onCreate }: { tasks: TaskItem[]; onOpen: (task: TaskItem) => void; onCreate: (date: string) => void }) {
+  const today = currentJalali()
+  const [visible, setVisible] = useState({ year: today.year, month: today.month })
+  const daysInMonth = visible.month <= 6 ? 31 : visible.month <= 11 ? 30 : isLeapJalali(visible.year) ? 30 : 29
+  const firstWeekday = (jalaliToDate(`${visible.year}/${visible.month}/1`).getDay() + 1) % 7
+
+  const markers = useMemo(() => {
+    const result = new Map<number, CalendarMarker[]>()
+    tasks.forEach(task => {
+      const start = taskJalaliDate(task.startDate)
+      const due = taskJalaliDate(task.dueDate)
+      const startHere = start?.year === visible.year && start.month === visible.month
+      const dueHere = due?.year === visible.year && due.month === visible.month
+      if (startHere && dueHere && start.day === due.day) {
+        result.set(start.day, [...(result.get(start.day) || []), { task, kind: 'both' }])
+        return
+      }
+      if (startHere) result.set(start.day, [...(result.get(start.day) || []), { task, kind: 'start' }])
+      if (dueHere) result.set(due.day, [...(result.get(due.day) || []), { task, kind: 'due' }])
+    })
+    return result
+  }, [tasks, visible])
+
+  const withoutDate = tasks.filter(task => !task.startDate && !task.dueDate)
+  const navigateMonth = (step: number) => setVisible(previous => {
+    const index = previous.year * 12 + previous.month - 1 + step
+    return { year: Math.floor(index / 12), month: (index % 12 + 12) % 12 + 1 }
+  })
+  const goToday = () => setVisible({ year: today.year, month: today.month })
+  const dateValue = (day: number) => `${visible.year}/${String(visible.month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
+
+  return <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #f0f0f0', flexWrap: 'wrap' }}>
+      <Space>
+        <Button icon={<RightOutlined />} onClick={() => navigateMonth(-1)} aria-label="ماه قبل" />
+        <Button onClick={goToday}>امروز</Button>
+        <Button icon={<LeftOutlined />} onClick={() => navigateMonth(1)} aria-label="ماه بعد" />
+      </Space>
+      <Typography.Title level={4} style={{ margin: 0 }}>{JALALI_MONTHS[visible.month - 1]} {visible.year.toLocaleString('fa-IR', { useGrouping: false })}</Typography.Title>
+      <Space wrap size={12} style={{ fontSize: 11 }}>
+        <span><Badge color="#1677ff" /> شروع وظیفه</span>
+        <span><Badge color="#8B1A6B" /> سررسید</span>
+        <span><Badge color="#52c41a" /> تکمیل‌شده</span>
+      </Space>
+    </div>
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ minWidth: 940, padding: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(130px, 1fr))', gap: 5, marginBottom: 5 }}>
+          {CALENDAR_WEEKDAYS.map((weekday, index) => <div key={weekday} style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 7, background: index === 6 ? '#fff1f0' : '#fafafa', color: index === 6 ? '#f5222d' : '#595959', fontWeight: 700 }}>{weekday}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(130px, 1fr))', gap: 5 }}>
+          {Array.from({ length: firstWeekday }, (_, index) => <div key={`empty-${index}`} style={{ minHeight: 130, borderRadius: 8, background: '#fafafa' }} />)}
+          {Array.from({ length: daysInMonth }, (_, index) => {
+            const day = index + 1
+            const dayMarkers = markers.get(day) || []
+            const weekday = (firstWeekday + index) % 7
+            const isToday = visible.year === today.year && visible.month === today.month && day === today.day
+            return <div key={day} style={{ minHeight: 130, border: isToday ? `2px solid ${PRIMARY}` : '1px solid #ededed', background: weekday === 6 ? '#fff8f7' : '#fff', borderRadius: 8, padding: 6, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <span style={{ display: 'grid', placeItems: 'center', width: 25, height: 25, borderRadius: '50%', background: isToday ? PRIMARY : 'transparent', color: isToday ? '#fff' : weekday === 6 ? '#f5222d' : '#333', fontWeight: isToday ? 700 : 400 }}>{day.toLocaleString('fa-IR')}</span>
+                <Tooltip title="ایجاد وظیفه با این سررسید"><Button type="text" size="small" icon={<PlusOutlined />} onClick={() => onCreate(dateValue(day))} /></Tooltip>
+              </div>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {dayMarkers.slice(0, 3).map(({ task, kind }) => {
+                  const completed = task.status === 'Done'
+                  const color = completed ? '#52c41a' : kind === 'start' ? '#1677ff' : PRIMARY
+                  const label = kind === 'start' ? 'شروع' : kind === 'due' ? 'سررسید' : 'شروع و سررسید'
+                  return <Tooltip key={`${task.id}-${kind}`} title={<div><b>{task.title}</b><br />{label} — {statusMeta(task.status).title}</div>}>
+                    <button onClick={() => onOpen(task)} style={{ display: 'block', width: '100%', border: 0, borderRight: `3px solid ${color}`, borderRadius: 5, background: `${color}12`, padding: '5px 6px', textAlign: 'right', cursor: 'pointer', color: '#333', overflow: 'hidden' }}>
+                      <span style={{ display: 'block', fontSize: 10, color }}>{label}</span>
+                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600 }}>{task.title}</span>
+                    </button>
+                  </Tooltip>
+                })}
+                {dayMarkers.length > 3 && <Tag style={{ margin: 0, textAlign: 'center' }}>+{(dayMarkers.length - 3).toLocaleString('fa-IR')} وظیفه دیگر</Tag>}
+              </Space>
+            </div>
+          })}
+        </div>
+      </div>
+    </div>
+    {withoutDate.length > 0 && <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0' }}>
+      <Typography.Text strong>وظایف بدون تاریخ:</Typography.Text>
+      <Space wrap style={{ marginRight: 10 }}>{withoutDate.map(task => <Tag key={task.id} color={priorityMeta(task.priority).color} onClick={() => onOpen(task)} style={{ cursor: 'pointer', padding: '4px 8px' }}>{task.title}</Tag>)}</Space>
+    </div>}
+  </Card>
 }
 
 function TaskDetails({ task, users, currentUserId, subtasks, logs, logsLoading, saving, reassignIds, onReassignIds, onClose, onPatch, onDelete, onAddSubtask }: {
