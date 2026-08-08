@@ -47,6 +47,8 @@ public class AppDbContext : DbContext
     // Tasks
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
     public DbSet<TaskComment> TaskComments => Set<TaskComment>();
+    public DbSet<TaskActivityLog> TaskActivityLogs => Set<TaskActivityLog>();
+    public DbSet<TaskSavedView> TaskSavedViews => Set<TaskSavedView>();
 
     // CRM
     public DbSet<Customer> Customers => Set<Customer>();
@@ -113,6 +115,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AiConversation>().HasIndex(x => new { x.UserId, x.CreatedAt });
         modelBuilder.Entity<AiChatMessage>().HasOne(x => x.Conversation).WithMany(x => x.Messages).HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AiChatMessage>().HasIndex(x => new { x.ConversationId, x.CreatedAt });
+        modelBuilder.Entity<TaskActivityLog>().HasOne(x => x.Task).WithMany(x => x.ActivityLogs).HasForeignKey(x => x.TaskId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<TaskActivityLog>().HasIndex(x => new { x.TaskId, x.CreatedAt });
+        modelBuilder.Entity<TaskSavedView>().HasIndex(x => new { x.OwnerUserId, x.Name }).IsUnique();
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {

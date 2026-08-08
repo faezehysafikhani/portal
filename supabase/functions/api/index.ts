@@ -492,10 +492,26 @@ async function directory(request: Request, auth: AuthContext): Promise<Response>
 
 const taskStatus = ['Todo', 'InProgress', 'InReview', 'Done', 'Cancelled']
 const taskPriority = ['Low', 'Medium', 'High', 'Critical']
+const recurrenceTypes = ['Daily', 'Monthly', 'Yearly', 'EveryNDays', 'LastWeekdayOfMonth']
+function stringArray(value: unknown, max = 50): string[] {
+  let source: unknown = value
+  if (typeof source === 'string') {
+    const original = source
+    try { source = JSON.parse(source) } catch { source = [original] }
+  }
+  if (!Array.isArray(source)) return []
+  return [...new Set(source.map((item) => String(item).trim()).filter(Boolean))].slice(0, max)
+}
 function taskDto(item: JsonObject): JsonObject {
   const result = asCamel(item) as JsonObject
   result.status = typeof item.Status === 'number' ? taskStatus[item.Status] : item.Status
   result.priority = typeof item.Priority === 'number' ? taskPriority[item.Priority] : item.Priority
+  result.assigneeUserIds = stringArray(item.AssigneeUserIdsJson)
+  result.projectIds = stringArray(item.ProjectIdsJson)
+  result.tags = stringArray(item.TagsJson)
+  delete result.assigneeUserIdsJson
+  delete result.projectIdsJson
+  delete result.tagsJson
   return result
 }
 function enumValue(value: unknown, names: string[]): unknown {
@@ -504,59 +520,240 @@ function enumValue(value: unknown, names: string[]): unknown {
   return index >= 0 ? index : value
 }
 
+async function addTaskLog(auth: AuthContext, taskId: string, action: string, details: JsonObject = {}): Promise<void> {
+  const result = await db.from('TaskActivityLogs').insert({
+    ...baseInsert(auth), TaskId: taskId, ActorUserId: auth.userId,
+    Action: action.slice(0, 80), DetailsJson: JSON.stringify(details),
+  })
+  failOnDb(result.error, 'ثبت تاریخچه وظیفه انجام نشد')
+}
+
+function nextOccurrence(current: Date, type: string, interval: number, weekday?: number): Date {
+  const next = new Date(current)
+  if (type === 'Daily' || type === 'EveryNDays') next.setUTCDate(next.getUTCDate() + (type === 'Daily' ? 1 : interval))
+  else if (type === 'Yearly') next.setUTCFullYear(next.getUTCFullYear() + interval)
+  else {
+    next.setUTCMonth(next.getUTCMonth() + interval)
+    if (type === 'LastWeekdayOfMonth') {
+      next.setUTCMonth(next.getUTCMonth() + 1, 0)
+      const target = Math.max(0, Math.min(6, Number(weekday ?? 1)))
+      next.setUTCDate(next.getUTCDate() - ((next.getUTCDay() - target + 7) % 7))
+    }
+  }
+  return next
+}
+
+function canManageTasks(auth: AuthContext): boolean {
+  return auth.isAdmin || auth.permissions.includes('tasks.assign')
+}
+
+function taskIncludesUser(task: JsonObject, userId: string): boolean {
+  return task.AssignedByUserId === userId || task.AssignedToUserId === userId || stringArray(task.AssigneeUserIdsJson).includes(userId)
+}
+
 async function tasks(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response> {
   requirePermission(auth, 'tasks.view')
-  const match = path.match(/^\/tasks\/([0-9a-f-]+)$/i)
-  if (request.method === 'GET' && !match) {
+  const taskMatch = path.match(/^\/tasks\/([0-9a-f-]+)$/i)
+  const logMatch = path.match(/^\/tasks\/([0-9a-f-]+)\/logs$/i)
+  const viewMatch = path.match(/^\/tasks\/views\/([0-9a-f-]+)$/i)
+  if (request.method === 'GET' && path === '/tasks/views') {
+    const result = await db.from('TaskSavedViews').select('*').eq('TenantId', auth.tenantId)
+      .eq('OwnerUserId', auth.userId).eq('IsDeleted', false).order('CreatedAt')
+    failOnDb(result.error)
+    return json(request, (result.data ?? []).map((item) => ({
+      ...asCamel(item) as JsonObject,
+      filters: (() => { try { return JSON.parse(String(item.FiltersJson ?? '{}')) } catch { return {} } })(),
+      filtersJson: undefined,
+    })))
+  }
+  if (request.method === 'POST' && path === '/tasks/views') {
+    const input = await body<JsonObject>(request)
+    const name = String(input.name ?? '').trim().slice(0, 80)
+    if (!name) throw new HttpError(400, 'نام نما الزامی است')
+    const filters = input.filters && typeof input.filters === 'object' ? input.filters : {}
+    const existing = await db.from('TaskSavedViews').select('Id').eq('TenantId', auth.tenantId)
+      .eq('OwnerUserId', auth.userId).eq('Name', name).eq('IsDeleted', false).maybeSingle()
+    failOnDb(existing.error)
+    const result = existing.data
+      ? await db.from('TaskSavedViews').update({ FiltersJson: JSON.stringify(filters), UpdatedAt: now() })
+        .eq('Id', existing.data.Id).eq('TenantId', auth.tenantId).select().single()
+      : await db.from('TaskSavedViews').insert({
+        ...baseInsert(auth), OwnerUserId: auth.userId, Name: name, FiltersJson: JSON.stringify(filters),
+      }).select().single()
+    failOnDb(result.error)
+    return json(request, { ...asCamel(result.data) as JsonObject, filters, filtersJson: undefined }, 201)
+  }
+  if (request.method === 'DELETE' && viewMatch) {
+    const result = await db.from('TaskSavedViews').update({ IsDeleted: true, DeletedAt: now() })
+      .eq('Id', viewMatch[1]).eq('TenantId', auth.tenantId).eq('OwnerUserId', auth.userId)
+    failOnDb(result.error)
+    return new Response(null, { status: 204, headers: corsHeaders(request) })
+  }
+  if (request.method === 'GET' && logMatch) {
+    const taskResult = await db.from('Tasks').select('*').eq('Id', logMatch[1]).eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
+    failOnDb(taskResult.error)
+    if (!taskResult.data || (!canManageTasks(auth) && !taskIncludesUser(taskResult.data, auth.userId))) throw new HttpError(404, 'وظیفه یافت نشد')
+    const result = await db.from('TaskActivityLogs').select('*').eq('TaskId', logMatch[1]).eq('TenantId', auth.tenantId)
+      .eq('IsDeleted', false).order('CreatedAt', { ascending: false })
+    failOnDb(result.error)
+    return json(request, (result.data ?? []).map((item) => {
+      const dto = asCamel(item) as JsonObject
+      try { dto.details = JSON.parse(String(item.DetailsJson ?? '{}')) } catch { dto.details = {} }
+      delete dto.detailsJson
+      return dto
+    }))
+  }
+  if (request.method === 'GET' && !taskMatch && path === '/tasks') {
     let query = db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
-    if (!auth.isAdmin && !auth.permissions.includes('tasks.assign')) {
+    if (!canManageTasks(auth)) {
       query = url.searchParams.get('scope') === 'assigned'
         ? query.eq('AssignedByUserId', auth.userId)
-        : query.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`)
+        : query.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId},AssigneeUserIdsJson.ilike.%${auth.userId}%`)
     }
     const status = url.searchParams.get('status')
     if (status) query = query.eq('Status', enumValue(status, taskStatus))
     const projectId = url.searchParams.get('projectId')
-    if (projectId) query = query.eq('ProjectId', projectId)
+    if (projectId && /^[\w-]{1,64}$/.test(projectId)) query = query.or(`ProjectId.eq.${projectId},ProjectIdsJson.ilike.%${projectId}%`)
+    const startFrom = url.searchParams.get('startFrom'); if (startFrom) query = query.gte('StartDate', startFrom)
+    const startTo = url.searchParams.get('startTo'); if (startTo) query = query.lte('StartDate', startTo)
+    const dueFrom = url.searchParams.get('dueFrom'); if (dueFrom) query = query.gte('DueDate', dueFrom)
+    const dueTo = url.searchParams.get('dueTo'); if (dueTo) query = query.lte('DueDate', dueTo)
     const result = await query.order('DueDate', { nullsFirst: false })
     failOnDb(result.error)
-    return json(request, (result.data ?? []).map((item) => taskDto(item)))
+    const visible = (result.data ?? []).filter((item) => (!projectId || stringArray(item.ProjectIdsJson).includes(projectId) || item.ProjectId === projectId) && (canManageTasks(auth) || (
+      taskIncludesUser(item, auth.userId)
+      && !(Boolean(item.IsCompletionApproved) && item.AssignedByUserId !== auth.userId && stringArray(item.AssigneeUserIdsJson).includes(auth.userId))
+    )))
+    return json(request, visible.map((item) => taskDto(item)))
   }
-  if (request.method === 'POST' && !match) {
+  if (request.method === 'POST' && path === '/tasks') {
     requirePermission(auth, 'tasks.create')
     const input = await body<JsonObject>(request)
-    const assignee = String(input.assignedToUserId ?? auth.userId)
-    if (assignee !== auth.userId) requirePermission(auth, 'tasks.assign')
+    const assignees = stringArray(input.assigneeUserIds ?? input.assignedToUserId ?? [auth.userId], 25)
+    if (!assignees.length) assignees.push(auth.userId)
+    if (assignees.some((id) => id !== auth.userId)) requirePermission(auth, 'tasks.assign')
+    const projects = stringArray(input.projectIds ?? input.projectId ?? [], 20)
+    const tags = stringArray(input.tags, 30).map((tag) => tag.slice(0, 40))
+    const isRecurring = Boolean(input.isRecurring)
+    const recurrenceType = isRecurring ? String(input.recurrenceType ?? '') : null
+    const recurrenceInterval = Math.max(1, Math.min(365, Number(input.recurrenceInterval ?? 1)))
+    const recurrenceCount = input.recurrenceCount == null ? null : Math.max(1, Math.min(100, Number(input.recurrenceCount)))
+    if (isRecurring && !recurrenceTypes.includes(String(recurrenceType))) throw new HttpError(400, 'نوع تکرار معتبر نیست')
+    if (isRecurring && !input.recurrenceEndDate && !recurrenceCount) throw new HttpError(400, 'برای وظیفه تکرارشونده تاریخ پایان یا تعداد تکرار را مشخص کنید')
+    const seriesId = isRecurring ? uuid() : null
     const row = {
       ...baseInsert(auth), Title: String(input.title ?? '').trim(), Description: input.description ?? null,
       Priority: enumValue(input.priority ?? 1, taskPriority), Status: enumValue(input.status ?? 0, taskStatus),
-      ProjectId: input.projectId ? String(input.projectId) : null,
+      ProjectId: projects[0] ?? null, ProjectIdsJson: JSON.stringify(projects),
       StartDate: input.startDate ?? null, DueDate: input.dueDate ?? null,
-      AssignedByUserId: auth.userId, AssignedToUserId: assignee,
+      AssignedByUserId: auth.userId, AssignedToUserId: assignees[0], AssigneeUserIdsJson: JSON.stringify(assignees),
       ParentTaskId: input.parentTaskId ?? null, EstimatedHours: input.estimatedHours ?? null, Progress: 0,
+      TagsJson: JSON.stringify(tags), IsRecurring: isRecurring, RecurrenceType: recurrenceType,
+      RecurrenceInterval: recurrenceInterval, RecurrenceWeekday: input.recurrenceWeekday ?? null,
+      RecurrenceEndDate: input.recurrenceEndDate ?? null, RecurrenceCount: recurrenceCount,
+      RecurrenceSeriesId: seriesId, RecurrenceSequence: 1,
+      RequiresCompletionApproval: input.requiresCompletionApproval !== false,
+      CompletionRequestedAt: null, CompletionRequestedByUserId: null, IsCompletionApproved: false,
+      CompletionApprovedAt: null, CompletionApprovedByUserId: null,
     }
     if (!row.Title) throw new HttpError(400, 'عنوان وظیفه الزامی است')
+    if (row.Title.length > 200) throw new HttpError(400, 'عنوان وظیفه حداکثر ۲۰۰ نویسه است')
     const result = await db.from('Tasks').insert(row).select().single()
     failOnDb(result.error)
-    await createNotification(db,auth,{userId:assignee,title:'وظیفه جدید برای شما ثبت شد',body:row.Title,type:notificationType.task,actionUrl:'/tasks',entityId:String(result.data.Id),entityType:'Task'})
+    await addTaskLog(auth, String(result.data.Id), 'Created', { assigneeUserIds: assignees, projectIds: projects, tags })
+    for (const assignee of assignees.filter((id) => id !== auth.userId)) {
+      await createNotification(db, auth, { userId: assignee, title: 'وظیفه جدید برای شما ثبت شد', body: row.Title, type: notificationType.task, actionUrl: '/tasks', entityId: String(result.data.Id), entityType: 'Task' })
+    }
+    if (isRecurring) {
+      const start = new Date(String(row.StartDate ?? row.DueDate ?? now()))
+      const due = row.DueDate ? new Date(String(row.DueDate)) : null
+      const duration = due ? due.getTime() - start.getTime() : 0
+      const end = row.RecurrenceEndDate ? new Date(String(row.RecurrenceEndDate)) : null
+      const max = Math.min(100, recurrenceCount ?? 100)
+      const occurrences: JsonObject[] = []
+      let cursor = start
+      for (let sequence = 2; sequence <= max; sequence += 1) {
+        cursor = nextOccurrence(cursor, String(recurrenceType), recurrenceInterval, Number(row.RecurrenceWeekday ?? 1))
+        if (end && cursor > end) break
+        occurrences.push({
+          ...row, Id: uuid(), CreatedAt: now(), StartDate: cursor.toISOString(),
+          DueDate: due ? new Date(cursor.getTime() + duration).toISOString() : null,
+          RecurrenceSequence: sequence,
+        })
+      }
+      if (occurrences.length) {
+        const recurringResult = await db.from('Tasks').insert(occurrences)
+        failOnDb(recurringResult.error, 'ایجاد دوره‌های تکرار وظیفه انجام نشد')
+      }
+    }
     return json(request, taskDto(result.data))
   }
-  if (request.method === 'PATCH' && match) {
+  if (request.method === 'PATCH' && taskMatch) {
     requirePermission(auth, 'tasks.edit')
     const input = await body<JsonObject>(request)
+    const currentResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).maybeSingle()
+    failOnDb(currentResult.error)
+    const current = currentResult.data as JsonObject | null
+    if (!current || (!canManageTasks(auth) && !taskIncludesUser(current, auth.userId))) throw new HttpError(404, 'وظیفه یافت نشد')
+    const isCreator = current.AssignedByUserId === auth.userId
+    const isAssignee = stringArray(current.AssigneeUserIdsJson).includes(auth.userId) || current.AssignedToUserId === auth.userId
     const update: JsonObject = { UpdatedAt: now() }
-    if (input.status !== undefined) update.Status = enumValue(input.status, taskStatus)
+    let action = 'Updated'
+    if (input.requestCompletion === true || (input.status === 'Done' && Boolean(current.RequiresCompletionApproval) && !isCreator)) {
+      if (!isAssignee && !canManageTasks(auth)) throw new HttpError(403, 'فقط انجام‌دهنده می‌تواند پایان وظیفه را اعلام کند')
+      update.Status = 2; update.Progress = 100; update.CompletionRequestedAt = now(); update.CompletionRequestedByUserId = auth.userId
+      update.IsCompletionApproved = false; update.CompletionApprovedAt = null; update.CompletionApprovedByUserId = null
+      action = 'CompletionRequested'
+    } else if (input.approveCompletion === true) {
+      if (!isCreator && !canManageTasks(auth)) throw new HttpError(403, 'فقط نویسنده وظیفه می‌تواند پایان آن را تأیید کند')
+      update.Status = 3; update.Progress = 100; update.IsCompletionApproved = true; update.CompletionApprovedAt = now(); update.CompletionApprovedByUserId = auth.userId
+      action = 'CompletionApproved'
+    } else if (input.rejectCompletion === true) {
+      if (!isCreator && !canManageTasks(auth)) throw new HttpError(403, 'فقط نویسنده وظیفه می‌تواند پایان آن را رد کند')
+      update.Status = 1; update.Progress = Math.min(99, Number(current.Progress ?? 0)); update.CompletionRequestedAt = null
+      update.CompletionRequestedByUserId = null; update.IsCompletionApproved = false; update.CompletionApprovedAt = null; update.CompletionApprovedByUserId = null
+      action = 'CompletionRejected'
+    } else if (input.status !== undefined) update.Status = enumValue(input.status, taskStatus)
     if (input.progress !== undefined) update.Progress = Math.max(0, Math.min(100, Number(input.progress)))
     if (input.actualHours !== undefined) update.ActualHours = input.actualHours
+    if (input.title !== undefined) update.Title = String(input.title).trim().slice(0, 200)
+    if (input.description !== undefined) update.Description = input.description
+    if (input.priority !== undefined) update.Priority = enumValue(input.priority, taskPriority)
+    if (input.startDate !== undefined) update.StartDate = input.startDate
     if (input.dueDate !== undefined) update.DueDate = input.dueDate
-    let updateQuery = db.from('Tasks').update(update).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false)
-    if (!auth.isAdmin && !auth.permissions.includes('tasks.assign')) updateQuery = updateQuery.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`)
-    const result = await updateQuery.select().maybeSingle()
+    if (input.parentTaskId !== undefined) update.ParentTaskId = input.parentTaskId || null
+    if (input.tags !== undefined) update.TagsJson = JSON.stringify(stringArray(input.tags, 30).map((tag) => tag.slice(0, 40)))
+    if (input.projectIds !== undefined) {
+      const projects = stringArray(input.projectIds, 20); update.ProjectIdsJson = JSON.stringify(projects); update.ProjectId = projects[0] ?? null
+    }
+    if (input.assigneeUserIds !== undefined) {
+      requirePermission(auth, 'tasks.assign')
+      const assignees = stringArray(input.assigneeUserIds, 25)
+      if (!assignees.length) throw new HttpError(400, 'حداقل یک انجام‌دهنده انتخاب کنید')
+      update.AssigneeUserIdsJson = JSON.stringify(assignees); update.AssignedToUserId = assignees[0]
+      action = 'Reassigned'
+    }
+    const result = await db.from('Tasks').update(update).eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).select().maybeSingle()
     failOnDb(result.error)
     if (!result.data) throw new HttpError(404, 'وظیفه یافت نشد')
-    const target=result.data.AssignedByUserId===auth.userId?result.data.AssignedToUserId:result.data.AssignedByUserId
-    await createNotification(db,auth,{userId:target,title:'وضعیت وظیفه تغییر کرد',body:String(result.data.Title??''),type:notificationType.task,actionUrl:'/tasks',entityId:String(result.data.Id),entityType:'Task'})
+    await addTaskLog(auth, String(result.data.Id), action, { changes: input })
+    const targets = action === 'CompletionRequested' ? [String(result.data.AssignedByUserId)] : stringArray(result.data.AssigneeUserIdsJson)
+    for (const target of targets.filter((id) => id && id !== auth.userId)) {
+      const title = action === 'CompletionRequested' ? 'وظیفه‌ای منتظر تأیید پایان شماست' : action === 'CompletionApproved' ? 'پایان وظیفه تأیید شد' : action === 'CompletionRejected' ? 'پایان وظیفه نیازمند اصلاح است' : 'وظیفه به‌روزرسانی شد'
+      await createNotification(db, auth, { userId: target, title, body: String(result.data.Title ?? ''), type: notificationType.task, actionUrl: '/tasks', entityId: String(result.data.Id), entityType: 'Task' })
+    }
     return json(request, taskDto(result.data))
+  }
+  if (request.method === 'DELETE' && taskMatch) {
+    const currentResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).maybeSingle()
+    failOnDb(currentResult.error)
+    if (!currentResult.data) throw new HttpError(404, 'وظیفه یافت نشد')
+    if (!canManageTasks(auth) && currentResult.data.AssignedByUserId !== auth.userId) throw new HttpError(403, 'فقط نویسنده وظیفه مجاز به حذف آن است')
+    await addTaskLog(auth, taskMatch[1], 'Deleted', { title: currentResult.data.Title })
+    const result = await db.from('Tasks').update({ IsDeleted: true, DeletedAt: now(), UpdatedAt: now() })
+      .eq('TenantId', auth.tenantId).eq('Id', taskMatch[1])
+    failOnDb(result.error)
+    return new Response(null, { status: 204, headers: corsHeaders(request) })
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
