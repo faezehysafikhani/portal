@@ -21,6 +21,11 @@ const emojiOnly=/^(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|
 const emojiMotion=(emoji:string)=>/[😂🤣😁😄😆😊]/u.test(emoji)?'chat-emoji--laugh':/[😭😢🥺]/u.test(emoji)?'chat-emoji--cry':'chat-emoji--bounce'
 const chatText=(value:string)=>value.split(emojiToken).map((part,index)=>emojiOnly.test(part)?<span key={`${part}-${index}`} className={`chat-emoji ${emojiMotion(part)}`}>{part}</span>:part)
 const sameMessages=<T extends {id:string}>(current:T[],next:T[],extra?:(a:T,b:T)=>boolean)=>current.length===next.length&&current.every((item,index)=>item.id===next[index]?.id&&(!extra||extra(item,next[index])))
+const newestChatsFirst=<T extends {lastMessageAt?:string}>(items:T[])=>[...items].sort((a,b)=>{
+  const aTime=a.lastMessageAt?Date.parse(a.lastMessageAt):0
+  const bTime=b.lastMessageAt?Date.parse(b.lastMessageAt):0
+  return (Number.isFinite(bTime)?bTime:0)-(Number.isFinite(aTime)?aTime:0)
+})
 
 function VoicePlayer({id}:{id:string}){
   const [src,setSrc]=useState(''),[failed,setFailed]=useState(false)
@@ -94,11 +99,11 @@ export default function ChatPage(){
   const loadUsers=async(silent=false)=>{
     const response=await apiFetch(`${API}/chat/users`)
     if(!response.ok){if(!silent)message.error('دریافت کارتابل پیام‌ها انجام نشد');setLoading(false);return}
-    const data:ChatUser[]=await response.json();setUsers(current=>sameMessages(current,data,(a,b)=>a.unread===b.unread&&a.isOnline===b.isOnline&&a.lastMessage===b.lastMessage&&a.lastMessageAt===b.lastMessageAt)?current:data)
+    const data:ChatUser[]=newestChatsFirst(await response.json());setUsers(current=>sameMessages(current,data,(a,b)=>a.unread===b.unread&&a.isOnline===b.isOnline&&a.lastMessage===b.lastMessage&&a.lastMessageAt===b.lastMessageAt)?current:data)
     const params=new URLSearchParams(location.search),fromUrl=params.get('user')||undefined,groupFromUrl=params.get('group')
     if(!groupFromUrl)setSelectedId(current=>current||(fromUrl&&data.some(x=>x.id===fromUrl)?fromUrl:data[0]?.id));setLoading(false)
   }
-  const loadGroups=async()=>{const response=await apiFetch(`${API}/chat/groups`);if(!response.ok)return;const data:ChatGroup[]=await response.json();setGroups(current=>sameMessages(current.map(x=>({...x,id:x.groupId})),data.map(x=>({...x,id:x.groupId})),(a,b)=>a.unread===b.unread&&a.lastMessage===b.lastMessage&&a.lastMessageAt===b.lastMessageAt&&a.memberCount===b.memberCount)?current:data);const fromUrl=new URLSearchParams(location.search).get('group');if(fromUrl){const found=data.find(x=>x.groupId===fromUrl);if(found)setActiveGroup(current=>current?.groupId===found.groupId&&current.unread===found.unread&&current.lastMessage===found.lastMessage&&current.memberCount===found.memberCount?current:found)}}
+  const loadGroups=async()=>{const response=await apiFetch(`${API}/chat/groups`);if(!response.ok)return;const data:ChatGroup[]=newestChatsFirst(await response.json());setGroups(current=>sameMessages(current.map(x=>({...x,id:x.groupId})),data.map(x=>({...x,id:x.groupId})),(a,b)=>a.unread===b.unread&&a.lastMessage===b.lastMessage&&a.lastMessageAt===b.lastMessageAt&&a.memberCount===b.memberCount)?current:data);const fromUrl=new URLSearchParams(location.search).get('group');if(fromUrl){const found=data.find(x=>x.groupId===fromUrl);if(found)setActiveGroup(current=>current?.groupId===found.groupId&&current.unread===found.unread&&current.lastMessage===found.lastMessage&&current.memberCount===found.memberCount?current:found)}}
   const loadMessages=async(userId:string,silent=false)=>{
     const response=await apiFetch(`${API}/chat/messages/${userId}`)
     if(!response.ok){if(!silent)message.error('دریافت پیام‌ها انجام نشد');return}
@@ -125,7 +130,7 @@ export default function ChatPage(){
       if(!response.ok){message.error(result.message||'ارسال پیام انجام نشد');return false}
       setMessages(prev=>prev.some(item=>item.id===result.id)?prev:[...prev,result]);
       const last=result.kind==='Voice'?'🎤 پیام صوتی':result.kind==='File'?`📎 ${result.attachmentName}`:result.content
-      setUsers(prev=>prev.map(x=>x.id===selectedId?{...x,lastMessage:last,lastMessageAt:result.createdAt}:x));return true
+      setUsers(prev=>newestChatsFirst(prev.map(x=>x.id===selectedId?{...x,lastMessage:last,lastMessageAt:result.createdAt}:x)));return true
     }catch{
       message.error('ارتباط با سرور برای ارسال فایل برقرار نشد')
       return false
