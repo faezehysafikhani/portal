@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline } from 'antd'
-import { AppstoreOutlined, FileTextOutlined, PlusOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons'
+import { Button, Card, Col, Descriptions, Form, Input, message, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline } from 'antd'
+import { AppstoreOutlined, DownloadOutlined, FileTextOutlined, PlusOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons'
 import ProjectContextHeader from './ProjectContextHeader'
 import ProjectExecutionViews from './ProjectExecutionViews'
 import { SAMPLE_PROJECTS, USERS } from './ptmsData'
+import { downloadProjectReport, type ProjectReportEvent } from './projectReport'
 
 const controlSeed = [
   { id: '1', type: 'ریسک', title: 'تأخیر تأمین زیرساخت', owner: 'علی محمدی', status: 'نیازمند اقدام' },
@@ -16,9 +17,10 @@ interface Props {
   projectId: string
   onProjectChange: (value: string) => void
   statusContent: ReactNode
+  reportEvents?: ProjectReportEvent[]
 }
 
-export default function ProjectManagementHub({ projectId, onProjectChange, statusContent }: Props) {
+export default function ProjectManagementHub({ projectId, onProjectChange, statusContent, reportEvents = [] }: Props) {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [controlOpen, setControlOpen] = useState(false)
   const [controls, setControls] = useState(controlSeed)
@@ -37,10 +39,25 @@ export default function ProjectManagementHub({ projectId, onProjectChange, statu
     setControlOpen(false)
     controlForm.resetFields()
   }
+  const extractReport = () => {
+    try {
+      downloadProjectReport(projectId, { events: reportEvents, controls })
+      message.success('گزارش جامع پروژه دانلود شد')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'استخراج گزارش پروژه انجام نشد')
+    }
+  }
 
   return (
     <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 16 } }}>
-      <ProjectContextHeader title="مدیریت پروژه‌ها" projectId={projectId} onProjectChange={onProjectChange} onAdd={() => setNewProjectOpen(true)} addLabel="پروژه جدید" />
+      <ProjectContextHeader
+        title="مدیریت پروژه‌ها"
+        projectId={projectId}
+        onProjectChange={onProjectChange}
+        onAdd={() => setNewProjectOpen(true)}
+        addLabel="پروژه جدید"
+        extraActions={<Button icon={<DownloadOutlined />} onClick={extractReport}>استخراج گزارش پروژه</Button>}
+      />
       <Tabs destroyOnHidden style={{ marginTop: 12 }} items={[
         { key: 'status', label: <span><ProjectOutlined /> داشبورد وضعیت</span>, children: statusContent },
         { key: 'views', label: <span><AppstoreOutlined /> نماهای اجرا</span>, children: <ProjectExecutionViews key={projectId} projectId={projectId} /> },

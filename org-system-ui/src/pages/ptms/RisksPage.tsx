@@ -4,7 +4,6 @@ import { AlertOutlined, CheckCircleOutlined, DeleteOutlined, EditOutlined, EyeOu
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { currentJalali } from '../../utils/jalali'
 import { SAMPLE_PROJECTS, SAMPLE_RISKS, USERS } from './ptmsData'
-import ProjectHealthPanel from './ProjectHealthPanel'
 
 const PRIMARY = '#8B1A6B'
 const STORAGE_KEY = 'portal:managed-risks:v2'
@@ -48,9 +47,10 @@ function loadRisks(): ManagedRisk[] {
   try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); return Array.isArray(saved) ? saved : seedRisks() } catch { return seedRisks() }
 }
 
-export default function RisksPage() {
+interface ProjectRiskManagementProps { projectId: string }
+
+export default function ProjectRiskManagement({ projectId }: ProjectRiskManagementProps) {
   const [risks, setRisks] = useState<ManagedRisk[]>(loadRisks)
-  const [selectedProjectId, setSelectedProjectId] = useState(SAMPLE_PROJECTS[0].id)
   const [search, setSearch] = useState('')
   const [levelFilter, setLevelFilter] = useState<RiskLevel>()
   const [statusFilter, setStatusFilter] = useState<RiskStatus>()
@@ -61,7 +61,7 @@ export default function RisksPage() {
   const [form] = Form.useForm()
 
   const persist = (next: ManagedRisk[]) => { setRisks(next); localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) }
-  const projectRisks = useMemo(() => risks.filter(risk => risk.projectId === selectedProjectId), [risks, selectedProjectId])
+  const projectRisks = useMemo(() => risks.filter(risk => risk.projectId === projectId), [risks, projectId])
   const filtered = useMemo(() => projectRisks.filter(risk => {
     const query = search.trim().toLocaleLowerCase('fa')
     return (!query || `${risk.code} ${risk.title} ${risk.owner} ${risk.category}`.toLocaleLowerCase('fa').includes(query))
@@ -72,7 +72,7 @@ export default function RisksPage() {
   const openModal = (risk?: ManagedRisk) => {
     setEditing(risk)
     form.resetFields()
-    form.setFieldsValue(risk || { projectId: selectedProjectId, probability: 3, impact: 3, residualProbability: 2, residualImpact: 2, status: 'شناسایی‌شده', strategy: 'کاهش', actionProgress: 0, trend: 'ثابت', owner: USERS[0] })
+    form.setFieldsValue(risk || { projectId, probability: 3, impact: 3, residualProbability: 2, residualImpact: 2, status: 'شناسایی‌شده', strategy: 'کاهش', actionProgress: 0, trend: 'ثابت', owner: USERS[0] })
     setModalOpen(true)
   }
 
@@ -111,7 +111,12 @@ export default function RisksPage() {
   const residualAverage = projectRisks.length ? Math.round(projectRisks.reduce((sum, risk) => sum + risk.residualScore, 0) / projectRisks.length) : 0
 
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-    <ProjectHealthPanel projectId={selectedProjectId} onProjectChange={id => { setSelectedProjectId(id); setHeatCell(undefined) }} />
+    <Card size="small" style={{ borderRight: `4px solid ${PRIMARY}` }}>
+      <Space direction="vertical" size={2}>
+        <Typography.Title level={4} style={{ margin: 0 }}>دفتر و داشبورد ریسک پروژه</Typography.Title>
+        <Typography.Text type="secondary">شناسایی، ارزیابی، برنامه پاسخ و پایش ریسک‌های همین پروژه در داشبورد وضعیت</Typography.Text>
+      </Space>
+    </Card>
     <Row gutter={[12, 12]}>
       <Col xs={12} lg={6}><Card size="small"><Statistic title="ریسک‌های باز" value={projectRisks.filter(risk => !['بسته‌شده', 'محقق‌شده'].includes(risk.status)).length} prefix={<AlertOutlined style={{ color: PRIMARY }} />} /></Card></Col>
       <Col xs={12} lg={6}><Card size="small"><Statistic title="مواجهه بالا و بحرانی" value={highCount} valueStyle={{ color: highCount ? '#f5222d' : '#389e0d' }} /></Card></Col>
@@ -131,7 +136,7 @@ export default function RisksPage() {
       <Table rowKey="id" dataSource={filtered} columns={columns} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} locale={{ emptyText: <Empty description="ریسکی مطابق فیلتر وجود ندارد" /> }} />
     </Card>
 
-    <RiskModal open={modalOpen} editing={editing} form={form} onCancel={() => setModalOpen(false)} onSave={() => void save()} />
+    <RiskModal open={modalOpen} editing={editing} form={form} projectId={projectId} onCancel={() => setModalOpen(false)} onSave={() => void save()} />
     <RiskDrawer risk={selected} onClose={() => setSelected(undefined)} onEdit={openModal} onUpdate={updateRisk} />
   </div>
 }
@@ -148,9 +153,9 @@ function RiskMatrix({ risks, selected, onSelect }: { risks: ManagedRisk[]; selec
   </div></div>
 }
 
-function RiskModal({ open, editing, form, onCancel, onSave }: { open: boolean; editing?: ManagedRisk; form: ReturnType<typeof Form.useForm>[0]; onCancel: () => void; onSave: () => void }) {
+function RiskModal({ open, editing, form, projectId, onCancel, onSave }: { open: boolean; editing?: ManagedRisk; form: ReturnType<typeof Form.useForm>[0]; projectId: string; onCancel: () => void; onSave: () => void }) {
   return <Modal open={open} title={editing ? 'ویرایش و ارزیابی ریسک' : 'ثبت ریسک جدید'} onCancel={onCancel} onOk={onSave} okText="ذخیره" cancelText="انصراف" width={820} centered maskClosable={false} okButtonProps={{ style: { background: PRIMARY } }}><Form form={form} layout="vertical"><Tabs items={[
-    { key: 'identify', label: 'شناسایی', children: <Row gutter={12}><Col span={16}><Form.Item name="title" label="عنوان ریسک" rules={[{ required: true }, { max: 200 }]}><Input maxLength={200} /></Form.Item></Col><Col span={8}><Form.Item name="projectId" label="پروژه" rules={[{ required: true }]}><Select options={SAMPLE_PROJECTS.map(project => ({ value: project.id, label: project.name }))} /></Form.Item></Col><Col span={8}><Form.Item name="category" label="دسته" rules={[{ required: true }]}><Select options={['زمان', 'هزینه', 'کیفیت', 'فنی', 'منابع', 'تأمین', 'ذی‌نفعان', 'ایمنی'].map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={8}><Form.Item name="owner" label="مالک ریسک" rules={[{ required: true }]}><Select options={USERS.map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="مرحله"><Select options={['شناسایی‌شده', 'ارزیابی‌شده', 'پاسخ برنامه‌ریزی‌شده', 'در حال پایش', 'بسته‌شده', 'محقق‌شده'].map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={24}><Form.Item name="description" label="شرح رویداد نامطمئن"><Input.TextArea rows={2} /></Form.Item></Col><Col span={12}><Form.Item name="cause" label="علت"><Input.TextArea rows={2} /></Form.Item></Col><Col span={12}><Form.Item name="consequence" label="پیامد"><Input.TextArea rows={2} /></Form.Item></Col><Col span={24}><Form.Item name="trigger" label="محرک یا نشانه وقوع"><Input /></Form.Item></Col></Row> },
+    { key: 'identify', label: 'شناسایی', children: <Row gutter={12}><Col span={16}><Form.Item name="title" label="عنوان ریسک" rules={[{ required: true }, { max: 200 }]}><Input maxLength={200} /></Form.Item></Col><Col span={8}><Form.Item name="projectId" label="پروژه" rules={[{ required: true }]}><Select disabled value={projectId} options={SAMPLE_PROJECTS.map(project => ({ value: project.id, label: project.name }))} /></Form.Item></Col><Col span={8}><Form.Item name="category" label="دسته" rules={[{ required: true }]}><Select options={['زمان', 'هزینه', 'کیفیت', 'فنی', 'منابع', 'تأمین', 'ذی‌نفعان', 'ایمنی'].map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={8}><Form.Item name="owner" label="مالک ریسک" rules={[{ required: true }]}><Select options={USERS.map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={8}><Form.Item name="status" label="مرحله"><Select options={['شناسایی‌شده', 'ارزیابی‌شده', 'پاسخ برنامه‌ریزی‌شده', 'در حال پایش', 'بسته‌شده', 'محقق‌شده'].map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={24}><Form.Item name="description" label="شرح رویداد نامطمئن"><Input.TextArea rows={2} /></Form.Item></Col><Col span={12}><Form.Item name="cause" label="علت"><Input.TextArea rows={2} /></Form.Item></Col><Col span={12}><Form.Item name="consequence" label="پیامد"><Input.TextArea rows={2} /></Form.Item></Col><Col span={24}><Form.Item name="trigger" label="محرک یا نشانه وقوع"><Input /></Form.Item></Col></Row> },
     { key: 'assess', label: 'ارزیابی', children: <Row gutter={16}><Col span={12}><Card size="small" title="ریسک ذاتی"><Form.Item name="probability" label="احتمال ۱ تا ۵"><Slider min={1} max={5} marks={{ 1: '۱', 3: '۳', 5: '۵' }} /></Form.Item><Form.Item name="impact" label="اثر ۱ تا ۵"><Slider min={1} max={5} marks={{ 1: '۱', 3: '۳', 5: '۵' }} /></Form.Item></Card></Col><Col span={12}><Card size="small" title="ریسک باقیمانده پس از پاسخ"><Form.Item name="residualProbability" label="احتمال باقیمانده"><Slider min={1} max={5} marks={{ 1: '۱', 3: '۳', 5: '۵' }} /></Form.Item><Form.Item name="residualImpact" label="اثر باقیمانده"><Slider min={1} max={5} marks={{ 1: '۱', 3: '۳', 5: '۵' }} /></Form.Item></Card></Col></Row> },
     { key: 'response', label: 'پاسخ و پایش', children: <Row gutter={12}><Col span={8}><Form.Item name="strategy" label="راهبرد پاسخ"><Select options={['اجتناب', 'کاهش', 'انتقال', 'پذیرش', 'بهره‌برداری'].map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={8}><Form.Item name="trend" label="روند"><Select options={['کاهشی', 'ثابت', 'افزایشی'].map(value => ({ value, label: value }))} /></Form.Item></Col><Col span={8}><Form.Item name="actionProgress" label="پیشرفت اقدام"><InputNumber min={0} max={100} addonAfter="٪" style={{ width: '100%' }} /></Form.Item></Col><Col span={12}><Form.Item name="reviewDate" label="تاریخ بازبینی بعدی"><PersianDatePicker style={{ width: '100%' }} /></Form.Item></Col><Col span={12}><Form.Item name="responseDeadline" label="مهلت اجرای پاسخ"><PersianDatePicker style={{ width: '100%' }} /></Form.Item></Col><Col span={24}><Form.Item name="responsePlan" label="برنامه پاسخ"><Input.TextArea rows={3} /></Form.Item></Col><Col span={24}><Form.Item name="contingencyPlan" label="برنامه احتیاطی در صورت وقوع"><Input.TextArea rows={2} /></Form.Item></Col></Row> },
   ]} /></Form></Modal>

@@ -304,12 +304,12 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       },
       {
         key: 'ptms_reports',
-        label: 'گزارشات پروژه',
+        label: 'استخراج گزارش جامع پروژه',
         actions: [
-          { key: 'view', label: 'مشاهده' },
-          { key: 'export_excel', label: 'خروجی Excel' },
+          { key: 'view', label: 'مشاهده دکمه گزارش' },
+          { key: 'export_excel', label: 'دانلود گزارش جامع' },
           { key: 'print', label: 'چاپ' },
-          { key: 'view_analytics', label: 'مشاهده تحلیل‌ها' },
+          { key: 'view_analytics', label: 'مشاهده چارت‌ها در گزارش' },
         ]
       },
     ]

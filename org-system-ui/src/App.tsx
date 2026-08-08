@@ -1,7 +1,7 @@
 import { Component, lazy, Suspense, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 
-const lazyWithRecovery = <T extends { default: ComponentType<any> }>(name: string, loader: () => Promise<T>) => lazy(async () => {
+const lazyWithRecovery = <T extends { default: ComponentType }>(name: string, loader: () => Promise<T>) => lazy(async () => {
   const recoveryKey = `portal:lazy-recovery:${name}`
   try {
     const module = await loader()
@@ -47,12 +47,10 @@ const DashboardPage = lazyWithRecovery('dashboard', () => import('./pages/Dashbo
 const TasksPage = lazyWithRecovery('tasks', () => import('./pages/TasksPage'))
 const LettersPage = lazyWithRecovery('letters', () => import('./pages/LettersPage'))
 const TicketsPage = lazyWithRecovery('tickets', () => import('./pages/TicketsPage'))
-const UsersPage = lazyWithRecovery('users', () => import('./pages/UsersPage'))
 const SmsPage = lazyWithRecovery('sms', () => import('./pages/SmsPage'))
 const FormsPage = lazyWithRecovery('forms', () => import('./pages/FormsPage'))
 const ReportsPage = lazyWithRecovery('reports', () => import('./pages/ReportsPage'))
 const SettingsPage = lazyWithRecovery('settings', () => import('./pages/SettingsPage'))
-const CompanyPage = lazyWithRecovery('company', () => import('./pages/CompanyPage'))
 const ContactsPage = lazyWithRecovery('contacts', () => import('./pages/ContactsPage'))
 const AiPage = lazyWithRecovery('ai', () => import('./pages/AiPage'))
 const ProjectsPage = lazyWithRecovery('projects', () => import('./pages/ProjectsPage'))
@@ -70,10 +68,8 @@ const ProjectDetailPage = lazyWithRecovery('project-detail', () => import('./pag
 const MyTasksPage = lazyWithRecovery('my-tasks', () => import('./pages/ptms/MyTasksPage'))
 const TasksMainPage = lazyWithRecovery('tasks-main', () => import('./pages/ptms/TasksMainPage'))
 const FinancialPage = lazyWithRecovery('financial', () => import('./pages/ptms/FinancialPage'))
-const RisksPage = lazyWithRecovery('risks', () => import('./pages/ptms/RisksPage'))
 const IssuesPage = lazyWithRecovery('issues', () => import('./pages/ptms/IssuesPage'))
 const ChangesPage = lazyWithRecovery('changes', () => import('./pages/ptms/ChangesPage'))
-const PTMSReportsPage = lazyWithRecovery('ptms-reports', () => import('./pages/ptms/PTMSReportsPage'))
 const PTMSDocumentsPage = lazyWithRecovery('ptms-documents', () => import('./pages/ptms/PTMSDocumentsPage'))
 
 function App() {
@@ -113,11 +109,9 @@ function App() {
           <Route path="/ptms/tasks/mine" element={<MyTasksPage />} />
           <Route path="/ptms/tasks" element={<TasksMainPage />} />
           <Route path="/ptms/financial" element={<FinancialPage />} />
-          <Route path="/ptms/risks" element={<RisksPage />} />
           <Route path="/ptms/issues" element={<IssuesPage />} />
           <Route path="/ptms/changes" element={<ChangesPage />} />
           <Route path="/ptms/documents" element={<PTMSDocumentsPage />} />
-          <Route path="/ptms/reports" element={<PTMSReportsPage />} />
           <Route path="/letters" element={<LettersPage />} />
           <Route path="/letters/new" element={<LettersPage />} />
           <Route path="/letters/registry" element={<LettersPage />} />

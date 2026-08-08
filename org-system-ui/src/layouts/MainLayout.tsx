@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { Layout, Menu, Avatar, Dropdown, notification } from 'antd'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
-  DashboardOutlined, MailOutlined, TeamOutlined, CheckSquareOutlined,
+  DashboardOutlined, MailOutlined, CheckSquareOutlined,
   CustomerServiceOutlined, FormOutlined, BarChartOutlined, MessageOutlined,
   UserOutlined, LogoutOutlined, RobotOutlined, SettingOutlined,
   ContactsOutlined, UnorderedListOutlined,
   InboxOutlined, EditOutlined, BookOutlined,
-  WarningOutlined, SwapOutlined,
+  SwapOutlined,
   FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
@@ -18,15 +18,15 @@ export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const [user,setUser]=useState<any>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
+  const [user,setUser]=useState<{ roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
   useEffect(()=>{const sync=()=>setUser(JSON.parse(localStorage.getItem('user')||'{}'));window.addEventListener('profile-updated',sync);return()=>window.removeEventListener('profile-updated',sync)},[])
   useEffect(()=>{const name=sessionStorage.getItem('welcome-user');if(name){sessionStorage.removeItem('welcome-user');notification.success({message:`کاربر ${name}، خوش آمدید`,description:'ورود شما به سامانه با موفقیت انجام شد.',placement:'topLeft'})}},[])
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
   const allowed = (code: string) => isAdmin || serverPermissions.includes(code)
-  const routeMenuGroup=()=>location.pathname.startsWith('/ptms')?'tasks-group':location.pathname.startsWith('/letters')?'letters-group':location.pathname.startsWith('/forms')?'forms-group':null
-  const [openMenuKeys,setOpenMenuKeys]=useState<string[]>(()=>{const group=routeMenuGroup();return group?[group]:[]})
-  useEffect(()=>{const group=routeMenuGroup();setOpenMenuKeys(group?[group]:[])},[location.pathname])
+  const routeMenuGroup=location.pathname.startsWith('/ptms')?'tasks-group':location.pathname.startsWith('/letters')?'letters-group':location.pathname.startsWith('/forms')?'forms-group':null
+  const [menuOpenState,setMenuOpenState]=useState<{ pathname: string; keys: string[] }>(()=>({ pathname: location.pathname, keys: routeMenuGroup?[routeMenuGroup]:[] }))
+  const openMenuKeys = menuOpenState.pathname === location.pathname ? menuOpenState.keys : routeMenuGroup ? [routeMenuGroup] : []
   const settingsLanding=allowed('company.view')?'/settings/company':allowed('users.view')?'/settings/users':'/settings'
 
   const menuItems = [
@@ -50,9 +50,7 @@ export default function MainLayout() {
       children: [
         { key: '/ptms/dashboard', icon: <DashboardOutlined />, label: 'مدیریت پروژه‌ها' },
         { key: '/ptms/tasks', icon: <UnorderedListOutlined />, label: 'مدیریت وظایف' },
-        { key: '/ptms/risks', icon: <WarningOutlined />, label: 'مدیریت ریسک' },
         { key: '/ptms/documents', icon: <FileTextOutlined />, label: 'مستندات' },
-        { key: '/ptms/reports', icon: <BarChartOutlined />, label: 'گزارشات پروژه' },
       ]
     }] : []),
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
@@ -102,11 +100,9 @@ export default function MainLayout() {
       '/ptms/tasks/mine': 'وظایف من',
       '/ptms/tasks': 'مدیریت وظایف',
       '/ptms/financial': 'مدیریت مالی',
-      '/ptms/risks': 'مدیریت ریسک',
       '/ptms/issues': 'مسائل و مشکلات',
       '/ptms/changes': 'درخواست تغییر',
       '/ptms/documents': 'مستندات پروژه',
-      '/ptms/reports': 'گزارشات پروژه',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
   }
@@ -117,13 +113,13 @@ export default function MainLayout() {
   }
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
         trigger={<div style={{height:48,display:'flex',alignItems:'center',justifyContent:'center',gap:collapsed?0:14}}><img src="/portal-mark.jpg" alt="نشان پرتال" style={{width:collapsed?31:38,height:31,objectFit:'contain',borderRadius:6}}/>{collapsed?<LeftOutlined/>:<RightOutlined/>}</div>}
-        style={{ background: '#001529' }}
+        style={{ background: '#001529', height: '100vh', overflow: 'hidden', position: 'relative' }}
         width={230}
       >
         <div style={{
@@ -139,8 +135,9 @@ export default function MainLayout() {
           theme="dark"
           selectedKeys={[location.pathname.startsWith('/settings')?settingsLanding:location.pathname]}
           openKeys={openMenuKeys}
-          onOpenChange={keys=>setOpenMenuKeys(keys.length?[String(keys[keys.length-1])]:[])}
+          onOpenChange={keys=>setMenuOpenState({ pathname: location.pathname, keys: keys.length?[String(keys[keys.length-1])]:[] })}
           mode="inline"
+          style={{ maxHeight: 'calc(100vh - 112px)', overflowY: 'auto', overflowX: 'hidden', paddingBottom: 8 }}
           items={menuItems}
           onClick={({ key }) => {
             if (!key.includes('group')) navigate(key)
@@ -148,7 +145,7 @@ export default function MainLayout() {
         />
       </Sider>
 
-      <Layout>
+      <Layout style={{ height: '100vh', minWidth: 0, overflow: 'hidden' }}>
         <Header style={{
           background: '#fff', padding: '0 24px',
           height: 54, lineHeight: '54px',
@@ -178,7 +175,7 @@ export default function MainLayout() {
           </div>
         </Header>
 
-        <Content style={{ margin: '14px 16px 16px' }}>
+        <Content style={{ margin: '14px 16px 16px', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           <Outlet />
         </Content>
       </Layout>

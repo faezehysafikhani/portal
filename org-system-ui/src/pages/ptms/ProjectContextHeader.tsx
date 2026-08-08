@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Button, Select, Space, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { SAMPLE_PROJECTS, USERS } from './ptmsData'
@@ -10,9 +11,10 @@ interface Props {
   onMemberChange?: (value: string) => void
   onAdd?: () => void
   addLabel?: string
+  extraActions?: ReactNode
 }
 
-export default function ProjectContextHeader({ title, projectId, onProjectChange, member, onMemberChange, onAdd, addLabel }: Props) {
+export default function ProjectContextHeader({ title, projectId, onProjectChange, member, onMemberChange, onAdd, addLabel, extraActions }: Props) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
       <Space wrap>
@@ -22,6 +24,7 @@ export default function ProjectContextHeader({ title, projectId, onProjectChange
           <Select allowClear placeholder="همه اعضای پروژه" value={member || undefined} onChange={v => onMemberChange(v || '')} style={{ width: 180 }} options={USERS.map(u => ({ value: u, label: u }))} />
         )}
         {onAdd && <Button type="primary" icon={<PlusOutlined />} onClick={onAdd} style={{ background: '#8B1A6B' }}>{addLabel}</Button>}
+        {extraActions}
       </Space>
       <Typography.Title level={3} style={{ margin: 0 }}>{title}</Typography.Title>
     </div>

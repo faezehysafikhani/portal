@@ -12,6 +12,7 @@ import {
   getPriorityColor, getStatusColor, USERS
 } from './ptmsData'
 import ProjectManagementHub from './ProjectManagementHub'
+import ProjectRiskManagement from './RisksPage'
 
 const PERSIAN_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
 const PERSIAN_DAYS = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج']
@@ -459,9 +460,9 @@ export default function PTMSDashboardPage() {
         </Col>
       </Row>
 
-      {/* وظایف + ریسک */}
+      {/* وظایف پروژه */}
       <Row gutter={[12, 12]}>
-        <Col xs={24} lg={12}>
+        <Col span={24}>
           <Card title={<Space><CheckSquareOutlined style={{ color: '#1677ff' }} /><span>وظایف پروژه</span><Badge count={projectTasks.filter(t => t.status !== 'تکمیل شده').length} style={{ background: '#1677ff' }} /></Space>} size="small" style={{ borderRadius: 12 }} extra={<Button type="link" size="small" onClick={() => navigate('/ptms/tasks')}>همه</Button>}>
             {projectTasks.slice(0, 4).map(t => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
@@ -476,21 +477,10 @@ export default function PTMSDashboardPage() {
             ))}
           </Card>
         </Col>
-        <Col xs={24} lg={12}>
-          <Card title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>ریسک‌های بحرانی</span></Space>} size="small" style={{ borderRadius: 12 }} extra={<Button type="link" size="small" onClick={() => navigate('/ptms/risks')}>همه</Button>}>
-            {projectRisks.map(r => (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.level === 'بحرانی' ? '#f5222d' : '#fa8c16', flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500 }}>{r.title}</div>
-                  <div style={{ fontSize: 10, color: '#8c8c8c' }}>{r.project}</div>
-                </div>
-                <Tag color={r.level === 'بحرانی' ? 'red' : 'orange'} style={{ fontSize: 10 }}>امتیاز: {r.score}</Tag>
-              </div>
-            ))}
-          </Card>
-        </Col>
       </Row>
+
+      <Divider style={{ margin: '8px 0 0' }}>مدیریت کامل ریسک پروژه</Divider>
+      <ProjectRiskManagement key={selectedProjectId} projectId={selectedProjectId} />
 
       {/* Modal ثبت رویداد */}
       <Modal
@@ -553,5 +543,5 @@ export default function PTMSDashboardPage() {
     </div>
   )
 
-  return <ProjectManagementHub projectId={selectedProjectId} onProjectChange={setSelectedProjectId} statusContent={statusContent} />
+  return <ProjectManagementHub projectId={selectedProjectId} onProjectChange={setSelectedProjectId} statusContent={statusContent} reportEvents={events.filter(event => event.projectId === selectedProjectId)} />
 }
