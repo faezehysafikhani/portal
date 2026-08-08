@@ -5,9 +5,9 @@ import {
   DashboardOutlined, MailOutlined, TeamOutlined, CheckSquareOutlined,
   CustomerServiceOutlined, FormOutlined, BarChartOutlined, MessageOutlined,
   UserOutlined, LogoutOutlined, RobotOutlined, SettingOutlined,
-  ContactsOutlined, ProjectOutlined, UnorderedListOutlined,
-  FolderOutlined, InboxOutlined, EditOutlined, BookOutlined,
-  DollarOutlined, WarningOutlined, BugOutlined, SwapOutlined, 
+  ContactsOutlined, UnorderedListOutlined,
+  InboxOutlined, EditOutlined, BookOutlined,
+  WarningOutlined, SwapOutlined,
   FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
@@ -49,14 +49,8 @@ export default function MainLayout() {
       label: 'مدیریت وظایف و پروژه',
       children: [
         { key: '/ptms/dashboard', icon: <DashboardOutlined />, label: 'داشبورد پروژه‌ها' },
-        { key: '/ptms/portfolio', icon: <FolderOutlined />, label: 'سبد پروژه‌ها' },
-        { key: '/ptms/projects', icon: <ProjectOutlined />, label: 'لیست پروژه‌ها' },
-        { key: '/ptms/tasks/mine', icon: <UserOutlined />, label: 'وظایف من' },
         { key: '/ptms/tasks', icon: <UnorderedListOutlined />, label: 'وظایف' },
-        { key: '/ptms/financial', icon: <DollarOutlined />, label: 'مدیریت مالی' },
         { key: '/ptms/risks', icon: <WarningOutlined />, label: 'مدیریت ریسک' },
-        { key: '/ptms/issues', icon: <BugOutlined />, label: 'مسائل و مشکلات' },
-        { key: '/ptms/changes', icon: <SwapOutlined />, label: 'درخواست تغییر' },
         { key: '/ptms/documents', icon: <FileTextOutlined />, label: 'مستندات' },
         { key: '/ptms/reports', icon: <BarChartOutlined />, label: 'گزارشات پروژه' },
       ]
