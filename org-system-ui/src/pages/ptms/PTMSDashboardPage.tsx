@@ -12,6 +12,7 @@ import {
   getPriorityColor, getStatusColor, formatCurrency, USERS
 } from './ptmsData'
 import type { Risk, Task } from './ptmsData'
+import ProjectManagementHub from './ProjectManagementHub'
 
 const PERSIAN_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
 const PERSIAN_DAYS = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج']
@@ -322,6 +323,7 @@ export default function PTMSDashboardPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <ProjectManagementHub />
       {/* آمار */}
       <Row gutter={[12, 12]}>
         {stats.map((s, i) => (

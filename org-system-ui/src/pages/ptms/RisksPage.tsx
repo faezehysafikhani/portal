@@ -3,11 +3,13 @@ import { Card, Table, Button, Tag, Space, Input, Select, Modal, Form, Row, Col }
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { SAMPLE_RISKS, getRiskLevelColor, USERS, SAMPLE_PROJECTS } from './ptmsData'
 import type { Risk } from './ptmsData'
+import ProjectHealthPanel from './ProjectHealthPanel'
 
 export default function RisksPage() {
   const [risks, setRisks] = useState<Risk[]>(SAMPLE_RISKS)
   const [search, setSearch] = useState('')
   const [filterProject, setFilterProject] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState(SAMPLE_PROJECTS[0].id)
   const [filterLevel, setFilterLevel] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Risk | null>(null)
@@ -70,6 +72,11 @@ export default function RisksPage() {
 
   return (
     <div>
+      <ProjectHealthPanel projectId={selectedProjectId} onProjectChange={(id) => {
+        setSelectedProjectId(id)
+        const selected = SAMPLE_PROJECTS.find(p => p.id === id)
+        setFilterProject(selected?.name || '')
+      }} />
       {/* ماتریس ریسک */}
       <Card title="ماتریس ریسک (Heat Map)" style={{ marginBottom: 16 }} size="small">
         <div style={{ display: 'flex', gap: 8 }}>

@@ -4,15 +4,18 @@ import AllTasksPage from './AllTasksPage'
 import KanbanPage from './KanbanPage'
 import TaskCalendarPage from './TaskCalendarPage'
 import OverdueTasksPage from './OverdueTasksPage'
+import TaskManagementHub from './TaskManagementHub'
 
 export default function TasksMainPage() {
   return (
-    <Tabs
-      defaultActiveKey="1"
-      type="card"
-      size="large"
-      style={{ direction: 'rtl' }}
-      items={[
+    <div>
+      <TaskManagementHub />
+      <Tabs
+        defaultActiveKey="1"
+        type="card"
+        size="large"
+        style={{ direction: 'rtl' }}
+        items={[
         {
           key: '1',
           label: <span><CheckSquareOutlined /> همه وظایف</span>,
@@ -33,7 +36,8 @@ export default function TasksMainPage() {
           label: <span><ClockCircleOutlined /> وظایف معوقه</span>,
           children: <OverdueTasksPage />
         },
-      ]}
-    />
+        ]}
+      />
+    </div>
   )
 }
