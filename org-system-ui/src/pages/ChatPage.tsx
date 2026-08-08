@@ -113,12 +113,22 @@ export default function ChatPage(){
     if(!selectedId||sending||sendLockRef.current)return false
     sendLockRef.current=true;setSending(true)
     try{
-      const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipientUserId:selected?.personId,...payload})})
+      const response=await apiFetch(`${API}/chat/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        // Keep both contracts: ASP.NET expects recipientUserId while the
+        // Supabase Edge Function expects recipientId + recipientType.
+        recipientUserId:selected?.personId,
+        recipientId:selected?.personId,
+        recipientType:selected?.personType,
+        ...payload,
+      })})
       const result=await response.json().catch(()=>({}))
       if(!response.ok){message.error(result.message||'ارسال پیام انجام نشد');return false}
       setMessages(prev=>prev.some(item=>item.id===result.id)?prev:[...prev,result]);
       const last=result.kind==='Voice'?'🎤 پیام صوتی':result.kind==='File'?`📎 ${result.attachmentName}`:result.content
       setUsers(prev=>prev.map(x=>x.id===selectedId?{...x,lastMessage:last,lastMessageAt:result.createdAt}:x));return true
+    }catch{
+      message.error('ارتباط با سرور برای ارسال فایل برقرار نشد')
+      return false
     }finally{sendLockRef.current=false;setSending(false)}
   }
   const send=async()=>{
