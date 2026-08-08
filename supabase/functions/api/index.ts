@@ -509,11 +509,15 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
   const match = path.match(/^\/tasks\/([0-9a-f-]+)$/i)
   if (request.method === 'GET' && !match) {
     let query = db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
-    query = url.searchParams.get('scope') === 'assigned'
-      ? query.eq('AssignedByUserId', auth.userId)
-      : query.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`)
+    if (!auth.isAdmin && !auth.permissions.includes('tasks.assign')) {
+      query = url.searchParams.get('scope') === 'assigned'
+        ? query.eq('AssignedByUserId', auth.userId)
+        : query.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`)
+    }
     const status = url.searchParams.get('status')
     if (status) query = query.eq('Status', enumValue(status, taskStatus))
+    const projectId = url.searchParams.get('projectId')
+    if (projectId) query = query.eq('ProjectId', projectId)
     const result = await query.order('DueDate', { nullsFirst: false })
     failOnDb(result.error)
     return json(request, (result.data ?? []).map((item) => taskDto(item)))
@@ -525,7 +529,8 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     if (assignee !== auth.userId) requirePermission(auth, 'tasks.assign')
     const row = {
       ...baseInsert(auth), Title: String(input.title ?? '').trim(), Description: input.description ?? null,
-      Priority: enumValue(input.priority ?? 1, taskPriority), Status: 0,
+      Priority: enumValue(input.priority ?? 1, taskPriority), Status: enumValue(input.status ?? 0, taskStatus),
+      ProjectId: input.projectId ? String(input.projectId) : null,
       StartDate: input.startDate ?? null, DueDate: input.dueDate ?? null,
       AssignedByUserId: auth.userId, AssignedToUserId: assignee,
       ParentTaskId: input.parentTaskId ?? null, EstimatedHours: input.estimatedHours ?? null, Progress: 0,
@@ -544,8 +549,9 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     if (input.progress !== undefined) update.Progress = Math.max(0, Math.min(100, Number(input.progress)))
     if (input.actualHours !== undefined) update.ActualHours = input.actualHours
     if (input.dueDate !== undefined) update.DueDate = input.dueDate
-    const result = await db.from('Tasks').update(update).eq('TenantId', auth.tenantId).eq('Id', match[1])
-      .or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`).eq('IsDeleted', false).select().maybeSingle()
+    let updateQuery = db.from('Tasks').update(update).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false)
+    if (!auth.isAdmin && !auth.permissions.includes('tasks.assign')) updateQuery = updateQuery.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId}`)
+    const result = await updateQuery.select().maybeSingle()
     failOnDb(result.error)
     if (!result.data) throw new HttpError(404, 'وظیفه یافت نشد')
     const target=result.data.AssignedByUserId===auth.userId?result.data.AssignedToUserId:result.data.AssignedByUserId

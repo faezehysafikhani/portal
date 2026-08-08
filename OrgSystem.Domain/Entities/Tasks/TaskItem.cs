@@ -6,6 +6,7 @@ public class TaskItem : BaseEntity
 {
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? ProjectId { get; set; }
     public TaskItemStatus Status { get; set; } = TaskItemStatus.Todo;
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
     public DateTime? DueDate { get; set; }
