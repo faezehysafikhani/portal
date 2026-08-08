@@ -1,126 +1,105 @@
-import { useMemo, useState } from 'react'
-import { Alert, Button, Card, Col, Descriptions, Form, Input, Modal, Progress, Row, Select, Space, Statistic, Table, Tabs, Tag, Timeline } from 'antd'
-import { AppstoreOutlined, CalendarOutlined, ClockCircleOutlined, FileTextOutlined, PlusOutlined, ProjectOutlined, ReloadOutlined, SafetyCertificateOutlined, TeamOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Button, Card, Col, Descriptions, Form, Input, Modal, Progress, Row, Select, Space, Table, Tabs, Tag, Timeline } from 'antd'
+import { AppstoreOutlined, FileTextOutlined, PlusOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons'
 import ProjectContextHeader from './ProjectContextHeader'
 import { SAMPLE_PROJECTS, SAMPLE_TASKS, USERS } from './ptmsData'
 
-const governanceSeed = [
+const controlSeed = [
   { id: '1', type: 'ریسک', title: 'تأخیر تأمین زیرساخت', owner: 'علی محمدی', status: 'نیازمند اقدام' },
   { id: '2', type: 'مسئله و مانع', title: 'محدودیت دسترسی سرویس', owner: 'مریم احمدی', status: 'در حال بررسی' },
   { id: '3', type: 'تصمیم', title: 'استفاده از معماری ماژولار', owner: 'مدیر سیستم', status: 'تصویب شد' },
   { id: '4', type: 'تغییر محدوده', title: 'افزودن گزارش مدیریتی', owner: 'مدیر سیستم', status: 'منتظر تأیید' },
 ]
 
-export default function ProjectManagementHub() {
-  const [projectId, setProjectId] = useState(SAMPLE_PROJECTS[0].id)
+interface Props {
+  projectId: string
+  onProjectChange: (value: string) => void
+  statusContent: ReactNode
+}
+
+export default function ProjectManagementHub({ projectId, onProjectChange, statusContent }: Props) {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
-  const [governanceOpen, setGovernanceOpen] = useState(false)
-  const [archived, setArchived] = useState<string[]>([])
-  const [governance, setGovernance] = useState(governanceSeed)
+  const [controlOpen, setControlOpen] = useState(false)
+  const [controls, setControls] = useState(controlSeed)
   const [projectForm] = Form.useForm()
-  const [governanceForm] = Form.useForm()
+  const [controlForm] = Form.useForm()
   const project = SAMPLE_PROJECTS.find(p => p.id === projectId) || SAMPLE_PROJECTS[0]
-  const projectTasks = useMemo(() => SAMPLE_TASKS.filter(t => t.projectId === projectId), [projectId])
+  const tasks = useMemo(() => SAMPLE_TASKS.filter(t => t.projectId === projectId), [projectId])
 
   const saveProject = async () => {
     await projectForm.validateFields()
     setNewProjectOpen(false)
     projectForm.resetFields()
   }
-  const saveGovernance = async () => {
-    const values = await governanceForm.validateFields()
-    setGovernance(prev => [{ id: String(Date.now()), status: 'ثبت شده', ...values }, ...prev])
-    setGovernanceOpen(false)
-    governanceForm.resetFields()
+  const saveControl = async () => {
+    const values = await controlForm.validateFields()
+    setControls(prev => [{ id: String(Date.now()), status: 'ثبت شده', ...values }, ...prev])
+    setControlOpen(false)
+    controlForm.resetFields()
   }
 
-  const projectColumns = [
-    { title: 'کد', dataIndex: 'code', width: 100 },
-    { title: 'نام پروژه', dataIndex: 'name' },
-    { title: 'مدیر', dataIndex: 'manager', width: 130 },
-    { title: 'روش', dataIndex: 'method', width: 90, render: (v: string) => <Tag>{v}</Tag> },
-    { title: 'پیشرفت', dataIndex: 'progress', width: 180, render: (v: number) => <Progress percent={v} size="small" strokeColor="#8B1A6B" /> },
-    { title: 'وضعیت', dataIndex: 'status', width: 120, render: (v: string, r: { id: string }) => <Tag color={archived.includes(r.id) ? 'default' : 'blue'}>{archived.includes(r.id) ? 'آرشیو شده' : v}</Tag> },
-    { title: 'عملیات', key: 'actions', width: 130, render: (_: unknown, r: { id: string }) => <Button size="small" icon={archived.includes(r.id) ? <ReloadOutlined /> : undefined} onClick={() => setArchived(prev => prev.includes(r.id) ? prev.filter(x => x !== r.id) : [...prev, r.id])}>{archived.includes(r.id) ? 'بازیابی' : 'آرشیو'}</Button> },
+  const ganttColumns = [
+    { title: 'فعالیت', dataIndex: 'title', width: 260 },
+    { title: 'مسئول', dataIndex: 'assignee', width: 140 },
+    { title: 'شروع', dataIndex: 'startDate', width: 120 },
+    { title: 'پایان', dataIndex: 'deadline', width: 120 },
+    { title: 'مدت', dataIndex: 'estimatedHours', width: 100, render: (v: number) => `${v} ساعت` },
+    { title: 'وابستگی', key: 'dependency', width: 150, render: (_: unknown, __: unknown, index: number) => index ? tasks[index - 1]?.code : '—' },
+    { title: 'نمودار گانت', key: 'gantt', width: 320, render: (_: unknown, r: typeof tasks[number]) => <div style={{ minWidth: 260, background: '#f5f5f5', height: 18, borderRadius: 9, overflow: 'hidden' }}><div style={{ width: `${Math.max(r.progress, 12)}%`, height: '100%', background: '#8B1A6B', color: 'white', fontSize: 10, textAlign: 'center' }}>{r.progress}٪</div></div> },
   ]
 
-  const taskColumns = [
-    { title: 'وظیفه', dataIndex: 'title' },
-    { title: 'مسئول', dataIndex: 'assignee', width: 130 },
-    { title: 'سررسید', dataIndex: 'deadline', width: 120 },
-    { title: 'وضعیت', dataIndex: 'status', width: 130, render: (v: string) => <Tag color="purple">{v}</Tag> },
-    { title: 'پیشرفت', dataIndex: 'progress', width: 150, render: (v: number) => <Progress percent={v} size="small" /> },
-  ]
+  const executionViews = <Tabs type="card" items={[
+    {
+      key: 'kanban', label: 'کانبان', children: <Table size="middle" rowKey="id" pagination={false} scroll={{ x: 1100 }} dataSource={tasks} columns={[
+        { title: 'کد', dataIndex: 'code', width: 100 }, { title: 'کارت وظیفه', dataIndex: 'title', width: 300 }, { title: 'ستون کانبان', dataIndex: 'status', width: 160, render: (v: string) => <Tag color="purple">{v}</Tag> },
+        { title: 'مسئول', dataIndex: 'assignee', width: 150 }, { title: 'اولویت', dataIndex: 'priority', width: 110, render: (v: string) => <Tag>{v}</Tag> }, { title: 'سررسید', dataIndex: 'deadline', width: 130 }, { title: 'پیشرفت', dataIndex: 'progress', width: 190, render: (v: number) => <Progress percent={v} size="small" strokeColor="#8B1A6B" /> },
+      ]} />
+    },
+    {
+      key: 'scrum', label: 'اسکرام', children: <Table size="middle" rowKey="id" pagination={false} scroll={{ x: 1150 }} dataSource={tasks} columns={[
+        { title: 'آیتم بک‌لاگ', dataIndex: 'title', width: 300 }, { title: 'اسپرینت', key: 'sprint', width: 140, render: (_: unknown, __: unknown, i: number) => `اسپرینت ${Math.floor(i / 3) + 1}` },
+        { title: 'امتیاز داستان', dataIndex: 'estimatedHours', width: 130, render: (v: number) => Math.max(1, Math.round(v / 8)) }, { title: 'مسئول', dataIndex: 'assignee', width: 150 },
+        { title: 'وضعیت', dataIndex: 'status', width: 150, render: (v: string) => <Tag color="blue">{v}</Tag> }, { title: 'برچسب‌ها', dataIndex: 'tags', width: 220, render: (v: string[]) => v.map(x => <Tag key={x}>{x}</Tag>) },
+      ]} />
+    },
+    { key: 'gantt', label: 'گانت', children: <Table size="middle" rowKey="id" pagination={false} scroll={{ x: 1250 }} dataSource={tasks} columns={ganttColumns} /> },
+  ]} />
 
   return (
     <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 16 } }}>
-      <ProjectContextHeader title="مدیریت پروژه‌ها" projectId={projectId} onProjectChange={setProjectId} onAdd={() => setNewProjectOpen(true)} addLabel="پروژه جدید" />
-      <Tabs style={{ marginTop: 12 }} items={[
+      <ProjectContextHeader title="مدیریت پروژه‌ها" projectId={projectId} onProjectChange={onProjectChange} onAdd={() => setNewProjectOpen(true)} addLabel="پروژه جدید" />
+      <Tabs destroyOnHidden style={{ marginTop: 12 }} items={[
+        { key: 'status', label: <span><ProjectOutlined /> داشبورد وضعیت</span>, children: statusContent },
+        { key: 'views', label: <span><AppstoreOutlined /> نماهای اجرا</span>, children: executionViews },
         {
-          key: 'status', label: <span><ProjectOutlined /> داشبورد وضعیت</span>, children: <>
-            <Row gutter={[12, 12]}>
-              <Col xs={12} md={6}><Card size="small"><Statistic title="پیشرفت واقعی" value={project.progress} suffix="٪" valueStyle={{ color: '#8B1A6B' }} /></Card></Col>
-              <Col xs={12} md={6}><Card size="small"><Statistic title="وظایف پروژه" value={project.taskCount} /></Card></Col>
-              <Col xs={12} md={6}><Card size="small"><Statistic title="نقاط عطف باز" value={3} /></Card></Col>
-              <Col xs={12} md={6}><Card size="small"><Statistic title="انحراف از خط مبنا" value={7} suffix="روز" valueStyle={{ color: '#fa8c16' }} /></Card></Col>
-            </Row>
-            <Alert style={{ marginTop: 12 }} showIcon type="warning" message="گزارش وضعیت دوره‌ای" description="پیشرفت واقعی ۵٪ کمتر از برنامه است؛ بازبینی نقطه عطف «تحویل نسخه آزمایشی» پیشنهاد می‌شود." action={<Button size="small">ثبت گزارش جدید</Button>} />
-          </>
-        },
-        { key: 'projects', label: <span><UnorderedListOutlined /> فهرست پروژه‌ها</span>, children: <Table size="small" rowKey="id" pagination={false} dataSource={SAMPLE_PROJECTS} columns={projectColumns} scroll={{ x: 850 }} /> },
-        {
-          key: 'views', label: <span><AppstoreOutlined /> نماهای اجرا</span>, children: <>
-            <Space wrap style={{ marginBottom: 12 }}>
-              <Button type="primary" icon={<UnorderedListOutlined />}>نمای فهرستی وظایف</Button>
-              <Button icon={<AppstoreOutlined />}>نمای بورد</Button><Button icon={<CalendarOutlined />}>نمای تقویم</Button><Button icon={<ClockCircleOutlined />}>نمای خط زمانی</Button>
-            </Space>
-            <Table size="small" rowKey="id" pagination={false} dataSource={projectTasks} columns={taskColumns} locale={{ emptyText: 'برای این پروژه وظیفه‌ای ثبت نشده است' }} />
-            <Alert style={{ marginTop: 12 }} type="info" showIcon message="اتصال وظایف میان پروژه‌ها فعال است" description="وابستگی‌های میان‌پروژه‌ای در خط زمانی و خط مبنای برنامه کنترل می‌شوند." />
-          </>
-        },
-        {
-          key: 'plan', label: <span><ClockCircleOutlined /> برنامه و نقاط عطف</span>, children: <Row gutter={[12, 12]}>
-            <Col xs={24} lg={14}><Card size="small" title="خط زمانی و خط مبنا"><Timeline items={[
-              { color: 'green', children: 'آغاز پروژه — ' + project.startDate },
-              { color: 'blue', children: 'تحلیل و طراحی — تکمیل شده' },
-              { color: 'orange', children: 'تحویل نسخه آزمایشی — ۷ روز انحراف' },
-              { color: 'gray', children: 'پایان برنامه‌ریزی‌شده — ' + project.endDate },
-            ]} /></Card></Col>
-            <Col xs={24} lg={10}><Card size="small" title="پروژه‌های تکرارشونده"><Descriptions column={1} size="small" items={[
-              { key: '1', label: 'الگو', children: 'گزارش وضعیت ماهانه' }, { key: '2', label: 'تکرار', children: 'اول هر ماه' }, { key: '3', label: 'نسخه بعد', children: '۱۴۰۳/۰۵/۰۱' },
-            ]} /><Button block>تنظیم برنامه تکرار</Button></Card></Col>
-          </Row>
-        },
-        {
-          key: 'charter', label: <span><FileTextOutlined /> منشور و تنظیمات</span>, children: <Row gutter={[12, 12]}>
-            <Col xs={24} lg={12}><Card size="small" title="منشور و اطلاعات پایه"><Descriptions column={1} size="small" items={[
-              { key: '1', label: 'هدف', children: project.description || 'یکپارچه‌سازی فرایندهای سازمان' }, { key: '2', label: 'حامی', children: project.sponsor }, { key: '3', label: 'مدیر پروژه', children: project.manager }, { key: '4', label: 'روش اجرا', children: project.method },
+          key: 'charter', label: <span><FileTextOutlined /> منشور پروژه</span>, children: <Row gutter={[12, 12]}>
+            <Col xs={24} xl={10}><Card size="small" title="منشور و اطلاعات پایه"><Descriptions column={1} size="small" items={[
+              { key: '1', label: 'هدف', children: project.description || 'یکپارچه‌سازی فرایندهای سازمان' }, { key: '2', label: 'حامی', children: project.sponsor }, { key: '3', label: 'مدیر پروژه', children: project.manager }, { key: '4', label: 'روش اجرا', children: project.method }, { key: '5', label: 'بازه پروژه', children: `${project.startDate} تا ${project.endDate}` },
             ]} /><Button block>ویرایش منشور</Button></Card></Col>
-            <Col xs={24} lg={12}><Card size="small" title="اعضا، نقش‌ها و فیلدهای سفارشی"><Space wrap>{project.team.map(m => <Tag icon={<TeamOutlined />} key={m.id}>{m.name} — {m.role}</Tag>)}</Space><div style={{ marginTop: 16 }}><Tag color="purple">کد قرارداد: CT-1403-12</Tag><Tag color="blue">مرکز هزینه: IT-01</Tag></div><Button block style={{ marginTop: 16 }}>مدیریت اعضا و فیلدها</Button></Card></Col>
+            <Col xs={24} xl={14}><Card size="small" title="برنامه، نقاط عطف و خط مبنا"><Timeline items={[
+              { color: 'green', children: 'آغاز پروژه — ' + project.startDate }, { color: 'blue', children: 'تحلیل و طراحی — تکمیل شده' }, { color: 'orange', children: 'تحویل نسخه آزمایشی — ۷ روز انحراف' }, { color: 'gray', children: 'پایان برنامه‌ریزی‌شده — ' + project.endDate },
+            ]} /><Descriptions column={2} size="small" items={[{ key: '1', label: 'خط مبنا', children: 'نسخه ۱.۲' }, { key: '2', label: 'تکرار', children: 'گزارش وضعیت ماهانه' }]} /><Space><Button>ثبت نقطه عطف</Button><Button>به‌روزرسانی خط مبنا</Button></Space></Card></Col>
           </Row>
         },
         {
-          key: 'governance', label: <span><SafetyCertificateOutlined /> کنترل و حاکمیت</span>, children: <>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><Button type="primary" icon={<PlusOutlined />} onClick={() => setGovernanceOpen(true)} style={{ background: '#8B1A6B' }}>ثبت مورد</Button></div>
-            <Table size="small" rowKey="id" pagination={false} dataSource={governance} columns={[
-              { title: 'نوع', dataIndex: 'type', width: 140, render: (v: string) => <Tag color="magenta">{v}</Tag> }, { title: 'عنوان', dataIndex: 'title' }, { title: 'مسئول', dataIndex: 'owner', width: 130 }, { title: 'وضعیت', dataIndex: 'status', width: 130, render: (v: string) => <Tag>{v}</Tag> },
-            ]} />
+          key: 'roles', label: <span><TeamOutlined /> نقش‌ها و فیلدهای سفارشی</span>, children: <>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} lg={12}><Card size="small" title="اعضا و نقش‌های پروژه"><Space wrap>{project.team.map(m => <Tag icon={<TeamOutlined />} key={m.id}>{m.name} — {m.role}</Tag>)}</Space><Button block style={{ marginTop: 16 }}>مدیریت اعضا و نقش‌ها</Button></Card></Col>
+              <Col xs={24} lg={12}><Card size="small" title="فیلدهای سفارشی"><Space wrap><Tag color="purple">کد قرارداد: CT-1403-12</Tag><Tag color="blue">مرکز هزینه: IT-01</Tag><Tag color="green">سطح محرمانگی: داخلی</Tag></Space><Button block style={{ marginTop: 16 }}>مدیریت فیلدهای سفارشی</Button></Card></Col>
+            </Row>
+            <Card size="small" title="ریسک‌ها، مسائل، تصمیمات و تغییرات محدوده" style={{ marginTop: 12 }} extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setControlOpen(true)} style={{ background: '#8B1A6B' }}>ثبت مورد</Button>}>
+              <Table size="middle" rowKey="id" pagination={false} dataSource={controls} columns={[
+                { title: 'نوع', dataIndex: 'type', width: 150, render: (v: string) => <Tag color="magenta">{v}</Tag> }, { title: 'عنوان', dataIndex: 'title' }, { title: 'مسئول', dataIndex: 'owner', width: 150 }, { title: 'وضعیت', dataIndex: 'status', width: 140, render: (v: string) => <Tag>{v}</Tag> },
+              ]} />
+            </Card>
           </>
         },
       ]} />
 
       <Modal title="ثبت پروژه جدید" open={newProjectOpen} onCancel={() => setNewProjectOpen(false)} onOk={saveProject} okText="ایجاد پروژه" cancelText="انصراف" width={680}>
-        <Form form={projectForm} layout="vertical"><Row gutter={12}>
-          <Col span={12}><Form.Item name="template" label="ایجاد از قالب" rules={[{ required: true }]}><Select options={['پروژه چابک نرم‌افزاری', 'پروژه عمرانی', 'پروژه تحقیقاتی', 'پروژه خالی'].map(x => ({ value: x, label: x }))} /></Form.Item></Col>
-          <Col span={12}><Form.Item name="name" label="نام پروژه" rules={[{ required: true }]}><Input /></Form.Item></Col>
-          <Col span={12}><Form.Item name="manager" label="مدیر پروژه" rules={[{ required: true }]}><Select options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Col>
-          <Col span={12}><Form.Item name="repeat" label="تکرار پروژه"><Select options={[{ value: 'none', label: 'بدون تکرار' }, { value: 'monthly', label: 'ماهانه' }, { value: 'quarterly', label: 'فصلی' }]} /></Form.Item></Col>
-          <Col span={24}><Form.Item name="description" label="هدف و محدوده اولیه"><Input.TextArea rows={3} /></Form.Item></Col>
-        </Row></Form>
+        <Form form={projectForm} layout="vertical"><Row gutter={12}><Col span={12}><Form.Item name="template" label="ایجاد از قالب" rules={[{ required: true }]}><Select options={['پروژه چابک نرم‌افزاری', 'پروژه عمرانی', 'پروژه تحقیقاتی', 'پروژه خالی'].map(x => ({ value: x, label: x }))} /></Form.Item></Col><Col span={12}><Form.Item name="name" label="نام پروژه" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="manager" label="مدیر پروژه" rules={[{ required: true }]}><Select options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Col><Col span={12}><Form.Item name="repeat" label="تکرار پروژه"><Select options={[{ value: 'none', label: 'بدون تکرار' }, { value: 'monthly', label: 'ماهانه' }, { value: 'quarterly', label: 'فصلی' }]} /></Form.Item></Col><Col span={24}><Form.Item name="description" label="هدف و محدوده اولیه"><Input.TextArea rows={3} /></Form.Item></Col></Row></Form>
       </Modal>
-      <Modal title="ثبت مورد کنترلی" open={governanceOpen} onCancel={() => setGovernanceOpen(false)} onOk={saveGovernance} okText="ثبت" cancelText="انصراف">
-        <Form form={governanceForm} layout="vertical"><Form.Item name="type" label="نوع" rules={[{ required: true }]}><Select options={['ریسک', 'مسئله و مانع', 'تصمیم', 'تغییر محدوده', 'گزارش وضعیت دوره‌ای'].map(x => ({ value: x, label: x }))} /></Form.Item><Form.Item name="title" label="عنوان" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="owner" label="مسئول" rules={[{ required: true }]}><Select options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Form>
-      </Modal>
+      <Modal title="ثبت مورد کنترلی" open={controlOpen} onCancel={() => setControlOpen(false)} onOk={saveControl} okText="ثبت" cancelText="انصراف"><Form form={controlForm} layout="vertical"><Form.Item name="type" label="نوع" rules={[{ required: true }]}><Select options={['ریسک', 'مسئله و مانع', 'تصمیم', 'تغییر محدوده', 'گزارش وضعیت دوره‌ای'].map(x => ({ value: x, label: x }))} /></Form.Item><Form.Item name="title" label="عنوان" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="owner" label="مسئول" rules={[{ required: true }]}><Select options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Form></Modal>
     </Card>
   )
 }

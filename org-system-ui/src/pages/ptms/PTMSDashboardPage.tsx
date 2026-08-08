@@ -1,17 +1,16 @@
 import { useState } from 'react'
 import { Card, Row, Col, Badge, Button, Modal, Form, Input, Select, Tag, Space, Avatar, List, Progress, Divider, Tabs, Empty } from 'antd'
 import {
-  MailOutlined, CheckSquareOutlined, CustomerServiceOutlined,
+  CheckSquareOutlined,
   PlusOutlined, BellOutlined, ClockCircleOutlined,
   CalendarOutlined, RightOutlined, LeftOutlined, UserOutlined, DeleteOutlined
 } from '@ant-design/icons'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, PieChart, Pie, Cell } from 'recharts'
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, PieChart, Pie, Cell } from 'recharts'
 import { useNavigate } from 'react-router-dom'
 import {
   SAMPLE_PROJECTS, SAMPLE_TASKS, SAMPLE_RISKS,
-  getPriorityColor, getStatusColor, formatCurrency, USERS
+  getPriorityColor, getStatusColor, USERS
 } from './ptmsData'
-import type { Risk, Task } from './ptmsData'
 import ProjectManagementHub from './ProjectManagementHub'
 
 const PERSIAN_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
@@ -20,7 +19,7 @@ const COLORS = ['#8B1A6B', '#1677ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1'
 
 interface CalEvent {
   id: string; title: string; date: string; time?: string
-  type: 'meeting' | 'task' | 'reminder'; color: string
+  type: 'meeting' | 'task' | 'reminder'; color: string; projectId: string
 }
 
 function getDaysInMonth(month: number): number {
@@ -254,13 +253,14 @@ function EventTasksTab() {
 // ── Main Dashboard ─────────────────────────────────────
 export default function PTMSDashboardPage() {
   const navigate = useNavigate()
+  const [selectedProjectId, setSelectedProjectId] = useState(SAMPLE_PROJECTS[0].id)
   const [currentMonth, setCurrentMonth] = useState(4)
   const [currentYear] = useState(1403)
   const [events, setEvents] = useState<CalEvent[]>([
-    { id: '1', title: 'جلسه هیئت مدیره', date: '1403/4/15', time: '۱۰:۰۰', type: 'meeting', color: '#1677ff' },
-    { id: '2', title: 'مهلت تحویل گزارش', date: '1403/4/18', type: 'task', color: '#52c41a' },
-    { id: '3', title: 'جلسه با مشتریان', date: '1403/4/20', time: '۱۴:۰۰', type: 'meeting', color: '#1677ff' },
-    { id: '4', title: 'بررسی قراردادها', date: '1403/4/22', type: 'reminder', color: '#fa8c16' },
+    { id: '1', title: 'جلسه هیئت مدیره', date: '1403/4/15', time: '۱۰:۰۰', type: 'meeting', color: '#1677ff', projectId: '1' },
+    { id: '2', title: 'مهلت تحویل گزارش', date: '1403/4/18', type: 'task', color: '#52c41a', projectId: '1' },
+    { id: '3', title: 'جلسه با مشتریان', date: '1403/4/20', time: '۱۴:۰۰', type: 'meeting', color: '#1677ff', projectId: '2' },
+    { id: '4', title: 'بررسی قراردادها', date: '1403/4/22', type: 'reminder', color: '#fa8c16', projectId: '3' },
   ])
   const [eventModal, setEventModal] = useState(false)
   const [selectedDate, setSelectedDate] = useState('')
@@ -272,7 +272,7 @@ export default function PTMSDashboardPage() {
   const firstDay = getFirstDayOfMonth(currentMonth, currentYear)
 
   const getEventsForDay = (day: number) =>
-    events.filter(e => e.date === `${currentYear}/${currentMonth}/${day}`)
+    events.filter(e => e.projectId === selectedProjectId && e.date === `${currentYear}/${currentMonth}/${day}`)
 
   const isFriday = (day: number) => ((firstDay + day - 1) % 7) === 6
   const isToday = (day: number) => day === 15 && currentMonth === 4
@@ -287,7 +287,7 @@ export default function PTMSDashboardPage() {
   const handleAddEvent = () => {
     eventForm.validateFields().then(values => {
       setEvents(prev => [...prev, {
-        id: Date.now().toString(), date: selectedDate,
+        id: Date.now().toString(), date: selectedDate, projectId: selectedProjectId,
         color: values.type === 'meeting' ? '#1677ff' : values.type === 'task' ? '#52c41a' : '#fa8c16',
         ...values
       }])
@@ -295,35 +295,34 @@ export default function PTMSDashboardPage() {
     })
   }
 
-  const activeProjects = SAMPLE_PROJECTS.filter(p => p.status === 'در حال اجرا').length
-  const myTasks = SAMPLE_TASKS.filter(t => t.assignee === 'مدیر سیستم')
-  const activeRisks = SAMPLE_RISKS.filter(r => r.status === 'فعال')
+  const selectedProject = SAMPLE_PROJECTS.find(p => p.id === selectedProjectId) || SAMPLE_PROJECTS[0]
+  const projectTasks = SAMPLE_TASKS.filter(t => t.projectId === selectedProjectId)
+  const projectRisks = SAMPLE_RISKS.filter(r => r.projectId === selectedProjectId)
+  const activeRisks = projectRisks.filter(r => r.status === 'فعال')
 
   const stats = [
-    { label: 'کل پروژه‌ها', value: SAMPLE_PROJECTS.length, icon: <CheckSquareOutlined />, color: '#8B1A6B', bg: '#8B1A6B11', sub: `${activeProjects} فعال` },
-    { label: 'وظایف باز من', value: myTasks.filter(t => t.status !== 'تکمیل شده').length, icon: <CheckSquareOutlined />, color: '#1677ff', bg: '#e6f4ff', sub: 'در حال انجام' },
-    { label: 'ریسک‌های فعال', value: activeRisks.length, icon: <BellOutlined />, color: '#fa8c16', bg: '#fff7e6', sub: `${SAMPLE_RISKS.filter(r => r.level === 'بحرانی').length} بحرانی` },
+    { label: 'پیشرفت پروژه', value: `${selectedProject.progress}٪`, icon: <CheckSquareOutlined />, color: '#8B1A6B', bg: '#8B1A6B11', sub: selectedProject.status },
+    { label: 'وظایف باز پروژه', value: projectTasks.filter(t => t.status !== 'تکمیل شده').length, icon: <CheckSquareOutlined />, color: '#1677ff', bg: '#e6f4ff', sub: `${projectTasks.length} وظیفه ثبت‌شده` },
+    { label: 'ریسک‌های فعال', value: activeRisks.length, icon: <BellOutlined />, color: '#fa8c16', bg: '#fff7e6', sub: `${projectRisks.filter(r => r.level === 'بحرانی').length} بحرانی` },
     { label: 'رویدادهای امروز', value: getEventsForDay(15).length, icon: <CalendarOutlined />, color: '#722ed1', bg: '#f9f0ff', sub: 'جلسه ۱۰:۰۰' },
   ]
 
   const projectStatusData = [
-    { name: 'در حال اجرا', value: SAMPLE_PROJECTS.filter(p => p.status === 'در حال اجرا').length },
-    { name: 'تعریف شده', value: SAMPLE_PROJECTS.filter(p => p.status === 'تعریف شده').length },
-    { name: 'تکمیل شده', value: SAMPLE_PROJECTS.filter(p => p.status === 'تکمیل شده').length },
-  ].filter(d => d.value > 0)
+    { name: selectedProject.status, value: selectedProject.progress },
+    { name: 'باقی‌مانده', value: 100 - selectedProject.progress },
+  ]
 
   const progressData = [
-    { month: 'فروردین', planned: 10, actual: 8 },
-    { month: 'اردیبهشت', planned: 20, actual: 18 },
-    { month: 'خرداد', planned: 35, actual: 30 },
-    { month: 'تیر', planned: 50, actual: 45 },
+    { month: 'فروردین', planned: Math.max(8, selectedProject.progress - 35), actual: Math.max(5, selectedProject.progress - 40) },
+    { month: 'اردیبهشت', planned: Math.max(18, selectedProject.progress - 22), actual: Math.max(14, selectedProject.progress - 27) },
+    { month: 'خرداد', planned: Math.max(30, selectedProject.progress - 10), actual: Math.max(25, selectedProject.progress - 15) },
+    { month: 'تیر', planned: Math.min(100, selectedProject.progress + 5), actual: selectedProject.progress },
   ]
 
   const HOURS = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`)
 
-  return (
+  const statusContent = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <ProjectManagementHub />
       {/* آمار */}
       <Row gutter={[12, 12]}>
         {stats.map((s, i) => (
@@ -345,7 +344,7 @@ export default function PTMSDashboardPage() {
       {/* نمودارها */}
       <Row gutter={[12, 12]}>
         <Col xs={24} md={8}>
-          <Card title="وضعیت پروژه‌ها" size="small" style={{ borderRadius: 12 }}>
+          <Card title={`وضعیت ${selectedProject.name}`} size="small" style={{ borderRadius: 12 }}>
             <ResponsiveContainer width="100%" height={180}>
               <PieChart>
                 <Pie data={projectStatusData} cx="50%" cy="50%" outerRadius={70} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
@@ -428,10 +427,10 @@ export default function PTMSDashboardPage() {
             <Col span={24}>
               <Card title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>اعلان‌ها</span></Space>} size="small" style={{ borderRadius: 12 }}>
                 {[
-                  { text: 'نامه جدید از واحد مالی', time: '۱۰ دقیقه پیش', color: '#1677ff' },
-                  { text: 'وظیفه جدید واگذار شد', time: '۱ ساعت پیش', color: '#52c41a' },
-                  { text: 'ریسک بحرانی شناسایی شد', time: '۲ ساعت پیش', color: '#f5222d' },
-                  { text: 'جلسه فردا ۱۰:۰۰', time: '۳ ساعت پیش', color: '#722ed1' },
+                  { text: `گزارش وضعیت «${selectedProject.name}» به‌روزرسانی شد`, time: '۱۰ دقیقه پیش', color: '#1677ff' },
+                  { text: `${projectTasks.filter(t => t.status !== 'تکمیل شده').length} وظیفه باز در این پروژه وجود دارد`, time: '۱ ساعت پیش', color: '#52c41a' },
+                  { text: `${activeRisks.length} ریسک فعال نیازمند بررسی است`, time: '۲ ساعت پیش', color: '#f5222d' },
+                  { text: `${getEventsForDay(15).length} رویداد پروژه در تقویم امروز ثبت شده`, time: '۳ ساعت پیش', color: '#722ed1' },
                 ].map((n, i) => (
                   <div key={i} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid #fafafa', alignItems: 'flex-start' }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: n.color, marginTop: 5, flexShrink: 0 }} />
@@ -444,8 +443,8 @@ export default function PTMSDashboardPage() {
               </Card>
             </Col>
             <Col span={24}>
-              <Card title={<Space><CheckSquareOutlined style={{ color: '#8B1A6B' }} /><span>پروژه‌های فعال</span></Space>} size="small" style={{ borderRadius: 12 }} extra={<Button type="link" size="small" onClick={() => navigate('/ptms/projects')}>همه</Button>}>
-                {SAMPLE_PROJECTS.map(p => (
+              <Card title={<Space><CheckSquareOutlined style={{ color: '#8B1A6B' }} /><span>پروژه انتخاب‌شده</span></Space>} size="small" style={{ borderRadius: 12 }}>
+                  {[selectedProject].map(p => (
                   <div key={p.id} style={{ padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 500 }}>{p.name}</span>
@@ -463,8 +462,8 @@ export default function PTMSDashboardPage() {
       {/* وظایف + ریسک */}
       <Row gutter={[12, 12]}>
         <Col xs={24} lg={12}>
-          <Card title={<Space><CheckSquareOutlined style={{ color: '#1677ff' }} /><span>وظایف من</span><Badge count={myTasks.filter(t => t.status !== 'تکمیل شده').length} style={{ background: '#1677ff' }} /></Space>} size="small" style={{ borderRadius: 12 }} extra={<Button type="link" size="small" onClick={() => navigate('/ptms/tasks/mine')}>همه</Button>}>
-            {myTasks.slice(0, 4).map(t => (
+          <Card title={<Space><CheckSquareOutlined style={{ color: '#1677ff' }} /><span>وظایف پروژه</span><Badge count={projectTasks.filter(t => t.status !== 'تکمیل شده').length} style={{ background: '#1677ff' }} /></Space>} size="small" style={{ borderRadius: 12 }} extra={<Button type="link" size="small" onClick={() => navigate('/ptms/tasks')}>همه</Button>}>
+            {projectTasks.slice(0, 4).map(t => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: t.status === 'تکمیل شده' ? '#52c41a' : t.status === 'در حال انجام' ? '#1677ff' : '#fa8c16', flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
@@ -479,7 +478,7 @@ export default function PTMSDashboardPage() {
         </Col>
         <Col xs={24} lg={12}>
           <Card title={<Space><BellOutlined style={{ color: '#fa8c16' }} /><span>ریسک‌های بحرانی</span></Space>} size="small" style={{ borderRadius: 12 }} extra={<Button type="link" size="small" onClick={() => navigate('/ptms/risks')}>همه</Button>}>
-            {SAMPLE_RISKS.map(r => (
+            {projectRisks.map(r => (
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: r.level === 'بحرانی' ? '#f5222d' : '#fa8c16', flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
@@ -553,4 +552,6 @@ export default function PTMSDashboardPage() {
       </Modal>
     </div>
   )
+
+  return <ProjectManagementHub projectId={selectedProjectId} onProjectChange={setSelectedProjectId} statusContent={statusContent} />
 }
