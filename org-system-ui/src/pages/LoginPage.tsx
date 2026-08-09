@@ -15,9 +15,9 @@ function PersianClock() {
   const gregorianDate = time.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   return (
     <div style={{ textAlign: 'center', marginBottom: 32 }}>
-      <div style={{ fontSize: 42, fontWeight: 800, color: 'white', letterSpacing: 2, fontFamily: 'monospace' }}>{persianTime}</div>
-      <div style={{ fontSize: 16, color: 'rgba(255,255,255,0.9)', marginTop: 6, fontWeight: 500 }}>{persianDate}</div>
-      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>{gregorianDate}</div>
+      <div style={{ fontSize: 42, fontWeight: 800, color: '#211522', letterSpacing: 2, fontFamily: 'monospace' }}>{persianTime}</div>
+      <div style={{ fontSize: 16, color: '#2f2130', marginTop: 6, fontWeight: 700 }}>{persianDate}</div>
+      <div style={{ fontSize: 12, color: '#554656', marginTop: 4 }}>{gregorianDate}</div>
     </div>
   )
 }
@@ -167,7 +167,9 @@ export default function LoginPage() {
         <div className="login-card" style={{
           width: '100%', maxWidth: 440,
           background: 'white', borderRadius: 20,
-          padding: 36, boxShadow: '0 24px 70px rgba(0,0,0,0.45)',
+          padding: 36,
+          border: '1px solid rgba(255,255,255,0.78)',
+          boxShadow: '0 46px 100px rgba(35,0,29,0.44), 0 18px 38px rgba(73,12,58,0.28), 0 4px 10px rgba(31,5,34,0.18)',
           overflow: 'hidden',
         }}>
           <div style={{ height: 4, margin: '-36px -36px 28px', background: 'linear-gradient(90deg, #8B1A6B, #E91E8C, #8B1A6B)' }} />
@@ -248,14 +250,14 @@ export default function LoginPage() {
       <div className="login-info-column" style={{
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        padding: 48, color: 'white', direction: 'rtl',
+        padding: 48, color: '#211522', direction: 'rtl',
         position: 'relative', zIndex: 1,
       }}>
-        <div style={{ width: 96, height: 96, borderRadius: 18, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '2px solid rgba(255,255,255,0.25)', padding: 8 }}>
+        <div className="login-company-logo" style={{ width: 96, height: 96, borderRadius: 18, background: 'rgba(255,255,255,0.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, padding: 8 }}>
           {company.logoUrl ? <img src={company.logoUrl} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 38 }}>🏢</span>}
         </div>
         <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
-        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', marginBottom: 40 }}>سامانه یکپارچه مدیریت سازمانی</div>
+        <div style={{ fontSize: 14, color: '#4a3b4b', marginBottom: 40, fontWeight: 600 }}>سامانه یکپارچه مدیریت سازمانی</div>
 
         <PersianClock />
 
@@ -266,17 +268,17 @@ export default function LoginPage() {
             { icon: '🎫', title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
             { icon: '📋', title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
           ].map((item, i) => (
-            <div key={i} className="login-feature" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', background: 'rgba(255,255,255,0.08)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div key={i} className="login-feature" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', background: 'rgba(255,255,255,0.42)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.68)' }}>
               <span style={{ fontSize: 22 }}>{item.icon}</span>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{item.title}</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{item.desc}</div>
+                <div style={{ fontSize: 11, color: '#554656', marginTop: 2, fontWeight: 500 }}>{item.desc}</div>
               </div>
             </div>
           ))}
         </div>
 
-        <div style={{ marginTop: 36, fontSize: 12, color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>
+        <div style={{ marginTop: 36, fontSize: 12, color: '#625263', textAlign: 'center', fontWeight: 600 }}>
           مدیریت پروژه پارس © ۱۴۰۳
         </div>
       </div>
