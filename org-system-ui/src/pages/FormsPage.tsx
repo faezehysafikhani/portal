@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker, Descriptions } from 'antd'
 import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
 import { useLocation } from 'react-router-dom'
@@ -128,6 +128,8 @@ export default function FormsPage() {
   const [selectedForm, setSelectedForm] = useState<FormSubmission | null>(null)
   const [actionModal, setActionModal] = useState<'approve' | 'complete' | 'reject' | 'return' | null>(null)
   const [actionNote, setActionNote] = useState('')
+  const [submittingForm, setSubmittingForm] = useState(false)
+  const formRequestId = useRef(crypto.randomUUID())
   const [form] = Form.useForm()
 
   const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:formatJalaliDate(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',completed:'خاتمه یافته',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName||'—',hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),canAct:x.canAct,isHrCopy:x.isHrCopy,history:(x.history||[]).map((h:any)=>({date:formatJalaliDate(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',complete:'خاتمه فرم',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
@@ -137,8 +139,8 @@ export default function FormsPage() {
   const hrOptions=workflow.hrManager?[{value:workflow.hrManager.id,label:`${workflow.hrManager.fullName}${workflow.hrManager.position?' — '+workflow.hrManager.position:''}`}]:[]
   const userOptions=users.map(u=>({value:u.id,label:u.fullName}))
   const openForm=(type:string)=>{
-    if(['leave_daily','leave_hourly'].includes(type)&&leaveBalance.availableHours<=0){notification.warning({message:'⚠️ مانده مرخصی ندارید',description:'مانده قابل استفاده شما صفر است و امکان ثبت درخواست مرخصی وجود ندارد.',duration:6});return}
-    form.resetFields();setNewFormType(type);form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id});setNewFormModal(true)
+    formRequestId.current=crypto.randomUUID()
+    form.resetFields();setNewFormType(type);form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,leaveType:type==='leave_daily'?'استحقاقی':undefined});setNewFormModal(true)
   }
 
   const checkLeaveBalance = (type: string, days?: number, hours?: number) => {
@@ -161,8 +163,11 @@ export default function FormsPage() {
     return true
   }
 
-  const handleSubmitForm = () => {
-    form.validateFields().then(async values => {
+  const handleSubmitForm = async () => {
+    if(submittingForm)return
+    setSubmittingForm(true)
+    try {
+      const values=await form.validateFields()
       const data={...values,fromTime:values.fromTime?.format?.('HH:mm')??values.fromTime,toTime:values.toTime?.format?.('HH:mm')??values.toTime}
       if(Object.values(data).some(v=>typeof v==='string'&&codePattern.test(v))){notification.error({message:'ورود کد HTML، JavaScript یا SQL مجاز نیست'});return}
       let requestedHours=0
@@ -171,7 +176,7 @@ export default function FormsPage() {
         const days=Math.floor((to.getTime()-from.getTime())/86400000)+1
         if(days<=0){notification.error({message:'تاریخ پایان باید بعد از تاریخ شروع باشد'});return}
         requestedHours=days*8
-        if(!checkLeaveBalance(newFormType,days))return
+        if(values.leaveType==='استحقاقی'&&!checkLeaveBalance(newFormType,days))return
       }
       if(newFormType==='leave_hourly'&&values.fromTime&&values.toTime){
         const hours=values.toTime.diff(values.fromTime,'minute')/60
@@ -180,13 +185,18 @@ export default function FormsPage() {
         requestedHours=hours
       }
 
-      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data})})
+      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data,clientRequestId:formRequestId.current})})
       const result=await res.json().catch(()=>({}));if(!res.ok){notification.error({message:result.message||'خطا در ارسال فرم'});return}
       setNewFormModal(false)
       form.resetFields()
+      formRequestId.current=crypto.randomUUID()
       notification.success({ message: 'فرم با موفقیت ارسال شد', description: result.message })
-      load()
-    })
+      await load()
+    } catch(error:any) {
+      if(!error?.errorFields)notification.error({message:error?.message||'خطا در ارسال فرم'})
+    } finally {
+      setSubmittingForm(false)
+    }
   }
 
   const handleAction = async () => {
@@ -201,12 +211,12 @@ export default function FormsPage() {
   // ── فرم مرخصی روزانه ────────────────────────────────
   const LeaveDailyForm = () => (
     <div>
-      <Alert message={`مانده قابل استفاده: ${leaveBalance.availableHours} ساعت (معادل ${leaveBalance.days} روز کامل)`} type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={`مانده مرخصی استحقاقی: ${leaveBalance.availableHours} ساعت (معادل ${leaveBalance.days} روز کاری)`} description="برای مرخصی استعلاجی یا بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="fromDate" label="از تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={12}><Form.Item name="toDate" label="تا تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={12}><Form.Item name="leaveType" label="نوع مرخصی"><Select><Select.Option value="استحقاقی">استحقاقی</Select.Option><Select.Option value="استعلاجی">استعلاجی</Select.Option><Select.Option value="بدون حقوق">بدون حقوق</Select.Option></Select></Form.Item></Col>
-        <Col span={12}><Form.Item name="manager" label="مدیر مستقیم" rules={[{ required: true }]}><Select disabled options={managerOptions}/></Form.Item></Col>
+        <Col span={12}><Form.Item name="manager" label="مدیر مستقیم"><Select disabled placeholder="از پروفایل سازمانی تعیین می‌شود" options={managerOptions}/></Form.Item></Col>
         <Col span={12}><Form.Item name="replacement" label="جانشین در غیاب"><Select allowClear options={userOptions}/></Form.Item></Col>
         <Col span={24}><Form.Item name="reason" label="علت مرخصی" rules={[{ required: true },safeRule]}><Input.TextArea rows={3} maxLength={1000} showCount /></Form.Item></Col>
       </Row>
@@ -221,7 +231,7 @@ export default function FormsPage() {
         <Col span={12}><Form.Item name="date" label="تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={6}><Form.Item name="fromTime" label="از ساعت" rules={[{ required: true }]}><TimePicker format="HH:mm" minuteStep={5} style={{width:'100%'}} placeholder="انتخاب ساعت" /></Form.Item></Col>
         <Col span={6}><Form.Item name="toTime" label="تا ساعت" rules={[{ required: true }]}><TimePicker format="HH:mm" minuteStep={5} style={{width:'100%'}} placeholder="انتخاب ساعت" /></Form.Item></Col>
-        <Col span={12}><Form.Item name="manager" label="مدیر مستقیم" rules={[{ required: true }]}><Select disabled options={managerOptions}/></Form.Item></Col>
+        <Col span={12}><Form.Item name="manager" label="مدیر مستقیم"><Select disabled placeholder="از پروفایل سازمانی تعیین می‌شود" options={managerOptions}/></Form.Item></Col>
         <Col span={24}><Form.Item name="reason" label="علت مرخصی" rules={[{ required: true },safeRule]}><Input.TextArea rows={2} maxLength={1000} showCount /></Form.Item></Col>
       </Row>
     </div>
@@ -422,10 +432,10 @@ export default function FormsPage() {
       {/* Modal فرم جدید */}
       <Modal
         title={<Space><span style={{ fontSize: 20 }}>{FORM_TYPES[newFormType]?.icon}</span><span>{FORM_TYPES[newFormType]?.label}</span></Space>}
-        open={newFormModal} onOk={handleSubmitForm} onCancel={() => { setNewFormModal(false); form.resetFields() }}
+        open={newFormModal} onOk={handleSubmitForm} confirmLoading={submittingForm} onCancel={() => { if(submittingForm)return;setNewFormModal(false);form.resetFields() }}
         maskClosable={false} centered
         okText="ارسال فرم" cancelText="انصراف" width={860}
-        okButtonProps={{ style: { background: '#8B1A6B', borderColor: '#8B1A6B' }, icon: <SendOutlined /> }}
+        okButtonProps={{ disabled:submittingForm,style: { background: '#8B1A6B', borderColor: '#8B1A6B' }, icon: <SendOutlined /> }}
       >
         <Card bordered={false} style={{background:`linear-gradient(145deg,#fff,${FORM_TYPES[newFormType]?.color}0d)`,borderRadius:16,borderTop:`4px solid ${FORM_TYPES[newFormType]?.color}`}}>
         <Form form={form} layout="vertical" requiredMark="optional">
@@ -438,7 +448,7 @@ export default function FormsPage() {
               : workflow.isConfigured?`ثبت‌کننده: ${workflow.submitter?.fullName} | مدیر مستقیم: ${workflow.manager?.fullName} | منابع انسانی: ${workflow.hrManager?.fullName}`:workflow.message||'گردش کار این کاربر کامل تنظیم نشده است'}
           />
           {renderForm()}
-            <Form.Item name="hrManager" label="مسئول منابع انسانی" rules={[{required:true,message:'مسئول منابع انسانی را انتخاب کنید'}]} style={{ marginTop: 8 }}>
+            <Form.Item name="hrManager" label="مسئول منابع انسانی" style={{ marginTop: 8 }}>
               <Select disabled options={hrOptions}/>
             </Form.Item>
         </Form>

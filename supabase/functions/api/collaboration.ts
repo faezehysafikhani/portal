@@ -1,7 +1,7 @@
 import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
-import { jalaliDateString, jalaliYearMonth } from '../_shared/jalali.ts'
+import { jalaliDateString, jalaliDayNumber, jalaliYearMonth } from '../_shared/jalali.ts'
 import { createNotification, createNotifications, notificationType } from '../_shared/notifications.ts'
 
 type Obj = Record<string, any>
@@ -217,6 +217,30 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
 
 const person = (u: Obj) => ({ id:u.Id, username:u.Username, fullName:`${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim() || u.Username, position:u.Position, department:u.Department })
 const monthIndex = (value:string|number) => { const raw=String(value); const year=Number(raw.includes('/')?raw.split('/')[0]:raw.slice(0,4)),month=Number(raw.includes('/')?raw.split('/')[1]:raw.slice(4,6)); return year*12+month-1 }
+const normalizedPersonReference = (value:unknown) => String(value??'').replace(/[يى]/g,'ی').replace(/ك/g,'ک').replace(/[\s\u200c\u200f\u202a-\u202e]+/g,'').trim().toLowerCase()
+const formData = (value:unknown):Obj => { try { return typeof value==='string'?JSON.parse(value):((value??{}) as Obj) } catch { return {} } }
+const consumesLeaveBalance = (formType:unknown,data:Obj) => String(formType)==='leave_hourly'||(String(formType)==='leave_daily'&&String(data.leaveType??'استحقاقی')==='استحقاقی')
+function requestedLeaveHours(formType:string,data:Obj):number {
+  if(formType==='leave_daily'){
+    const from=jalaliDayNumber(data.fromDate),to=jalaliDayNumber(data.toDate)
+    if(from===null||to===null)throw new HttpError(400,'تاریخ شروع یا پایان مرخصی معتبر نیست.')
+    const days=to-from+1
+    if(days<=0)throw new HttpError(400,'تاریخ پایان باید بعد از تاریخ شروع باشد.')
+    if(days>31)throw new HttpError(400,'مرخصی روزانه نمی‌تواند بیشتر از ۳۱ روز باشد.')
+    return days*8
+  }
+  if(formType==='leave_hourly'){
+    if(jalaliDayNumber(data.date)===null)throw new HttpError(400,'تاریخ مرخصی ساعتی معتبر نیست.')
+    const parseTime=(value:unknown)=>{const match=String(value??'').match(/^([01]\d|2[0-3]):([0-5]\d)$/);return match?Number(match[1])*60+Number(match[2]):null}
+    const from=parseTime(data.fromTime),to=parseTime(data.toTime)
+    if(from===null||to===null)throw new HttpError(400,'ساعت شروع یا پایان معتبر نیست.')
+    const minutes=to-from
+    if(minutes<=0)throw new HttpError(400,'ساعت پایان باید بعد از ساعت شروع باشد.')
+    if(minutes>480)throw new HttpError(400,'مرخصی ساعتی در یک روز نمی‌تواند بیشتر از ۸ ساعت باشد.')
+    return minutes/60
+  }
+  return 0
+}
 
 async function workflow(auth: AuthContext) {
   const [current,all] = await Promise.all([
@@ -224,24 +248,38 @@ async function workflow(auth: AuthContext) {
     db.from('Users').select('Id,Username,FirstName,LastName,Position,Department').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('IsActive',true).order('FirstName'),
   ]); check(current.error); check(all.error)
   const users=(all.data??[]).map(person)
-  const resolve=(reference:unknown)=>{const key=String(reference??'').trim().toLowerCase();return users.find((u:any)=>u.id.toLowerCase()===key||String(u.username??'').toLowerCase()===key||u.fullName.toLowerCase()===key)}
-  const manager=resolve(current.data.DirectManager)
+  const resolve=(reference:unknown)=>{const key=normalizedPersonReference(reference);if(!key)return undefined;return users.find((u:any)=>[u.id,u.username,u.fullName,u.position].some(value=>normalizedPersonReference(value)===key))}
+  const sameDepartmentManagers=users.filter((u:any)=>u.id!==auth.userId&&normalizedPersonReference(u.department)===normalizedPersonReference(current.data.Department)&&/مدیر|سرپرست/i.test(String(u.position??'')))
+  const configuredManager=resolve(current.data.DirectManager)
+  const manager=configuredManager?.id!==auth.userId?configuredManager:(sameDepartmentManagers.length===1?sameDepartmentManagers[0]:undefined)
   const isCurrentUserHr=[current.data.Position,current.data.Department].some(value=>/منابع\s*انسانی|\bHR\b/i.test(String(value??'')))
   // مسئول منابع انسانی برای درخواست شخصی خودش، مسئول مرحلهٔ نهایی نیز هست.
   // بنابراین اگر HrManager جداگانه‌ای در پروفایلش تنظیم نشده باشد، خود او انتخاب می‌شود.
-  const hrManager=resolve(current.data.HrManager)??(isCurrentUserHr?person(current.data):undefined)
+  const hrCandidates=users.filter((u:any)=>u.id!==auth.userId&&[u.position,u.department].some(value=>/منابع\s*انسانی|\bHR\b/i.test(String(value??''))))
+  const preferredHr=hrCandidates.find((u:any)=>/مدیر.*منابع\s*انسانی|منابع\s*انسانی.*مدیر|مدیر\s*HR|HR\s*Manager/i.test(String(u.position??'')))
+  const hrManager=resolve(current.data.HrManager)??(isCurrentUserHr?person(current.data):(preferredHr??(hrCandidates.length===1?hrCandidates[0]:undefined)))
   return { submitter:person(current.data), manager, hrManager, isConfigured:Boolean(manager&&hrManager), message:manager&&hrManager?undefined:'مدیر مستقیم یا مسئول منابع انسانی در پروفایل کاربر تنظیم نشده است.', users }
 }
 
 async function leaveAccount(auth: AuthContext, userId=auth.userId) {
-  const ym=jalaliYearMonth(),found=await db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle();check(found.error)
+  const ym=jalaliYearMonth(),[found,user,pending,approved]=await Promise.all([
+    db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle(),
+    db.from('Users').select('CreatedAt').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
+    db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']),
+    db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['approved','completed']),
+  ]);check(found.error);check(user.error);check(pending.error);check(approved.error)
+  const startedYm=user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym
+  const entitledMonths=Math.max(1,monthIndex(ym)-monthIndex(startedYm)+1)
+  const actualReserved=(pending.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
+  const actualUsed=(approved.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
   let account=found.data
   if(!account){
-    const created=await db.from('LeaveAccounts').insert({...base(auth),UserId:userId,AccruedThroughYearMonth:ym,AccruedHours:20,UsedHours:0,ReservedHours:0,MonthlyAccrualHours:20,HoursPerDay:8}).select().single();check(created.error);account=created.data
+    const created=await db.from('LeaveAccounts').insert({...base(auth),UserId:userId,AccruedThroughYearMonth:ym,AccruedHours:entitledMonths*20,UsedHours:actualUsed,ReservedHours:actualReserved,MonthlyAccrualHours:20,HoursPerDay:8}).select().single();check(created.error);account=created.data
   } else {
-    const previous=account.AccruedThroughYearMonth??0,months=Math.max(0,monthIndex(ym)-monthIndex(previous))
-    const emptyCurrent=months===0&&Number(account.AccruedHours??0)===0&&Number(account.UsedHours??0)===0&&Number(account.ReservedHours??0)===0
-    if(!Number(previous)||emptyCurrent||months>0){const accrued=emptyCurrent||!Number(previous)?20:Number(account.AccruedHours??0)+months*Number(account.MonthlyAccrualHours??20);const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,AccruedThroughYearMonth:ym,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data}
+    const previous=account.AccruedThroughYearMonth??0,months=Math.max(0,monthIndex(ym)-monthIndex(previous)),monthly=Number(account.MonthlyAccrualHours??20)
+    const minimumAccrued=entitledMonths*monthly
+    const accrued=Math.max(minimumAccrued,Number(account.AccruedHours??0)+(Number(previous)?months*monthly:0))
+    const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,UsedHours:actualUsed,ReservedHours:actualReserved,AccruedThroughYearMonth:ym,MonthlyAccrualHours:monthly,HoursPerDay:Number(account.HoursPerDay??8),UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data
   }
   const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
   return {...account,availableHours:Math.max(0,accrued-used-reserved),days:Math.max(0,(accrued-used-reserved)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}
@@ -267,17 +305,23 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
   if (path === '/forms' && request.method === 'POST') {
     requirePermission(auth, 'forms.create'); const input = await body<Obj>(request)
     const formType=String(input.formType??'');const assignedTypes=auth.permissions.filter(code=>code.startsWith('forms.type.'));if(!auth.isAdmin&&!auth.permissions.includes('forms.access')&&assignedTypes.length>0&&!assignedTypes.includes(`forms.type.${formType}`))throw new HttpError(403,'دسترسی ثبت این نوع فرم برای شما فعال نشده است')
+    const clientRequestId=String(input.clientRequestId??'').trim();if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientRequestId))throw new HttpError(400,'شناسه درخواست فرم معتبر نیست')
+    const existing=await db.from('OrganizationalForms').select('*').eq('TenantId',auth.tenantId).eq('SubmitterUserId',auth.userId).eq('ClientRequestId',clientRequestId).eq('IsDeleted',false).maybeSingle();check(existing.error)
+    if(existing.data)return json(request,{...camelize(existing.data) as Obj,message:'این فرم قبلاً ثبت شده است.',duplicate:true})
     const route=await workflow(auth);const isPersonnel=formType==='personnel',hrManager=route.hrManager
     if(!hrManager)throw new HttpError(400,'مدیر منابع انسانی در پروفایل شما تنظیم نشده است.')
     if(!isPersonnel&&!route.isConfigured)throw new HttpError(400,route.message)
-    const requestedHours=['leave_daily','leave_hourly'].includes(String(input.formType))?Number(input.amount??0):0
+    const requestedHours=requestedLeaveHours(formType,input.data??{})
     if(['leave_daily','leave_hourly'].includes(String(input.formType))&&requestedHours<=0)throw new HttpError(400,'مدت مرخصی معتبر نیست.')
+    const chargesBalance=consumesLeaveBalance(formType,input.data??{})
     let account:Obj|null=null
-    if(requestedHours>0){account=await leaveAccount(auth);if(requestedHours>account.availableHours)throw new HttpError(400,`مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)}
-    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager?.id??null, ManagerName:route.manager?.fullName??null, HrUserId: hrManager.id, HrName:hrManager.fullName, Status: isPersonnel?'hr_pending':'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}) }
-    const result = await db.from('OrganizationalForms').insert(row).select().single(); check(result.error)
+    if(requestedHours>0&&chargesBalance){account=await leaveAccount(auth);if(requestedHours>account.availableHours)throw new HttpError(400,`مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)}
+    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager?.id??null, ManagerName:route.manager?.fullName??null, HrUserId: hrManager.id, HrName:hrManager.fullName, Status: isPersonnel?'hr_pending':'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}), ClientRequestId:clientRequestId }
+    const result = await db.from('OrganizationalForms').insert(row).select().single()
+    if(result.error?.code==='23505'){const duplicate=await db.from('OrganizationalForms').select('*').eq('TenantId',auth.tenantId).eq('SubmitterUserId',auth.userId).eq('ClientRequestId',clientRequestId).eq('IsDeleted',false).single();check(duplicate.error);return json(request,{...camelize(duplicate.data) as Obj,message:'این فرم قبلاً ثبت شده است.',duplicate:true})}
+    check(result.error)
     const history=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:result.data.Id,ActorUserId:auth.userId,ActorName:route.submitter.fullName,Action:'submitted',Note:null});check(history.error)
-    if(account&&requestedHours>0){const reserved=await db.from('LeaveAccounts').update({ReservedHours:Number(account.ReservedHours??0)+requestedHours,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(reserved.error)}
+    if(account&&requestedHours>0&&chargesBalance)await leaveAccount(auth)
     const firstApprover=isPersonnel?hrManager:route.manager
     if(!firstApprover)throw new HttpError(400,'مدیر مستقیم در پروفایل شما تنظیم نشده است.')
     await createNotification(db,auth,{userId:firstApprover.id,title:isPersonnel?'فرم مشخصات پرسنلی جدید':'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
@@ -305,11 +349,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     const actor=await db.from('Users').select('Username,FirstName,LastName').eq('TenantId',auth.tenantId).eq('Id',auth.userId).single();check(actor.error)
     const actionHistory=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:form.Id,ActorUserId:auth.userId,ActorName:person(actor.data).fullName,Action:input.action,Note:input.note??null});check(actionHistory.error)
     const requested=Number(form.RequestedHours??0)
-    if(requested>0&&((input.action==='approve'&&status==='approved')||input.action==='reject'||input.action==='return')){
-      const account=await leaveAccount(auth,form.SubmitterUserId),reserved=Math.max(0,Number(account.ReservedHours??0)-requested)
-      const accountUpdate:Obj={ReservedHours:reserved,UpdatedAt:now()};if(input.action==='approve'&&status==='approved')accountUpdate.UsedHours=Number(account.UsedHours??0)+requested
-      const saved=await db.from('LeaveAccounts').update(accountUpdate).eq('TenantId',auth.tenantId).eq('Id',account.Id);check(saved.error)
-    }
+    if(requested>0&&consumesLeaveBalance(form.FormType,formData(form.DataJson)))await leaveAccount(auth,form.SubmitterUserId)
     const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='completed'?'فرم مشخصات پرسنلی شما خاتمه یافت':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
     if(status==='hr_pending'){
       await Promise.all([
