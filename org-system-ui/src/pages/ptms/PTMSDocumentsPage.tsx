@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Card, Table, Button, Tag, Space, Input, Select, Modal, Form, Row, Col, Upload } from 'antd'
-import { PlusOutlined, SearchOutlined, DownloadOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Tag, Space, Input, Select, Modal, Form, Row, Col, Upload, Typography, message } from 'antd'
+import type { UploadFile } from 'antd'
+import { PlusOutlined, SearchOutlined, DownloadOutlined, DeleteOutlined, UploadOutlined, FileTextOutlined, InboxOutlined } from '@ant-design/icons'
 import { SAMPLE_DOCUMENTS, SAMPLE_PROJECTS } from './ptmsData'
 import type { ProjectDoc } from './ptmsData'
+import { currentJalali } from '../../utils/jalali'
 
 export default function PTMSDocumentsPage() {
   const [documents, setDocuments] = useState<ProjectDoc[]>(SAMPLE_DOCUMENTS)
@@ -10,6 +12,7 @@ export default function PTMSDocumentsPage() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterProject, setFilterProject] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [fileList, setFileList] = useState<UploadFile[]>([])
   const [form] = Form.useForm()
 
   const CATEGORIES = ['قرارداد', 'نقشه', 'مکاتبه', 'صورتجلسه', 'گزارش', 'سایر']
@@ -21,15 +24,26 @@ export default function PTMSDocumentsPage() {
     return matchSearch && matchCat && matchProject
   })
 
-  const handleSave = () => {
-    form.validateFields().then(values => {
-      setDocuments(prev => [...prev, {
-        id: Date.now().toString(), version: '1.0', size: '—',
-        uploader: 'مدیر سیستم', uploadDate: '۱۴۰۳/۰۴/۱۵', tags: [], ...values
-      }])
-      setModalOpen(false)
-      form.resetFields()
-    })
+  const openNewDocument = () => {
+    form.resetFields()
+    setFileList([])
+    setModalOpen(true)
+  }
+
+  const handleSave = async () => {
+    const values = await form.validateFields()
+    if (!fileList.length) { message.warning('فایل مستند را انتخاب کنید'); return }
+    const today = currentJalali()
+    const currentUser = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} } })() as { fullName?: string }
+    const bytes = Number(fileList[0].size || 0)
+    setDocuments(prev => [...prev, {
+      id: Date.now().toString(), version: values.version || '1.0', size: bytes ? `${(bytes / 1024 / 1024).toFixed(2)} MB` : '—',
+      uploader: currentUser.fullName || 'مدیر سیستم', uploadDate: `${today.year}/${String(today.month).padStart(2, '0')}/${String(today.day).padStart(2, '0')}`, tags: [], ...values,
+    }])
+    setModalOpen(false)
+    setFileList([])
+    form.resetFields()
+    message.success('مستند با موفقیت ثبت شد')
   }
 
   const getCategoryColor = (c: string) => {
@@ -111,26 +125,48 @@ export default function PTMSDocumentsPage() {
             <Upload beforeUpload={() => false} showUploadList={false}>
               <Button icon={<UploadOutlined />}>آپلود سریع</Button>
             </Upload>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setModalOpen(true) }} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>مستند جدید</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openNewDocument} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>مستند جدید</Button>
           </Space>
         </div>
         <Table columns={columns} dataSource={filtered} rowKey="id" pagination={{ pageSize: 10 }} />
       </Card>
 
-      <Modal title="مستند جدید" open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} okText="ذخیره" cancelText="انصراف" width={550} okButtonProps={{ style: { background: '#8B1A6B', borderColor: '#8B1A6B' } }}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="title" label="عنوان مستند" rules={[{ required: true }]}><Input /></Form.Item>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="category" label="دسته‌بندی" rules={[{ required: true }]}><Select>{CATEGORIES.map(c => <Select.Option key={c} value={c}>{c}</Select.Option>)}</Select></Form.Item></Col>
-            <Col span={12}><Form.Item name="project" label="پروژه مرتبط"><Select allowClear>{SAMPLE_PROJECTS.map(p => <Select.Option key={p.id} value={p.name}>{p.name}</Select.Option>)}</Select></Form.Item></Col>
-          </Row>
-          <Form.Item label="فایل">
-            <Upload.Dragger beforeUpload={() => false} showUploadList={false}>
-              <p><UploadOutlined /></p>
-              <p>فایل را اینجا رها کنید یا کلیک کنید</p>
+      <Modal
+        title={<Space size={10}><span style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', background: '#8b1a6b14', color: '#8B1A6B', fontSize: 18 }}><FileTextOutlined /></span><div><Typography.Text strong style={{ fontSize: 16 }}>ثبت مستند جدید</Typography.Text><div style={{ color: '#8c8c8c', fontSize: 11, marginTop: 2 }}>فایل را به پروژه مرتبط و در دسته مناسب ثبت کنید</div></div></Space>}
+        open={modalOpen}
+        onOk={() => void handleSave()}
+        onCancel={() => { setModalOpen(false); setFileList([]) }}
+        okText="ثبت مستند"
+        cancelText="انصراف"
+        width={660}
+        centered
+        maskClosable={false}
+        okButtonProps={{ style: { background: '#8B1A6B', borderColor: '#8B1A6B', minWidth: 105 } }}
+        styles={{ header: { paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }, body: { maxHeight: 'calc(100vh - 230px)', overflowY: 'auto', paddingInline: 2 }, footer: { paddingTop: 12, borderTop: '1px solid #f0f0f0' } }}
+      >
+        <Form form={form} layout="vertical" style={{ paddingTop: 10 }}>
+          <div style={{ padding: '12px 14px 2px', borderRadius: 12, background: '#fffafd', border: '1px solid #f0e5ed', marginBottom: 14 }}>
+            <Form.Item name="title" label="عنوان مستند" rules={[{ required: true, message: 'عنوان مستند را وارد کنید' }, { max: 180 }]}><Input maxLength={180} placeholder="عنوان روشن و قابل جستجوی مستند" prefix={<FileTextOutlined style={{ color: '#bfbfbf' }} />} /></Form.Item>
+            <Row gutter={12}>
+              <Col xs={24} md={10}><Form.Item name="category" label="دسته‌بندی" rules={[{ required: true, message: 'دسته‌بندی را انتخاب کنید' }]}><Select placeholder="انتخاب دسته">{CATEGORIES.map(c => <Select.Option key={c} value={c}>{getFileIcon(c)} {c}</Select.Option>)}</Select></Form.Item></Col>
+              <Col xs={24} md={10}><Form.Item name="project" label="پروژه مرتبط" rules={[{ required: true, message: 'پروژه مرتبط را انتخاب کنید' }]}><Select showSearch optionFilterProp="label" placeholder="انتخاب پروژه" options={SAMPLE_PROJECTS.map(p => ({ value: p.name, label: `${p.code} — ${p.name}` }))} /></Form.Item></Col>
+              <Col xs={24} md={4}><Form.Item name="version" label="نسخه" initialValue="1.0"><Input maxLength={12} placeholder="1.0" /></Form.Item></Col>
+            </Row>
+          </div>
+          <Form.Item label="فایل مستند" required>
+            <Upload.Dragger
+              beforeUpload={() => false}
+              maxCount={1}
+              fileList={fileList}
+              onChange={({ fileList: next }) => setFileList(next.slice(-1))}
+              style={{ padding: '6px 0', borderRadius: 12, background: fileList.length ? '#f6ffed' : '#fafafa' }}
+            >
+              <p style={{ margin: '2px 0 6px', color: fileList.length ? '#52c41a' : '#8B1A6B', fontSize: 25 }}>{fileList.length ? <InboxOutlined /> : <UploadOutlined />}</p>
+              <p style={{ margin: 0, fontWeight: 600 }}>{fileList.length ? 'فایل انتخاب شد' : 'فایل را اینجا رها کنید یا برای انتخاب کلیک کنید'}</p>
+              <p style={{ margin: '4px 0 0', color: '#8c8c8c', fontSize: 11 }}>یک فایل برای هر مستند؛ نام و حجم فایل پس از انتخاب نمایش داده می‌شود</p>
             </Upload.Dragger>
           </Form.Item>
-          <Form.Item name="description" label="توضیحات"><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="description" label="توضیحات تکمیلی"><Input.TextArea rows={2} maxLength={600} showCount placeholder="توضیح کوتاه درباره محتوای فایل یا کاربرد آن" /></Form.Item>
         </Form>
       </Modal>
     </div>

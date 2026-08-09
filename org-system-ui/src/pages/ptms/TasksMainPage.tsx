@@ -5,7 +5,7 @@ import {
   Timeline, Tooltip, Typography,
 } from 'antd'
 import {
-  AppstoreOutlined, CheckCircleOutlined, CheckOutlined, ClockCircleOutlined,
+  AppstoreOutlined, CheckCircleOutlined, CheckOutlined, CheckSquareOutlined, ClockCircleOutlined,
   CalendarOutlined, DeleteOutlined, FilterOutlined, HistoryOutlined, LeftOutlined, PlusOutlined, RedoOutlined, RightOutlined, SaveOutlined,
   SearchOutlined, TagsOutlined, UnorderedListOutlined, UserSwitchOutlined, UserOutlined,
 } from '@ant-design/icons'
@@ -347,12 +347,27 @@ export default function TasksMainPage() {
 function TaskCreateModal({ open, form, users, saving, onCancel, onSubmit }: { open: boolean; form: ReturnType<typeof Form.useForm>[0]; users: DirectoryUser[]; saving: boolean; onCancel: () => void; onSubmit: () => void }) {
   const recurring = Form.useWatch('isRecurring', form)
   const recurrenceType = Form.useWatch('recurrenceType', form)
-  return <Modal open={open} onCancel={onCancel} onOk={onSubmit} confirmLoading={saving} title="ایجاد وظیفه جدید" okText="ایجاد وظیفه" cancelText="انصراف" width={860} centered maskClosable={false} okButtonProps={{ style: { background: PRIMARY } }}>
-    <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-      <Tabs items={[
+  return <Modal
+    open={open}
+    onCancel={onCancel}
+    onOk={onSubmit}
+    confirmLoading={saving}
+    title={<Space size={10}><span style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', background: '#8b1a6b14', color: PRIMARY, fontSize: 18 }}><CheckSquareOutlined /></span><div><Typography.Text strong style={{ fontSize: 16 }}>ایجاد وظیفه جدید</Typography.Text><div style={{ color: '#8c8c8c', fontSize: 11, marginTop: 2 }}>مسئول، زمان‌بندی و شرایط تحویل وظیفه را مشخص کنید</div></div></Space>}
+    okText="ایجاد وظیفه"
+    cancelText="انصراف"
+    width={820}
+    centered
+    maskClosable={false}
+    okButtonProps={{ style: { background: PRIMARY, minWidth: 110 } }}
+    styles={{ header: { paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }, body: { maxHeight: 'calc(100vh - 230px)', overflowY: 'auto', paddingInline: 2 }, footer: { paddingTop: 12, borderTop: '1px solid #f0f0f0' } }}
+  >
+    <Form form={form} layout="vertical" style={{ paddingTop: 8 }}>
+      <Tabs type="card" size="small" items={[
         { key: 'main', label: 'مشخصات وظیفه', children: <>
-          <Form.Item name="title" label="عنوان وظیفه" rules={[{ required: true, message: 'عنوان وظیفه را وارد کنید' }, { max: 200 }]}><Input maxLength={200} showCount /></Form.Item>
-          <Form.Item name="description" label="شرح و معیار تحویل"><Input.TextArea rows={3} maxLength={3000} showCount /></Form.Item>
+          <div style={{ padding: '12px 14px 2px', border: '1px solid #f0e5ed', borderRadius: 12, background: '#fffafd' }}>
+          <Form.Item name="title" label="عنوان وظیفه" rules={[{ required: true, message: 'عنوان وظیفه را وارد کنید' }, { max: 200 }]}><Input maxLength={200} showCount placeholder="عنوان روشن و قابل اندازه‌گیری وظیفه" /></Form.Item>
+          <Form.Item name="description" label="شرح و معیار تحویل"><Input.TextArea rows={2} maxLength={3000} showCount placeholder="شرح کار و نتیجه‌ای که برای تکمیل باید تحویل شود" /></Form.Item>
+          </div>
           <Row gutter={12}>
             <Col span={12}><Form.Item name="assigneeUserIds" label="ارجاع به یک یا چند نفر" rules={[{ required: true, message: 'حداقل یک نفر را انتخاب کنید' }]}><Select mode="multiple" showSearch optionFilterProp="label" options={users.map(user => ({ value: user.id, label: `${userLabel(user)}${user.position ? ` — ${user.position}` : ''}` }))} /></Form.Item></Col>
             <Col span={12}><Form.Item name="projectIds" label="تعلق به یک یا چند پروژه" rules={[{ required: true, message: 'حداقل یک پروژه را انتخاب کنید' }]}><Select mode="multiple" options={SAMPLE_PROJECTS.map(project => ({ value: project.id, label: `${project.code} — ${project.name}` }))} /></Form.Item></Col>
@@ -453,6 +468,8 @@ function CalendarView({ tasks, onOpen, onCreate }: { tasks: TaskItem[]; onOpen: 
   const [visible, setVisible] = useState({ year: today.year, month: today.month })
   const daysInMonth = visible.month <= 6 ? 31 : visible.month <= 11 ? 30 : isLeapJalali(visible.year) ? 30 : 29
   const firstWeekday = (jalaliToDate(`${visible.year}/${visible.month}/1`).getDay() + 1) % 7
+  const calendarRows = Math.ceil((firstWeekday + daysInMonth) / 7)
+  const cellHeight = calendarRows === 6 ? 76 : 86
 
   const markers = useMemo(() => {
     const result = new Map<number, CalendarMarker[]>()
@@ -480,13 +497,13 @@ function CalendarView({ tasks, onOpen, onCreate }: { tasks: TaskItem[]; onOpen: 
   const dateValue = (day: number) => `${visible.year}/${String(visible.month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
 
   return <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid #f0f0f0', flexWrap: 'wrap' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '9px 14px', borderBottom: '1px solid #f0f0f0', flexWrap: 'wrap' }}>
       <Space>
         <Button icon={<RightOutlined />} onClick={() => navigateMonth(-1)} aria-label="ماه قبل" />
         <Button onClick={goToday}>امروز</Button>
         <Button icon={<LeftOutlined />} onClick={() => navigateMonth(1)} aria-label="ماه بعد" />
       </Space>
-      <Typography.Title level={4} style={{ margin: 0 }}>{JALALI_MONTHS[visible.month - 1]} {visible.year.toLocaleString('fa-IR', { useGrouping: false })}</Typography.Title>
+      <Typography.Title level={4} style={{ margin: 0, fontSize: 18 }}>{JALALI_MONTHS[visible.month - 1]} {visible.year.toLocaleString('fa-IR', { useGrouping: false })}</Typography.Title>
       <Space wrap size={12} style={{ fontSize: 11 }}>
         <span><Badge color="#1677ff" /> شروع وظیفه</span>
         <span><Badge color="#8B1A6B" /> سررسید</span>
@@ -494,35 +511,34 @@ function CalendarView({ tasks, onOpen, onCreate }: { tasks: TaskItem[]; onOpen: 
       </Space>
     </div>
     <div style={{ overflowX: 'auto' }}>
-      <div style={{ minWidth: 940, padding: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(130px, 1fr))', gap: 5, marginBottom: 5 }}>
-          {CALENDAR_WEEKDAYS.map((weekday, index) => <div key={weekday} style={{ padding: '8px 4px', textAlign: 'center', borderRadius: 7, background: index === 6 ? '#fff1f0' : '#fafafa', color: index === 6 ? '#f5222d' : '#595959', fontWeight: 700 }}>{weekday}</div>)}
+      <div style={{ minWidth: 860, padding: 9 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(118px, 1fr))', gap: 4, marginBottom: 4 }}>
+          {CALENDAR_WEEKDAYS.map((weekday, index) => <div key={weekday} style={{ padding: '5px 4px', textAlign: 'center', borderRadius: 7, background: index === 6 ? '#fff1f0' : '#fafafa', color: index === 6 ? '#f5222d' : '#595959', fontSize: 12, fontWeight: 700 }}>{weekday}</div>)}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(130px, 1fr))', gap: 5 }}>
-          {Array.from({ length: firstWeekday }, (_, index) => <div key={`empty-${index}`} style={{ minHeight: 130, borderRadius: 8, background: '#fafafa' }} />)}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(118px, 1fr))', gap: 4 }}>
+          {Array.from({ length: firstWeekday }, (_, index) => <div key={`empty-${index}`} style={{ height: cellHeight, borderRadius: 8, background: '#fafafa' }} />)}
           {Array.from({ length: daysInMonth }, (_, index) => {
             const day = index + 1
             const dayMarkers = markers.get(day) || []
             const weekday = (firstWeekday + index) % 7
             const isToday = visible.year === today.year && visible.month === today.month && day === today.day
-            return <div key={day} style={{ minHeight: 130, border: isToday ? `2px solid ${PRIMARY}` : '1px solid #ededed', background: weekday === 6 ? '#fff8f7' : '#fff', borderRadius: 8, padding: 6, overflow: 'hidden' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                <span style={{ display: 'grid', placeItems: 'center', width: 25, height: 25, borderRadius: '50%', background: isToday ? PRIMARY : 'transparent', color: isToday ? '#fff' : weekday === 6 ? '#f5222d' : '#333', fontWeight: isToday ? 700 : 400 }}>{day.toLocaleString('fa-IR')}</span>
-                <Tooltip title="ایجاد وظیفه با این سررسید"><Button type="text" size="small" icon={<PlusOutlined />} onClick={() => onCreate(dateValue(day))} /></Tooltip>
+            return <div key={day} style={{ height: cellHeight, border: isToday ? `2px solid ${PRIMARY}` : '1px solid #ededed', background: weekday === 6 ? '#fff8f7' : '#fff', borderRadius: 8, padding: '3px 5px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 22, marginBottom: 2 }}>
+                <span style={{ display: 'grid', placeItems: 'center', width: 23, height: 23, borderRadius: '50%', background: isToday ? PRIMARY : 'transparent', color: isToday ? '#fff' : weekday === 6 ? '#f5222d' : '#333', fontSize: 12, fontWeight: isToday ? 700 : 400 }}>{day.toLocaleString('fa-IR')}</span>
+                <Tooltip title="ایجاد وظیفه با این سررسید"><Button type="text" size="small" icon={<PlusOutlined />} onClick={() => onCreate(dateValue(day))} style={{ width: 24, height: 24, padding: 0 }} /></Tooltip>
               </div>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                {dayMarkers.slice(0, 3).map(({ task, kind }) => {
+              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                {dayMarkers.slice(0, 1).map(({ task, kind }) => {
                   const completed = task.status === 'Done'
                   const color = completed ? '#52c41a' : kind === 'start' ? '#1677ff' : PRIMARY
                   const label = kind === 'start' ? 'شروع' : kind === 'due' ? 'سررسید' : 'شروع و سررسید'
                   return <Tooltip key={`${task.id}-${kind}`} title={<div><b>{task.title}</b><br />{label} — {statusMeta(task.status).title}</div>}>
-                    <button onClick={() => onOpen(task)} style={{ display: 'block', width: '100%', border: 0, borderRight: `3px solid ${color}`, borderRadius: 5, background: `${color}12`, padding: '5px 6px', textAlign: 'right', cursor: 'pointer', color: '#333', overflow: 'hidden' }}>
-                      <span style={{ display: 'block', fontSize: 10, color }}>{label}</span>
-                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 600 }}>{task.title}</span>
+                    <button onClick={() => onOpen(task)} style={{ display: 'block', width: '100%', border: 0, borderRight: `3px solid ${color}`, borderRadius: 5, background: `${color}12`, padding: '3px 5px', textAlign: 'right', cursor: 'pointer', color: '#333', overflow: 'hidden' }}>
+                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600 }}><span style={{ color }}>{label}:</span> {task.title}</span>
                     </button>
                   </Tooltip>
                 })}
-                {dayMarkers.length > 3 && <Tag style={{ margin: 0, textAlign: 'center' }}>+{(dayMarkers.length - 3).toLocaleString('fa-IR')} وظیفه دیگر</Tag>}
+                {dayMarkers.length > 1 && <span style={{ fontSize: 9, color: '#8c8c8c', textAlign: 'center' }}>+{(dayMarkers.length - 1).toLocaleString('fa-IR')} وظیفه دیگر</span>}
               </Space>
             </div>
           })}
