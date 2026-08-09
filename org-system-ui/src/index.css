@@ -89,10 +89,6 @@ body {
 }
 
 /* صفحه ورود */
-@keyframes floatOrb {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(20px, -24px) scale(1.08); }
-}
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
@@ -108,12 +104,44 @@ body {
   background: rgba(255, 255, 255, 0.16) !important;
   border-color: rgba(255, 255, 255, 0.28) !important;
 }
-.login-orb {
+.login-shell {
+  isolation: isolate;
+}
+.login-background-image {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(60px);
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
   pointer-events: none;
-  animation: floatOrb 9s ease-in-out infinite;
+}
+.login-background-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(25, 4, 31, 0.16), rgba(55, 5, 45, 0.42));
+  pointer-events: none;
+}
+.login-form-column {
+  background: linear-gradient(270deg, rgba(31, 5, 34, 0.1), rgba(31, 5, 34, 0.42));
+}
+.login-info-column {
+  text-shadow: 0 2px 12px rgba(31, 5, 34, 0.45);
+}
+
+@media (max-width: 900px) {
+  .login-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .login-form-column {
+    padding: 24px !important;
+    border-left: 0 !important;
+  }
+  .login-info-column {
+    display: none !important;
+  }
 }
 
 /* انیمیشن‌های سبک و بدون کتابخانه برای ایموجی‌های چت */

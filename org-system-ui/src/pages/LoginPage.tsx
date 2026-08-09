@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Form, Input, Button, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { formatJalaliDate } from '../utils/jalali'
+import loginBackground from '../assets/login-background.jpg'
 
 function PersianClock() {
   const [time, setTime] = useState(new Date())
@@ -29,6 +30,19 @@ function makeCaptcha(length = 5) {
   return value
 }
 
+type LoginResponse = {
+  accessToken: string
+  permissions?: string[]
+  mustChangePassword?: boolean
+  company?: unknown
+  user: {
+    fullName?: string
+    firstName?: string
+    lastName?: string
+    username?: string
+  }
+}
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -50,7 +64,7 @@ export default function LoginPage() {
       .catch(() => undefined)
   }, [])
 
-  const completeLogin = (data: any, fallbackName?: string) => {
+  const completeLogin = (data: LoginResponse, fallbackName?: string) => {
     localStorage.setItem('token', data.accessToken)
     localStorage.setItem('user', JSON.stringify(data.user))
     localStorage.setItem('permissions', JSON.stringify(data.permissions || []))
@@ -123,21 +137,27 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{
+    <div className="login-shell" style={{
       minHeight: '100vh',
       display: 'grid',
       gridTemplateColumns: '1fr 1fr',
-      background: 'linear-gradient(135deg, #1a0533 0%, #3D0A2E 40%, #8B1A6B 100%)',
+      background: '#3D0A2E',
       direction: 'rtl',
       position: 'relative',
       overflow: 'hidden',
     }}>
-      {/* حباب‌های تزئینی پس‌زمینه */}
-      <div className="login-orb" style={{ width: 320, height: 320, background: 'rgba(233,30,140,0.35)', top: '-80px', right: '-60px' }} />
-      <div className="login-orb" style={{ width: 280, height: 280, background: 'rgba(122,21,96,0.45)', bottom: '-90px', left: '-70px', animationDelay: '3s' }} />
+      <img
+        className="login-background-image"
+        src={loginBackground}
+        alt=""
+        aria-hidden="true"
+        fetchPriority="high"
+        decoding="async"
+      />
+      <div className="login-background-overlay" />
 
       {/* ستون راست — فرم */}
-      <div style={{
+      <div className="login-form-column" style={{
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         padding: '48px 52px',
@@ -225,7 +245,7 @@ export default function LoginPage() {
       </div>
 
       {/* ستون چپ — اطلاعات */}
-      <div style={{
+      <div className="login-info-column" style={{
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         padding: 48, color: 'white', direction: 'rtl',

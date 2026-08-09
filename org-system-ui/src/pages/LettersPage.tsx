@@ -330,10 +330,10 @@ export default function LettersPage() {
     fetchLetters()
     fetchDirectory()
     const refresh=()=>void fetchLetters(true)
-    const timer=window.setInterval(refresh,8000)
-    const onVisibility=()=>{if(document.visibilityState==='visible')refresh()}
-    window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisibility)
-    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisibility)}
+    const refreshVisible=()=>{if(document.visibilityState==='visible')refresh()}
+    const timer=window.setInterval(refreshVisible,30000)
+    window.addEventListener('focus',refreshVisible);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',refreshVisible)
+    return()=>{window.clearInterval(timer);window.removeEventListener('focus',refreshVisible);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',refreshVisible)}
   }, [isRegistry,isReferrals,isDrafts,registryType])
 
   const handleViewLetter = async (letter: Letter) => {

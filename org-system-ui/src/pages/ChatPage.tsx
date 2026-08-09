@@ -43,7 +43,7 @@ function GroupConversation({group,users,onChanged,canAddMember,canRemoveMember}:
   const end=useRef<HTMLDivElement>(null)
   const sendLockRef=useRef(false)
   const load=async(silent=false)=>{const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`);if(!response.ok){if(!silent)message.error('پیام‌های گروه دریافت نشد');return}const data:GroupMessage[]=await response.json();setItems(current=>sameMessages(current,data)?current:data)}
-  useEffect(()=>{load();const timer=window.setInterval(()=>load(true),10000);return()=>window.clearInterval(timer)},[group.groupId])
+  useEffect(()=>{load();const timer=window.setInterval(()=>{if(document.visibilityState==='visible')load(true)},10000);return()=>window.clearInterval(timer)},[group.groupId])
   useEffect(()=>{end.current?.scrollIntoView({behavior:'smooth'})},[items])
   const send=async()=>{const content=text.trim();if(!content||sending||sendLockRef.current)return;if(content.length>2000||codePattern.test(content)){message.error('متن پیام معتبر نیست');return}sendLockRef.current=true;setSending(true);try{const response=await apiFetch(`${API}/chat/groups/${group.groupId}/messages`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content})});const result=await response.json().catch(()=>({}));if(!response.ok){message.error(result.message||'ارسال پیام گروه انجام نشد');return}setItems(current=>current.some(item=>item.id===result.id)?current:[...current,result]);setText('');onChanged()}finally{sendLockRef.current=false;setSending(false)}}
   const addMembers=async()=>{if(!newMemberIds.length)return;setAddingMembers(true);const response=await apiFetch(`${API}/chat/groups/${group.groupId}/members`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({memberUserIds:newMemberIds})});const result=await response.json().catch(()=>({}));setAddingMembers(false);if(!response.ok){message.error(result.message||'افزودن عضو انجام نشد');return}message.success(result.message);setNewMemberIds([]);await onChanged()}
@@ -90,11 +90,11 @@ export default function ChatPage(){
   const recordSecondsRef=useRef(0)
   const draftsRef=useRef<Record<string,string>>({})
   const sendLockRef=useRef(false)
-  const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
-  const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
+  const currentUser=useMemo(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}},[])
+  const grantedPermissions:string[]=useMemo(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}},[])
   const isAdmin=Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin')
   const allowed=(code:string)=>isAdmin||grantedPermissions.includes(code)
-  const selected=users.find(x=>x.id===selectedId)
+  const selected=useMemo(()=>users.find(x=>x.id===selectedId),[users,selectedId])
 
   const loadUsers=async(silent=false)=>{
     const response=await apiFetch(`${API}/chat/users`)
@@ -109,8 +109,8 @@ export default function ChatPage(){
     if(!response.ok){if(!silent)message.error('دریافت پیام‌ها انجام نشد');return}
     const data:ChatMessage[]=await response.json();setMessages(current=>sameMessages(current,data,(a,b)=>a.isRead===b.isRead)?current:data);setUsers(prev=>{let changed=false;const next=prev.map(x=>{if(x.id===userId&&x.unread){changed=true;return{...x,unread:0}}return x});return changed?next:prev})
   }
-  useEffect(()=>{loadUsers();loadGroups();const timer=setInterval(()=>{loadUsers(true);loadGroups()},10000);return()=>clearInterval(timer)},[])
-  useEffect(()=>{if(!selectedId)return;loadMessages(selectedId);const timer=setInterval(()=>loadMessages(selectedId,true),6000);return()=>clearInterval(timer)},[selectedId])
+  useEffect(()=>{loadUsers();loadGroups();const timer=setInterval(()=>{if(document.visibilityState==='visible'){loadUsers(true);loadGroups()}},30000);return()=>clearInterval(timer)},[])
+  useEffect(()=>{if(!selectedId||activeGroup)return;loadMessages(selectedId);const timer=setInterval(()=>{if(document.visibilityState==='visible')loadMessages(selectedId,true)},8000);return()=>clearInterval(timer)},[selectedId,activeGroup?.groupId])
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'})},[messages])
   useEffect(()=>()=>stopRecordingResources(),[])
 

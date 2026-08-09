@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Badge, Popover, Button, List, Tag, Space, Tabs, Switch, Divider, Empty, Avatar } from 'antd'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Badge, Popover, Button, Tag, Space, Tabs, Switch, Empty, Avatar } from 'antd'
 import { BellOutlined, MailOutlined, CheckSquareOutlined, CustomerServiceOutlined, FormOutlined, CalendarOutlined, WarningOutlined, MessageOutlined, DeleteOutlined, CheckOutlined, ProjectOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useNotificationStore } from '../store/notificationStore'
@@ -35,6 +35,20 @@ const NOTIFICATION_SETTINGS = [
 ]
 
 type DisplayNotification = Notification & { groupedIds?: string[]; groupedCount?: number }
+type ApiNotification = {
+  id: string
+  type: string
+  title: string
+  body: string
+  createdAt: string
+  isRead: boolean
+  actionUrl?: string
+  actorUserId?: string
+  actorName?: string
+  relatedEntityType?: string
+}
+
+const notificationHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token') || ''}` })
 
 function NotificationItem({ notification, onRead, onDelete }: {
   notification: DisplayNotification
@@ -91,19 +105,18 @@ export default function NotificationDropdown() {
 
   const visibleNotifications = notifications.filter(n => n.type !== 'chat' || !n.isRead)
   const unreadCount = visibleNotifications.filter(n => !n.isRead).length
-  const headers = { Authorization: `Bearer ${localStorage.getItem('token') || ''}` }
   const notificationRequestInFlight = useRef(false)
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     if(notificationRequestInFlight.current || !localStorage.getItem('token')) return
     notificationRequestInFlight.current=true
-    try { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers}); if(r.ok){const rows=await r.json();setNotifications(rows.map((n:any)=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}}))} }
+    try { const r=await apiFetch('http://localhost:5043/api/v1/notifications',{headers:notificationHeaders()}); if(r.ok){const rows:ApiNotification[]=await r.json();setNotifications(rows.map(n=>{const raw=String(n.type).toLowerCase(),type=(raw==='system'?'warning':raw) as NotificationType;const date=new Date(n.createdAt);return{id:n.id,type:TYPE_CONFIG[type]?type:'warning',title:n.title,description:n.body,date:formatJalaliDate(date),time:`${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`,isRead:n.isRead,link:n.actionUrl,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}}))} }
     finally { notificationRequestInFlight.current=false }
-  }
-  useEffect(()=>{const refresh=()=>void loadNotifications();refresh();const timer=setInterval(refresh,20000);const onVisible=()=>{if(document.visibilityState==='visible')refresh()};let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{}window.addEventListener('focus',refresh);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',onVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refresh);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',onVisible)}},[])
-  const readOne=(id:string)=>{markAsRead(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers})}
-  const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers})}
-  const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers})}
-  const removeAll=()=>{clearAll();void apiFetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers})}
+  },[setNotifications])
+  useEffect(()=>{const refresh=()=>void loadNotifications();const refreshVisible=()=>{if(document.visibilityState==='visible')refresh()};refresh();const timer=setInterval(refreshVisible,60000);let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{channel=undefined}window.addEventListener('focus',refreshVisible);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',refreshVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refreshVisible);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',refreshVisible)}},[loadNotifications])
+  const readOne=(id:string)=>{markAsRead(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers:notificationHeaders()})}
+  const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers:notificationHeaders()})}
+  const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers:notificationHeaders()})}
+  const removeAll=()=>{clearAll();void apiFetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers:notificationHeaders()})}
   const unreadNotifications = visibleNotifications.filter(n => !n.isRead)
   const groupChatNotifications = (rows: Notification[]): DisplayNotification[] => {
     const chats = rows.filter(n => n.type === 'chat')

@@ -1,4 +1,3 @@
-import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './lib/backend'
 import { BrowserRouter } from 'react-router-dom'
@@ -10,13 +9,17 @@ import './index.css'
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, staleTime: 30_000 }
+    queries: {
+      retry: 1,
+      staleTime: 120_000,
+      gcTime: 10 * 60_000,
+      refetchOnWindowFocus: false,
+    }
   }
 })
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
+  <QueryClientProvider client={queryClient}>
       <ConfigProvider
         locale={faIR}
         direction="rtl"
@@ -33,18 +36,19 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <App />
         </BrowserRouter>
       </ConfigProvider>
-    </QueryClientProvider>
-  </React.StrictMode>
+  </QueryClientProvider>
 )
 
 const currentEntry=document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src
-if(currentEntry){
+if(import.meta.env.PROD&&currentEntry){
   window.setInterval(async()=>{
     if(document.visibilityState!=='visible')return
     try{
       const html=await fetch(`/?__build_check=${Date.now()}`,{cache:'no-store'}).then(response=>response.text())
       const nextEntry=html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/)?.[1]
       if(nextEntry&&new URL(nextEntry,location.origin).href!==currentEntry)location.reload()
-    }catch{}
-  },60_000)
+    }catch(error){
+      void error
+    }
+  },5 * 60_000)
 }
