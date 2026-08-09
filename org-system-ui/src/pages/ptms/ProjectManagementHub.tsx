@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react'
-import { Button, Card, Col, Descriptions, Form, Input, message, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline } from 'antd'
+import { Button, Card, Col, Descriptions, Form, Input, message, Modal, Row, Select, Space, Table, Tabs, Tag, Timeline, TimePicker, Typography } from 'antd'
 import { AppstoreOutlined, DownloadOutlined, FileTextOutlined, PlusOutlined, ProjectOutlined, TeamOutlined } from '@ant-design/icons'
 import ProjectContextHeader from './ProjectContextHeader'
 import ProjectExecutionViews from './ProjectExecutionViews'
 import { SAMPLE_PROJECTS, USERS } from './ptmsData'
 import { downloadProjectReport, type ProjectReportEvent } from './projectReport'
+import PersianDatePicker from '../../components/PersianDatePicker'
+import { currentJalali } from '../../utils/jalali'
 
 const controlSeed = [
   { id: '1', type: 'ریسک', title: 'تأخیر تأمین زیرساخت', owner: 'علی محمدی', status: 'نیازمند اقدام' },
@@ -28,10 +30,30 @@ export default function ProjectManagementHub({ projectId, onProjectChange, statu
   const [controlForm] = Form.useForm()
   const project = SAMPLE_PROJECTS.find(p => p.id === projectId) || SAMPLE_PROJECTS[0]
 
+  const openNewProject = () => {
+    const today = currentJalali()
+    projectForm.resetFields()
+    projectForm.setFieldsValue({
+      template: 'پروژه خالی',
+      repeat: 'none',
+      startDate: `${today.year}/${String(today.month).padStart(2, '0')}/${String(today.day).padStart(2, '0')}`,
+    })
+    setNewProjectOpen(true)
+  }
+
   const saveProject = async () => {
-    await projectForm.validateFields()
+    const values = await projectForm.validateFields()
+    if (values.endDate < values.startDate) {
+      projectForm.setFields([{ name: 'endDate', errors: ['تاریخ پایان باید بعد از تاریخ شروع باشد'] }])
+      return
+    }
+    if (values.startTime && values.endTime && !values.endTime.isAfter(values.startTime)) {
+      projectForm.setFields([{ name: 'endTime', errors: ['ساعت پایان باید بعد از ساعت شروع باشد'] }])
+      return
+    }
     setNewProjectOpen(false)
     projectForm.resetFields()
+    message.success('پروژه جدید با موفقیت ثبت شد')
   }
   const saveControl = async () => {
     const values = await controlForm.validateFields()
@@ -54,7 +76,7 @@ export default function ProjectManagementHub({ projectId, onProjectChange, statu
         title="مدیریت پروژه‌ها"
         projectId={projectId}
         onProjectChange={onProjectChange}
-        onAdd={() => setNewProjectOpen(true)}
+        onAdd={openNewProject}
         addLabel="پروژه جدید"
         extraActions={<Button icon={<DownloadOutlined />} onClick={extractReport}>استخراج گزارش پروژه</Button>}
       />
@@ -86,8 +108,33 @@ export default function ProjectManagementHub({ projectId, onProjectChange, statu
         },
       ]} />
 
-      <Modal title="ثبت پروژه جدید" open={newProjectOpen} onCancel={() => setNewProjectOpen(false)} onOk={saveProject} okText="ایجاد پروژه" cancelText="انصراف" width={680}>
-        <Form form={projectForm} layout="vertical"><Row gutter={12}><Col span={12}><Form.Item name="template" label="ایجاد از قالب" rules={[{ required: true }]}><Select options={['پروژه چابک نرم‌افزاری', 'پروژه عمرانی', 'پروژه تحقیقاتی', 'پروژه خالی'].map(x => ({ value: x, label: x }))} /></Form.Item></Col><Col span={12}><Form.Item name="name" label="نام پروژه" rules={[{ required: true }]}><Input /></Form.Item></Col><Col span={12}><Form.Item name="manager" label="مدیر پروژه" rules={[{ required: true }]}><Select options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Col><Col span={12}><Form.Item name="repeat" label="تکرار پروژه"><Select options={[{ value: 'none', label: 'بدون تکرار' }, { value: 'monthly', label: 'ماهانه' }, { value: 'quarterly', label: 'فصلی' }]} /></Form.Item></Col><Col span={24}><Form.Item name="description" label="هدف و محدوده اولیه"><Input.TextArea rows={3} /></Form.Item></Col></Row></Form>
+      <Modal
+        title={<Space size={10}><span style={{ width: 38, height: 38, borderRadius: 11, display: 'grid', placeItems: 'center', background: '#8b1a6b14', color: '#8b1a6b', fontSize: 19 }}><ProjectOutlined /></span><div><Typography.Text strong style={{ fontSize: 16 }}>ثبت پروژه جدید</Typography.Text><div style={{ color: '#8c8c8c', fontSize: 11, marginTop: 2 }}>اطلاعات پایه، زمان‌بندی و مسئولیت پروژه را تعیین کنید</div></div></Space>}
+        open={newProjectOpen}
+        onCancel={() => setNewProjectOpen(false)}
+        onOk={() => void saveProject()}
+        okText="ایجاد پروژه"
+        cancelText="انصراف"
+        width={760}
+        centered
+        maskClosable={false}
+        okButtonProps={{ style: { background: '#8B1A6B', minWidth: 110 } }}
+        styles={{ header: { paddingBottom: 12, borderBottom: '1px solid #f0f0f0' }, footer: { paddingTop: 12, borderTop: '1px solid #f0f0f0' } }}
+      >
+        <Form form={projectForm} layout="vertical" style={{ paddingTop: 8 }}>
+          <Row gutter={[14, 0]}>
+            <Col xs={24} md={12}><Form.Item name="name" label="نام پروژه" rules={[{ required: true, message: 'نام پروژه را وارد کنید' }, { max: 120 }]}><Input maxLength={120} placeholder="مثلاً توسعه سامانه فروش" /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="template" label="ایجاد از قالب" rules={[{ required: true }]}><Select options={['پروژه چابک نرم‌افزاری', 'پروژه عمرانی', 'پروژه تحقیقاتی', 'پروژه خالی'].map(x => ({ value: x, label: x }))} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="manager" label="مدیر پروژه" rules={[{ required: true, message: 'مدیر پروژه را انتخاب کنید' }]}><Select showSearch optionFilterProp="label" options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="repeat" label="الگوی تکرار"><Select options={[{ value: 'none', label: 'بدون تکرار' }, { value: 'monthly', label: 'ماهانه' }, { value: 'quarterly', label: 'فصلی' }]} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="startDate" label="تاریخ شروع شمسی" rules={[{ required: true, message: 'تاریخ شروع را انتخاب کنید' }]}><PersianDatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="endDate" label="تاریخ پایان شمسی" rules={[{ required: true, message: 'تاریخ پایان را انتخاب کنید' }]}><PersianDatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} md={6}><Form.Item name="startTime" label="ساعت شروع"><TimePicker format="HH:mm" minuteStep={5} placeholder="انتخاب ساعت" style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} md={6}><Form.Item name="endTime" label="ساعت پایان"><TimePicker format="HH:mm" minuteStep={5} placeholder="انتخاب ساعت" style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} md={12}><Form.Item name="code" label="کد پروژه"><Input maxLength={30} placeholder="PRJ-001" /></Form.Item></Col>
+            <Col span={24}><Form.Item name="description" label="هدف و محدوده اولیه"><Input.TextArea rows={3} maxLength={800} showCount placeholder="هدف، خروجی مورد انتظار و محدوده پروژه را کوتاه و روشن بنویسید" /></Form.Item></Col>
+          </Row>
+        </Form>
       </Modal>
       <Modal title="ثبت مورد کنترلی" open={controlOpen} onCancel={() => setControlOpen(false)} onOk={saveControl} okText="ثبت" cancelText="انصراف"><Form form={controlForm} layout="vertical"><Form.Item name="type" label="نوع" rules={[{ required: true }]}><Select options={['ریسک', 'مسئله و مانع', 'تصمیم', 'تغییر محدوده', 'گزارش وضعیت دوره‌ای'].map(x => ({ value: x, label: x }))} /></Form.Item><Form.Item name="title" label="عنوان" rules={[{ required: true }]}><Input /></Form.Item><Form.Item name="owner" label="مسئول" rules={[{ required: true }]}><Select options={USERS.map(x => ({ value: x, label: x }))} /></Form.Item></Form></Modal>
     </Card>

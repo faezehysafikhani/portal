@@ -67,6 +67,7 @@ const PTMSProjectsPage = lazyWithRecovery('ptms-projects', () => import('./pages
 const ProjectDetailPage = lazyWithRecovery('project-detail', () => import('./pages/ptms/ProjectDetailPage'))
 const MyTasksPage = lazyWithRecovery('my-tasks', () => import('./pages/ptms/MyTasksPage'))
 const TasksMainPage = lazyWithRecovery('tasks-main', () => import('./pages/ptms/TasksMainPage'))
+const RisksPage = lazyWithRecovery('ptms-risks', () => import('./pages/ptms/RisksPage'))
 const FinancialPage = lazyWithRecovery('financial', () => import('./pages/ptms/FinancialPage'))
 const IssuesPage = lazyWithRecovery('issues', () => import('./pages/ptms/IssuesPage'))
 const ChangesPage = lazyWithRecovery('changes', () => import('./pages/ptms/ChangesPage'))
@@ -108,6 +109,7 @@ function App() {
           <Route path="/ptms/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/ptms/tasks/mine" element={<MyTasksPage />} />
           <Route path="/ptms/tasks" element={<TasksMainPage />} />
+          <Route path="/ptms/risks" element={<RisksPage />} />
           <Route path="/ptms/financial" element={<FinancialPage />} />
           <Route path="/ptms/issues" element={<IssuesPage />} />
           <Route path="/ptms/changes" element={<ChangesPage />} />

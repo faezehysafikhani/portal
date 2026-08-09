@@ -4,9 +4,11 @@ import { AlertOutlined, CheckCircleOutlined, DeleteOutlined, EditOutlined, EyeOu
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { currentJalali } from '../../utils/jalali'
 import { SAMPLE_PROJECTS, SAMPLE_RISKS, USERS } from './ptmsData'
+import ProjectContextHeader from './ProjectContextHeader'
 
 const PRIMARY = '#8B1A6B'
 const STORAGE_KEY = 'portal:managed-risks:v2'
+const SELECTED_PROJECT_KEY = 'portal:selected-project-id'
 
 type RiskStatus = 'شناسایی‌شده' | 'ارزیابی‌شده' | 'پاسخ برنامه‌ریزی‌شده' | 'در حال پایش' | 'بسته‌شده' | 'محقق‌شده'
 type RiskLevel = 'پایین' | 'متوسط' | 'بالا' | 'بحرانی'
@@ -47,9 +49,14 @@ function loadRisks(): ManagedRisk[] {
   try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); return Array.isArray(saved) ? saved : seedRisks() } catch { return seedRisks() }
 }
 
-interface ProjectRiskManagementProps { projectId: string }
+interface ProjectRiskManagementProps { projectId?: string }
 
 export default function ProjectRiskManagement({ projectId }: ProjectRiskManagementProps) {
+  const [selectedProjectId, setSelectedProjectId] = useState(() => {
+    const saved = localStorage.getItem(SELECTED_PROJECT_KEY)
+    return SAMPLE_PROJECTS.some(project => project.id === saved) ? saved! : SAMPLE_PROJECTS[0].id
+  })
+  const activeProjectId = projectId || selectedProjectId
   const [risks, setRisks] = useState<ManagedRisk[]>(loadRisks)
   const [search, setSearch] = useState('')
   const [levelFilter, setLevelFilter] = useState<RiskLevel>()
@@ -61,7 +68,7 @@ export default function ProjectRiskManagement({ projectId }: ProjectRiskManageme
   const [form] = Form.useForm()
 
   const persist = (next: ManagedRisk[]) => { setRisks(next); localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) }
-  const projectRisks = useMemo(() => risks.filter(risk => risk.projectId === projectId), [risks, projectId])
+  const projectRisks = useMemo(() => risks.filter(risk => risk.projectId === activeProjectId), [risks, activeProjectId])
   const filtered = useMemo(() => projectRisks.filter(risk => {
     const query = search.trim().toLocaleLowerCase('fa')
     return (!query || `${risk.code} ${risk.title} ${risk.owner} ${risk.category}`.toLocaleLowerCase('fa').includes(query))
@@ -72,7 +79,7 @@ export default function ProjectRiskManagement({ projectId }: ProjectRiskManageme
   const openModal = (risk?: ManagedRisk) => {
     setEditing(risk)
     form.resetFields()
-    form.setFieldsValue(risk || { projectId, probability: 3, impact: 3, residualProbability: 2, residualImpact: 2, status: 'شناسایی‌شده', strategy: 'کاهش', actionProgress: 0, trend: 'ثابت', owner: USERS[0] })
+    form.setFieldsValue(risk || { projectId: activeProjectId, probability: 3, impact: 3, residualProbability: 2, residualImpact: 2, status: 'شناسایی‌شده', strategy: 'کاهش', actionProgress: 0, trend: 'ثابت', owner: USERS[0] })
     setModalOpen(true)
   }
 
@@ -111,10 +118,19 @@ export default function ProjectRiskManagement({ projectId }: ProjectRiskManageme
   const residualAverage = projectRisks.length ? Math.round(projectRisks.reduce((sum, risk) => sum + risk.residualScore, 0) / projectRisks.length) : 0
 
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    {!projectId && <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 16 } }}>
+      <ProjectContextHeader
+        title="مدیریت ریسک"
+        projectId={activeProjectId}
+        onProjectChange={value => { localStorage.setItem(SELECTED_PROJECT_KEY, value); setSelectedProjectId(value) }}
+        onAdd={() => openModal()}
+        addLabel="ریسک جدید"
+      />
+    </Card>}
     <Card size="small" style={{ borderRight: `4px solid ${PRIMARY}` }}>
       <Space direction="vertical" size={2}>
         <Typography.Title level={4} style={{ margin: 0 }}>دفتر و داشبورد ریسک پروژه</Typography.Title>
-        <Typography.Text type="secondary">شناسایی، ارزیابی، برنامه پاسخ و پایش ریسک‌های همین پروژه در داشبورد وضعیت</Typography.Text>
+        <Typography.Text type="secondary">شناسایی، ارزیابی، برنامه پاسخ و پایش ریسک‌های پروژه انتخاب‌شده</Typography.Text>
       </Space>
     </Card>
     <Row gutter={[12, 12]}>
@@ -136,7 +152,7 @@ export default function ProjectRiskManagement({ projectId }: ProjectRiskManageme
       <Table rowKey="id" dataSource={filtered} columns={columns} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} locale={{ emptyText: <Empty description="ریسکی مطابق فیلتر وجود ندارد" /> }} />
     </Card>
 
-    <RiskModal open={modalOpen} editing={editing} form={form} projectId={projectId} onCancel={() => setModalOpen(false)} onSave={() => void save()} />
+    <RiskModal open={modalOpen} editing={editing} form={form} projectId={activeProjectId} onCancel={() => setModalOpen(false)} onSave={() => void save()} />
     <RiskDrawer risk={selected} onClose={() => setSelected(undefined)} onEdit={openModal} onUpdate={updateRisk} />
   </div>
 }
