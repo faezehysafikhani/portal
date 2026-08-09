@@ -1,5 +1,6 @@
 const legacyOrigin = 'http://localhost:5043'
 const configuredOrigin = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+const hostedOrigin = 'https://ibpmkttssacwswcmdqbj.supabase.co/functions/v1/api'
 
 const nativeFetch = globalThis.fetch.bind(globalThis)
 
@@ -36,3 +37,15 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
 }
 
 export const backendBaseUrl = configuredOrigin ?? legacyOrigin
+
+export async function publicBackendFetch(path: string, init?: RequestInit): Promise<Response> {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  try {
+    return await fetch(`${backendBaseUrl}/api/v1${normalizedPath}`, init)
+  } catch (error) {
+    // Development normally uses ASP.NET locally. If it is not running, keep
+    // login/public endpoints available through the hosted Supabase backend.
+    if (backendBaseUrl !== legacyOrigin) throw error
+    return fetch(`${hostedOrigin}/api/v1${normalizedPath}`, init)
+  }
+}

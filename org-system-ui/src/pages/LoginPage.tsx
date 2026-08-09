@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Form, Input, Button, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { formatJalaliDate } from '../utils/jalali'
+import { publicBackendFetch } from '../lib/backend'
 import loginBackground from '../assets/login-background.jpg'
 
 function PersianClock() {
@@ -58,7 +59,7 @@ export default function LoginPage() {
   const [pendingName, setPendingName] = useState('')
 
   useEffect(() => {
-    fetch('http://localhost:5043/api/v1/company/public?tenantId=00000000-0000-0000-0000-000000000001')
+    publicBackendFetch('/company/public?tenantId=00000000-0000-0000-0000-000000000001')
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(data => { setCompany(data); localStorage.setItem('company', JSON.stringify(data)) })
       .catch(() => undefined)
@@ -87,7 +88,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('http://localhost:5043/api/v1/auth/login', {
+      const res = await publicBackendFetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -117,7 +118,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('http://localhost:5043/api/v1/auth/mfa-verify', {
+      const res = await publicBackendFetch('/auth/mfa-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mfaToken, code: mfaCode.trim() })
@@ -161,7 +162,7 @@ export default function LoginPage() {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         padding: '48px 52px',
-        borderLeft: '1px solid rgba(255,255,255,0.035)',
+        borderLeft: 'none',
         position: 'relative', zIndex: 1,
       }}>
         <div className="login-card" style={{
@@ -172,7 +173,6 @@ export default function LoginPage() {
           boxShadow: '0 46px 100px rgba(35,0,29,0.44), 0 18px 38px rgba(73,12,58,0.28), 0 4px 10px rgba(31,5,34,0.18)',
           overflow: 'hidden',
         }}>
-          <div style={{ height: 4, margin: '-36px -36px 28px', background: 'linear-gradient(90deg, #8B1A6B, #E91E8C, #8B1A6B)' }} />
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg, #8B1A6B, #A83585)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
               <UserOutlined style={{ fontSize: 28, color: 'white' }} />
@@ -253,8 +253,8 @@ export default function LoginPage() {
         padding: 48, color: '#211522', direction: 'rtl',
         position: 'relative', zIndex: 1,
       }}>
-        <div className="login-company-logo" style={{ width: 96, height: 96, borderRadius: 18, background: 'rgba(255,255,255,0.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, padding: 8 }}>
-          {company.logoUrl ? <img src={company.logoUrl} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: 38 }}>🏢</span>}
+        <div className="login-company-logo" style={{ width: 110, height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <img className="login-company-logo-image" src={company.logoUrl || '/logo.png'} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
         <div style={{ fontSize: 14, color: '#4a3b4b', marginBottom: 40, fontWeight: 600 }}>سامانه یکپارچه مدیریت سازمانی</div>
