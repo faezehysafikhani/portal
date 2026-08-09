@@ -161,7 +161,7 @@ export default function LoginPage() {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
         padding: '48px 52px',
-        borderLeft: '1px solid rgba(255,255,255,0.1)',
+        borderLeft: '1px solid rgba(255,255,255,0.035)',
         position: 'relative', zIndex: 1,
       }}>
         <div className="login-card" style={{

@@ -121,11 +121,11 @@ body {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(90deg, rgba(25, 4, 31, 0.16), rgba(55, 5, 45, 0.42));
+  background: linear-gradient(90deg, rgba(25, 4, 31, 0.08), rgba(55, 5, 45, 0.3));
   pointer-events: none;
 }
 .login-form-column {
-  background: linear-gradient(270deg, rgba(31, 5, 34, 0.1), rgba(31, 5, 34, 0.42));
+  background: linear-gradient(to left, rgba(31, 5, 34, 0.28) 0%, rgba(31, 5, 34, 0.08) 78%, transparent 100%);
 }
 .login-info-column {
   text-shadow: 0 2px 12px rgba(31, 5, 34, 0.45);
