@@ -4,6 +4,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { formatJalaliDate } from '../utils/jalali'
 import { publicBackendFetch } from '../lib/backend'
 import loginBackground from '../assets/login-background.jpg'
+import loginLogo from '../assets/login-logo.png'
 
 function PersianClock() {
   const [time, setTime] = useState(new Date())
@@ -253,8 +254,8 @@ export default function LoginPage() {
         padding: 48, color: '#211522', direction: 'rtl',
         position: 'relative', zIndex: 1,
       }}>
-        <div className="login-company-logo" style={{ width: 110, height: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-          <img className="login-company-logo-image" src={company.logoUrl || '/logo.png'} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        <div className="login-company-logo" style={{ width: 116, height: 126, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+          <img className="login-company-logo-image" src={loginLogo} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
         <div style={{ fontSize: 14, color: '#4a3b4b', marginBottom: 40, fontWeight: 600 }}>سامانه یکپارچه مدیریت سازمانی</div>

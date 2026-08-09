@@ -123,8 +123,8 @@ body {
   box-shadow: none !important;
 }
 .login-company-logo-image {
-  border-radius: 14px;
-  filter: drop-shadow(0 18px 20px rgba(72, 21, 64, 0.2)) drop-shadow(0 5px 7px rgba(49, 12, 44, 0.12));
+  filter: drop-shadow(0 22px 22px rgba(72, 21, 64, 0.24)) drop-shadow(0 7px 9px rgba(49, 12, 44, 0.18));
+  transform: translateZ(0);
 }
 .login-shell {
   isolation: isolate;
