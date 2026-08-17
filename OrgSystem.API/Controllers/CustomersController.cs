@@ -77,7 +77,7 @@ public class CustomersController : ControllerBase
             return BadRequest(new { message = "ایمیل معتبر الزامی است" });
         var tenantId = Guid.Parse(User.FindFirst("tenant_id")!.Value);
         var customer = await _db.Customers.IgnoreQueryFilters()
-            .Where(c => c.TenantId == tenantId && c.Email == email && !c.IsDeleted)
+            .Where(c => c.Email == email)
             .OrderByDescending(c => c.CreatedAt)
             .FirstOrDefaultAsync();
         var updated = customer != null;
@@ -93,6 +93,7 @@ public class CustomersController : ControllerBase
         }
 
         customer.FullName = request.FullName.Trim();
+        customer.TenantId = tenantId;
         customer.Phone = request.Phone;
         customer.CompanyName = request.CompanyName;
         if (!string.IsNullOrWhiteSpace(password))

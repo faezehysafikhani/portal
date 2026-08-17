@@ -89,8 +89,8 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
     if (!fullName) throw new HttpError(400, 'نام مشتری الزامی است')
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'ایمیل معتبر الزامی است')
 
-    const existing = await db.from('Customers').select('Id').eq('TenantId', auth.tenantId)
-      .eq('Email', email).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(1)
+    const existing = await db.from('Customers').select('Id,TenantId,IsDeleted').eq('Email', email)
+      .order('CreatedAt', { ascending: false }).limit(1)
     check(existing.error)
     const hasExistingCustomer = Boolean(existing.data?.[0]?.Id)
     if (!hasExistingCustomer && password.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
@@ -100,6 +100,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
       FullName: fullName,
       Phone: input.phone ?? null,
       CompanyName: input.companyName ?? null,
+      TenantId: auth.tenantId,
       IsActive: input.isActive !== false,
       UpdatedAt: now(),
       IsDeleted: false,
@@ -107,7 +108,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
     }
     const securedValues = password ? { ...values, PasswordHash: await bcrypt.hash(password, 12) } : values
     if (hasExistingCustomer) {
-      const updated = await db.from('Customers').update(securedValues).eq('TenantId', auth.tenantId)
+      const updated = await db.from('Customers').update(securedValues)
         .eq('Id', existing.data[0].Id).select('Id,FullName,CompanyName,Phone,Email,IsActive').single()
       check(updated.error)
       return json(request, { ...camelize(updated.data) as Obj, updated: true })

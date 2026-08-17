@@ -28,6 +28,13 @@ interface PortalAccess {
   isActive: boolean
 }
 
+interface PortalTarget {
+  fullName: string
+  email?: string
+  phone?: string
+  companyName?: string
+}
+
 interface Company {
   id: string
   name: string
@@ -80,8 +87,11 @@ export default function ContactsPage() {
   const [contactModal, setContactModal] = useState(false)
   const [editingContact, setEditingContact] = useState<Contact | null>(null)
   const [portalForm] = Form.useForm()
+  const [contactPortalForm] = Form.useForm()
   const [companyForm] = Form.useForm()
   const [contactForm] = Form.useForm()
+  const [contactPortalModal, setContactPortalModal] = useState(false)
+  const [portalTarget, setPortalTarget] = useState<PortalTarget | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [copied, setCopied] = useState(false)
   const api='http://localhost:5043/api/v1',headers=()=>({'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('token')||''}`})
@@ -162,18 +172,16 @@ export default function ContactsPage() {
     setDetailModal(true)
   }
 
-  const handleSavePortal = () => {
-  portalForm.validateFields().then(async values => {
-    if (!selectedCompany) return
+  const saveTicketingPortalAccess = async (target: PortalTarget, values: PortalAccess) => {
     try {
       const res = await apiFetch(`${api}/customers/portal-access`, {
         method: 'POST',
         headers: headers(),
         body: JSON.stringify({
-          fullName: selectedCompany.name,
+          fullName: target.fullName,
           email: values.username,
-          phone: selectedCompany.phone || null,
-          companyName: selectedCompany.name,
+          phone: target.phone || null,
+          companyName: target.companyName || null,
           password: values.password || undefined,
           isActive: values.isActive ?? true
         })
@@ -181,22 +189,63 @@ export default function ContactsPage() {
       const data = await res.json()
       if (!res.ok) {
         message.error(data.message || 'ذخیره دسترسی پورتال ناموفق بود')
-        return
+        return false
       }
+      message.success(data.updated ? 'دسترسی پورتال مشتری به‌روزرسانی شد' : 'دسترسی پورتال مشتری ایجاد شد')
+      await loadContacts()
+      return true
+    } catch {
+      message.error('خطا در اتصال به سرور')
+      return false
+    }
+  }
+
+  const handleSavePortal = () => {
+  portalForm.validateFields().then(async values => {
+    if (!selectedCompany) return
+    const ok = await saveTicketingPortalAccess({
+      fullName: selectedCompany.name,
+      email: selectedCompany.email,
+      phone: selectedCompany.phone,
+      companyName: selectedCompany.name,
+    }, values)
+    if (ok) {
       const updatedCompany = { ...selectedCompany, portalAccess: { username: values.username, password: values.password || '', isActive: values.isActive ?? true } }
       setCompanies(prev => prev.map(c => c.id === selectedCompany.id ? updatedCompany : c))
       setSelectedCompany(updatedCompany)
-      message.success(data.updated ? 'دسترسی پورتال مشتری به‌روزرسانی شد' : 'دسترسی پورتال مشتری ایجاد شد')
-    } catch {
-      message.error('خطا در اتصال به سرور')
     }
   })
 }
+
+  const openContactPortal = (contact: Contact) => {
+    const fullName = `${contact.firstName} ${contact.lastName}`.trim()
+    const target = { fullName, email: contact.email, phone: contact.mobile || contact.directPhone, companyName: selectedCompany?.name }
+    setPortalTarget(target)
+    contactPortalForm.resetFields()
+    contactPortalForm.setFieldsValue({ username: contact.email, password: '', isActive: true })
+    setContactPortalModal(true)
+  }
+
+  const handleSaveContactPortal = () => {
+    contactPortalForm.validateFields().then(async values => {
+      if (!portalTarget) return
+      const ok = await saveTicketingPortalAccess(portalTarget, values)
+      if (ok) {
+        setContactPortalModal(false)
+        setPortalTarget(null)
+        contactPortalForm.resetFields()
+      }
+    })
+  }
 
   const generatePassword = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
     const password = Array(8).fill(0).map(() => chars[Math.floor(Math.random() * chars.length)]).join('')
     portalForm.setFieldValue('password', password)
+  }
+  const generateContactPassword = () => {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+    contactPortalForm.setFieldValue('password', Array(8).fill(0).map(() => chars[Math.floor(Math.random() * chars.length)]).join(''))
   }
 
   const copyToClipboard = (text: string) => {
@@ -269,6 +318,7 @@ export default function ContactsPage() {
       title: 'عملیات', key: 'actions',
       render: (_: unknown, record: Contact) => (
         <Space>
+          <Button size="small" icon={<LockOutlined />} disabled={!record.email} onClick={() => openContactPortal(record)}>دسترسی</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => openContactModal(record)} />
           <Popconfirm title="حذف شود؟" onConfirm={() => deleteContact(record.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -469,6 +519,40 @@ export default function ContactsPage() {
             }
           ]} />
         )}
+      </Modal>
+
+      <Modal
+        title={<Space><LockOutlined/><span>دسترسی تیکتینگ برای {portalTarget?.fullName}</span></Space>}
+        open={contactPortalModal}
+        onOk={handleSaveContactPortal}
+        onCancel={() => { setContactPortalModal(false); setPortalTarget(null); contactPortalForm.resetFields() }}
+        okText="ذخیره دسترسی"
+        cancelText="انصراف"
+        width={560}
+        maskClosable={false}
+      >
+        <div style={{ marginBottom: 14, padding: '10px 12px', background: '#e6f4ff', borderRadius: 8, fontSize: 12 }}>
+          <span style={{ color: '#1677ff' }}>آدرس ورود تیکتینگ:</span>
+          <span dir="ltr" style={{ margin: '0 8px', fontFamily: 'monospace' }}>{PUBLIC_APP_URL}/customer-login</span>
+          <Tooltip title={copied ? 'کپی شد!' : 'کپی'}>
+            <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(`${PUBLIC_APP_URL}/customer-login`)} />
+          </Tooltip>
+        </div>
+        <Form form={contactPortalForm} layout="vertical">
+          <Form.Item name="username" label="نام کاربری / ایمیل" rules={[{ required: true, message: 'ایمیل الزامی است' }, { type: 'email', message: 'ایمیل معتبر وارد کنید' }]}>
+            <Input prefix={<MailOutlined />} placeholder="example@email.com" dir="ltr" />
+          </Form.Item>
+          <Form.Item name="password" label="رمز عبور" rules={[{ required: true, message: 'رمز عبور الزامی است' }, { min: 8, message: 'رمز عبور حداقل باید ۸ کاراکتر باشد' }]}>
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="رمز عبور"
+              addonAfter={<Tooltip title="تولید رمز تصادفی"><KeyOutlined style={{ cursor: 'pointer' }} onClick={generateContactPassword} /></Tooltip>}
+            />
+          </Form.Item>
+          <Form.Item name="isActive" label="وضعیت دسترسی" valuePropName="checked" initialValue={true}>
+            <Switch checkedChildren="فعال" unCheckedChildren="غیرفعال" />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* Modal ثبت/ویرایش شخص */}
