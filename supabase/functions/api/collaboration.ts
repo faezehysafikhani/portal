@@ -172,15 +172,13 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
     return json(request,{message:'عضو از گروه حذف شد'})
   }
   if (request.method === 'GET' && path === '/chat/users') {
-    const [users,contacts,messages] = await Promise.all([
+    const [users,messages] = await Promise.all([
       db.from('Users').select('Id,Username,FirstName,LastName,AvatarUrl,Department,Position,LastLoginAt').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('IsActive', true).neq('Id', auth.userId).order('FirstName'),
-      db.from('Contacts').select('Id,FullName,CompanyName,JobTitle,LinkedUserId').eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FullName'),
       db.from('InternalChatMessages').select('SenderUserId,RecipientUserId,RecipientContactId,Content,Kind,AttachmentName,CreatedAt,IsRead').eq('TenantId',auth.tenantId).eq('IsDeleted',false).or(`SenderUserId.eq.${auth.userId},RecipientUserId.eq.${auth.userId}`).order('CreatedAt',{ascending:false}).limit(1000),
-    ]); check(users.error); check(contacts.error);check(messages.error)
-    const rows=messages.data??[],summary=(personType:string,personId:string)=>{const related=personType==='user'?rows.filter(x=>(x.SenderUserId===auth.userId&&x.RecipientUserId===personId)||(x.SenderUserId===personId&&x.RecipientUserId===auth.userId)):rows.filter(x=>x.SenderUserId===auth.userId&&x.RecipientContactId===personId);const last=related[0];return{lastMessage:last?(Number(last.Kind)===2?'🎤 پیام صوتی':Number(last.Kind)===1?`📎 ${last.AttachmentName}`:last.Content):null,lastMessageAt:last?.CreatedAt,unread:personType==='user'?related.filter(x=>x.SenderUserId===personId&&x.RecipientUserId===auth.userId&&!x.IsRead).length:0}}
+    ]); check(users.error); check(messages.error)
+    const rows=messages.data??[],summary=(personId:string)=>{const related=rows.filter(x=>(x.SenderUserId===auth.userId&&x.RecipientUserId===personId)||(x.SenderUserId===personId&&x.RecipientUserId===auth.userId));const last=related[0];return{lastMessage:last?(Number(last.Kind)===2?'🎤 پیام صوتی':Number(last.Kind)===1?`📎 ${last.AttachmentName}`:last.Content):null,lastMessageAt:last?.CreatedAt,unread:related.filter(x=>x.SenderUserId===personId&&x.RecipientUserId===auth.userId&&!x.IsRead).length}}
     return json(request, [
-      ...(users.data ?? []).map((u) => ({ id: `user:${u.Id}`, personId:u.Id, personType:'user', username: u.Username, fullName: `${u.FirstName} ${u.LastName}`.trim(), avatarUrl: u.AvatarUrl, department: u.Department, position: u.Position, isOnline:Boolean(u.LastLoginAt&&new Date(u.LastLoginAt)>new Date(Date.now()-15*60*1000)),...summary('user',u.Id) })),
-      ...(contacts.data ?? []).map((c) => ({ id:`contact:${c.Id}`, personId:c.Id, personType:'contact', fullName:c.FullName, department:c.CompanyName, position:c.JobTitle, isOnline:false,...summary('contact',c.Id) })),
+      ...(users.data ?? []).map((u) => ({ id: `user:${u.Id}`, personId:u.Id, personType:'user', username: u.Username, fullName: `${u.FirstName} ${u.LastName}`.trim(), avatarUrl: u.AvatarUrl, department: u.Department, position: u.Position, isOnline:Boolean(u.LastLoginAt&&new Date(u.LastLoginAt)>new Date(Date.now()-15*60*1000)),...summary(u.Id) })),
     ])
   }
   const messages = path.match(/^\/chat\/messages\/(user|contact):([0-9a-f-]+)$/i)
@@ -217,6 +215,15 @@ async function chat(request: Request, auth: AuthContext, path: string): Promise<
 
 const person = (u: Obj) => ({ id:u.Id, username:u.Username, fullName:`${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim() || u.Username, position:u.Position, department:u.Department })
 const monthIndex = (value:string|number) => { const raw=String(value); const year=Number(raw.includes('/')?raw.split('/')[0]:raw.slice(0,4)),month=Number(raw.includes('/')?raw.split('/')[1]:raw.slice(4,6)); return year*12+month-1 }
+const normalizeDigits = (value:string) => value.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+const validYearMonth = (value:unknown): number | null => {
+  const text = normalizeDigits(String(value ?? '')).replaceAll('-', '/')
+  const match = text.match(/^(\d{4})\/(\d{1,2})(?:\/\d{1,2})?$/)
+  if (!match) return null
+  const year = Number(match[1]), month = Number(match[2])
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return null
+  return year * 100 + month
+}
 const normalizedPersonReference = (value:unknown) => String(value??'').replace(/[يى]/g,'ی').replace(/ك/g,'ک').replace(/[\s\u200c\u200f\u202a-\u202e]+/g,'').trim().toLowerCase()
 const formData = (value:unknown):Obj => { try { return typeof value==='string'?JSON.parse(value):((value??{}) as Obj) } catch { return {} } }
 const consumesLeaveBalance = (formType:unknown,data:Obj) => String(formType)==='leave_hourly'||(String(formType)==='leave_daily'&&String(data.leaveType??'استحقاقی')==='استحقاقی')
@@ -262,13 +269,17 @@ async function workflow(auth: AuthContext) {
 }
 
 async function leaveAccount(auth: AuthContext, userId=auth.userId) {
-  const ym=jalaliYearMonth(),[found,user,pending,approved]=await Promise.all([
+  const ym=jalaliYearMonth(),[found,user,personnel,pending,approved]=await Promise.all([
     db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle(),
     db.from('Users').select('CreatedAt').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
+    db.from('OrganizationalForms').select('DataJson,CreatedAt').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).eq('FormType','personnel').in('Status',['hr_pending','approved','completed']).order('CreatedAt',{ascending:false}).limit(10),
     db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']),
     db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['approved','completed']),
-  ]);check(found.error);check(user.error);check(pending.error);check(approved.error)
-  const startedYm=user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym
+  ]);check(found.error);check(user.error);check(personnel.error);check(pending.error);check(approved.error)
+  const personnelStart = (personnel.data ?? [])
+    .map((item:Obj) => validYearMonth(formData(item.DataJson).startDate))
+    .find((value:number|null) => value !== null)
+  const startedYm=personnelStart ?? (user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym)
   const entitledMonths=Math.max(1,monthIndex(ym)-monthIndex(startedYm)+1)
   const actualReserved=(pending.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
   const actualUsed=(approved.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)

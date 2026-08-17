@@ -8,6 +8,16 @@ import ManagerDonutChart from '../components/ManagerDonutChart'
 
 const API='http://localhost:5043/api/v1'
 const faDate=(v?:string)=>v?new Date(v).toLocaleDateString('fa-IR'):'—'
+const formatDuration=(value?:number|string)=>{
+  if(value===undefined||value===null||value==='')return '—'
+  const numeric=Number(value)
+  if(!Number.isFinite(numeric))return String(value)
+  const minutes=Math.round(numeric*60)
+  const hours=Math.floor(minutes/60),rest=minutes%60
+  if(hours<=0)return `${rest.toLocaleString('fa-IR')} دقیقه`
+  if(rest===0)return `${hours.toLocaleString('fa-IR')} ساعت`
+  return `${hours.toLocaleString('fa-IR')} ساعت و ${rest.toLocaleString('fa-IR')} دقیقه`
+}
 const typeLabel:Record<string,string>={Internal:'داخلی',Incoming:'وارده',Outgoing:'صادره'}
 const statusLabel:Record<string,string>={Draft:'پیش‌نویس',Sent:'ارسال شده',Received:'دریافت شده',InReview:'در بررسی',Signed:'امضا شده',Referred:'ارجاع شده',Archived:'بایگانی',Cancelled:'لغو شده',Todo:'جدید',InProgress:'در حال انجام',InReviewTask:'بازبینی',Done:'تکمیل شده',CancelledTask:'لغو شده',open:'باز',inprogress:'در حال بررسی',waiting:'در انتظار',resolved:'حل شده',closed:'بسته',manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',completed:'خاتمه یافته',rejected:'رد شده',returned:'برگشت برای اصلاح'}
 const labelStatus=(value:string)=>statusLabel[value]||value
@@ -61,9 +71,9 @@ export default function ReportsPage(){
   const letterColumns=[{title:'شماره',dataIndex:'number'},{title:'نوع',dataIndex:'type',render:(v:string)=><Tag>{typeLabel[v]||v}</Tag>},{title:'موضوع',dataIndex:'subject'},{title:'فرستنده',dataIndex:'from'},{title:'تاریخ',dataIndex:'date',render:faDate},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="purple">{labelStatus(v)}</Tag>}]
   const taskColumns=[{title:'کد',dataIndex:'id',render:(v:string)=>`TSK-${v.slice(0,8)}`},{title:'عنوان',dataIndex:'title'},{title:'مسئول',dataIndex:'assignee',render:(v?:string)=>v||'—'},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="blue">{labelStatus(v)}</Tag>},{title:'اولویت',dataIndex:'priority'},{title:'پیشرفت',dataIndex:'progress',render:(v:number)=>`${v}%`},{title:'مهلت',dataIndex:'dueDate',render:faDate}]
   const ticketColumns=[{title:'کد',dataIndex:'code'},{title:'عنوان',dataIndex:'title'},{title:'مشتری',dataIndex:'customer'},{title:'دسته',dataIndex:'category'},{title:'مسئول',dataIndex:'assignee',render:(v?:string)=>v||'—'},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="orange">{labelStatus(v)}</Tag>},{title:'تاریخ ثبت',dataIndex:'createdAt',render:faDate}]
-  const formColumns=[{title:'عنوان',dataIndex:'title'},{title:'ثبت‌کننده',dataIndex:'submitterName'},{title:'مدیر مستقیم',dataIndex:'managerName'},{title:'منابع انسانی',dataIndex:'hrName'},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="magenta">{labelStatus(v)}</Tag>},{title:'ساعت مرخصی',dataIndex:'requestedHours'},{title:'تاریخ',dataIndex:'createdAt',render:faDate}]
-  const leaveColumns=[{title:'نام و نام خانوادگی',dataIndex:'employeeName'},{title:'نوع مرخصی',dataIndex:'leaveKind'},{title:'روز شروع',dataIndex:'startDate'},{title:'روز پایان',dataIndex:'endDate'},{title:'تعداد روز',dataIndex:'dayCount'},{title:'تاریخ مرخصی ساعتی',dataIndex:'hourlyDate'},{title:'زمان خروج',dataIndex:'startTime'},{title:'زمان ورود',dataIndex:'endTime'},{title:'مجموع ساعت',dataIndex:'totalHours'},{title:'مدیر مستقیم',dataIndex:'managerName'}]
-  const pendingColumns=[{title:'فرم',dataIndex:'title'},{title:'کارمند',dataIndex:'submitterName'},{title:'مرحله جاری',dataIndex:'currentStage'},{title:'تأییدکننده فعلی',dataIndex:'currentApprover'},{title:'ساعت',dataIndex:'requestedHours'},{title:'روزهای انتظار',dataIndex:'waitingDays'},{title:'تاریخ ثبت',dataIndex:'createdAt',render:faDate,renderText:(v:string)=>faDate(v)}]
+  const formColumns=[{title:'عنوان',dataIndex:'title'},{title:'ثبت‌کننده',dataIndex:'submitterName'},{title:'مدیر مستقیم',dataIndex:'managerName'},{title:'منابع انسانی',dataIndex:'hrName'},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="magenta">{labelStatus(v)}</Tag>},{title:'مدت مرخصی',dataIndex:'requestedHours',render:formatDuration,renderText:formatDuration},{title:'تاریخ',dataIndex:'createdAt',render:faDate}]
+  const leaveColumns=[{title:'نام و نام خانوادگی',dataIndex:'employeeName'},{title:'نوع مرخصی',dataIndex:'leaveKind'},{title:'روز شروع',dataIndex:'startDate'},{title:'روز پایان',dataIndex:'endDate'},{title:'تعداد روز',dataIndex:'dayCount'},{title:'تاریخ مرخصی ساعتی',dataIndex:'hourlyDate'},{title:'زمان خروج',dataIndex:'startTime'},{title:'زمان ورود',dataIndex:'endTime'},{title:'مجموع زمان',dataIndex:'totalHours',render:formatDuration,renderText:formatDuration},{title:'مدیر مستقیم',dataIndex:'managerName'}]
+  const pendingColumns=[{title:'فرم',dataIndex:'title'},{title:'کارمند',dataIndex:'submitterName'},{title:'مرحله جاری',dataIndex:'currentStage'},{title:'تأییدکننده فعلی',dataIndex:'currentApprover'},{title:'مدت',dataIndex:'requestedHours',render:formatDuration,renderText:formatDuration},{title:'روزهای انتظار',dataIndex:'waitingDays'},{title:'تاریخ ثبت',dataIndex:'createdAt',render:faDate,renderText:(v:string)=>faDate(v)}]
   const pie=(items:any[])=><ManagerDonutChart items={items} formatLabel={name=>labelStatus(typeLabel[name]||name)} centerLabel="کل موارد" />
   return <div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}><div><h2 style={{margin:0}}>📊 گزارشات واقعی سیستم</h2><small style={{color:'#888'}}>تمام اعداد و جداول مستقیماً از دیتابیس خوانده شده‌اند</small></div><Space><Button icon={<ReloadOutlined/>} onClick={()=>load(true)}>به‌روزرسانی</Button><Button icon={<PrinterOutlined/>} onClick={()=>window.print()}>چاپ</Button></Space></div>

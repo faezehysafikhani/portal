@@ -5,6 +5,7 @@ import {
   UserOutlined, PhoneOutlined, MailOutlined, SearchOutlined, EyeOutlined,
   LockOutlined, CopyOutlined, KeyOutlined
 } from '@ant-design/icons'
+import { apiFetch } from '../utils/api'
 
 const PUBLIC_APP_URL = (import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/$/, '')
 
@@ -23,7 +24,7 @@ interface Contact {
 
 interface PortalAccess {
   username: string
-  password: string
+  password?: string
   isActive: boolean
 }
 
@@ -85,9 +86,24 @@ export default function ContactsPage() {
   const [copied, setCopied] = useState(false)
   const api='http://localhost:5043/api/v1',headers=()=>({'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('token')||''}`})
   const loadContacts=async()=>{
-    const r=await fetch(`${api}/contacts`,{headers:headers()})
+    const [r,customersResponse]=await Promise.all([
+      fetch(`${api}/contacts`,{headers:headers()}),
+      apiFetch(`${api}/customers`,{headers:headers()}).catch(()=>null),
+    ])
     if(!r.ok){message.error((await r.json().catch(()=>({}))).message||`خطا در دریافت مخاطبین (${r.status})`);return}
-    const data=await r.json(),groups=new Map<string,Company>()
+    const [data,customers]=await Promise.all([
+      r.json(),
+      customersResponse?.ok ? customersResponse.json().catch(()=>[]) : Promise.resolve([]),
+    ])
+    const customerAccessByCompany=new Map<string,PortalAccess>()
+    const customerAccessByEmail=new Map<string,PortalAccess>()
+    for(const customer of Array.isArray(customers)?customers:[]){
+      const access={username:String(customer.email||''),password:'',isActive:customer.isActive!==false}
+      const companyKey=String(customer.companyName||customer.fullName||'').trim()
+      if(companyKey)customerAccessByCompany.set(companyKey,access)
+      if(customer.email)customerAccessByEmail.set(String(customer.email).trim().toLowerCase(),access)
+    }
+    const groups=new Map<string,Company>()
     for(const x of data){
       const companyName=(x.companyName||x.fullName).trim()
       if(!groups.has(companyName))groups.set(companyName,{id:`group-${companyName}`,name:companyName,contacts:[]})
@@ -96,7 +112,10 @@ export default function ContactsPage() {
       if(isCompanyRecord){Object.assign(group,{id:x.id,name:companyName,industry:x.industry||x.jobTitle,phone:x.phone,fax:x.fax,email:x.email,website:x.website,address:x.address,postalCode:x.postalCode,nationalId:x.nationalId,economicCode:x.economicCode,notes:x.notes})}
       else {const parts=x.fullName.trim().split(/\s+/);group.contacts.push({id:x.id,firstName:parts[0]||x.fullName,lastName:parts.slice(1).join(' '),position:x.jobTitle,department:x.department,directPhone:x.phone,extension:x.extension,mobile:x.mobile,email:x.email,notes:x.notes})}
     }
-    const next=[...groups.values()]
+    const next=[...groups.values()].map(group=>({
+      ...group,
+      portalAccess: customerAccessByCompany.get(group.name) || (group.email ? customerAccessByEmail.get(group.email.trim().toLowerCase()) : undefined) || group.portalAccess,
+    }))
     setCompanies(next)
     setSelectedCompany(previous=>previous?next.find(x=>x.name===previous.name)||previous:null)
   }
@@ -135,9 +154,10 @@ export default function ContactsPage() {
   const openDetail = (company: Company) => {
     setSelectedCompany(company)
     if (company.portalAccess) {
-      portalForm.setFieldsValue(company.portalAccess)
+      portalForm.setFieldsValue({ username: company.portalAccess.username, password: '', isActive: company.portalAccess.isActive })
     } else {
       portalForm.resetFields()
+      portalForm.setFieldsValue({ username: company.email, isActive: true })
     }
     setDetailModal(true)
   }
@@ -146,28 +166,29 @@ export default function ContactsPage() {
   portalForm.validateFields().then(async values => {
     if (!selectedCompany) return
     try {
-      const res = await fetch('http://localhost:5043/api/v1/customers/register', {
+      const res = await apiFetch(`${api}/customers/portal-access`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers(),
         body: JSON.stringify({
           fullName: selectedCompany.name,
           email: values.username,
           phone: selectedCompany.phone || null,
           companyName: selectedCompany.name,
-          password: values.password
+          password: values.password || undefined,
+          isActive: values.isActive ?? true
         })
       })
       const data = await res.json()
-      if (!res.ok && data.message !== 'این ایمیل قبلاً ثبت شده است') {
-        alert('خطا: ' + data.message)
+      if (!res.ok) {
+        message.error(data.message || 'ذخیره دسترسی پورتال ناموفق بود')
         return
       }
-      const updatedCompany = { ...selectedCompany, portalAccess: { ...values, isActive: values.isActive ?? true } }
+      const updatedCompany = { ...selectedCompany, portalAccess: { username: values.username, password: values.password || '', isActive: values.isActive ?? true } }
       setCompanies(prev => prev.map(c => c.id === selectedCompany.id ? updatedCompany : c))
       setSelectedCompany(updatedCompany)
-      alert('دسترسی پورتال با موفقیت ذخیره شد!')
+      message.success(data.updated ? 'دسترسی پورتال مشتری به‌روزرسانی شد' : 'دسترسی پورتال مشتری ایجاد شد')
     } catch {
-      alert('خطا در اتصال به سرور')
+      message.error('خطا در اتصال به سرور')
     }
   })
 }
@@ -393,10 +414,20 @@ export default function ContactsPage() {
                         </Form.Item>
                       </Col>
                       <Col xs={24} md={12}>
-                        <Form.Item name="password" label="رمز عبور" rules={[{ required: true }]}>
+                        <Form.Item
+                          name="password"
+                          label={selectedCompany.portalAccess ? 'رمز عبور جدید (اختیاری)' : 'رمز عبور'}
+                          rules={[
+                            {
+                              validator: (_, value) => selectedCompany.portalAccess || value
+                                ? (value && value.length < 8 ? Promise.reject(new Error('رمز عبور حداقل باید ۸ کاراکتر باشد')) : Promise.resolve())
+                                : Promise.reject(new Error('رمز عبور الزامی است'))
+                            }
+                          ]}
+                        >
                           <Input.Password
                             prefix={<LockOutlined />}
-                            placeholder="رمز عبور"
+                            placeholder={selectedCompany.portalAccess ? 'اگر نمی‌خواهید تغییر کند خالی بگذارید' : 'رمز عبور'}
                             visibilityToggle={{ visible: showPassword, onVisibleChange: setShowPassword }}
                             addonAfter={
                               <Tooltip title="تولید رمز تصادفی">
@@ -425,12 +456,7 @@ export default function ContactsPage() {
                       </div>
                       <div style={{ fontSize: 13 }}>
                         <strong>رمز عبور:</strong>
-                        <span style={{ marginRight: 8, fontFamily: 'monospace' }}>
-                          {showPassword ? selectedCompany.portalAccess.password : '••••••••'}
-                        </span>
-                        <Tooltip title={copied ? 'کپی شد!' : 'کپی'}>
-                          <Button size="small" icon={<CopyOutlined />} onClick={() => copyToClipboard(selectedCompany.portalAccess!.password)} />
-                        </Tooltip>
+                        <span style={{ marginRight: 8, color: '#8c8c8c' }}>برای امنیت نمایش داده نمی‌شود؛ در صورت نیاز رمز جدید ثبت کنید.</span>
                       </div>
                     </div>
                   )}

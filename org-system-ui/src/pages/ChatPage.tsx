@@ -99,7 +99,7 @@ export default function ChatPage(){
   const loadUsers=async(silent=false)=>{
     const response=await apiFetch(`${API}/chat/users`)
     if(!response.ok){if(!silent)message.error('دریافت کارتابل پیام‌ها انجام نشد');setLoading(false);return}
-    const data:ChatUser[]=newestChatsFirst(await response.json());setUsers(current=>sameMessages(current,data,(a,b)=>a.unread===b.unread&&a.isOnline===b.isOnline&&a.lastMessage===b.lastMessage&&a.lastMessageAt===b.lastMessageAt)?current:data)
+    const data:ChatUser[]=newestChatsFirst((await response.json()).filter((item:ChatUser)=>item.personType==='user'));setUsers(current=>sameMessages(current,data,(a,b)=>a.unread===b.unread&&a.isOnline===b.isOnline&&a.lastMessage===b.lastMessage&&a.lastMessageAt===b.lastMessageAt)?current:data)
     const params=new URLSearchParams(location.search),fromUrl=params.get('user')||undefined,groupFromUrl=params.get('group')
     if(!groupFromUrl)setSelectedId(current=>current||(fromUrl&&data.some(x=>x.id===fromUrl)?fromUrl:data[0]?.id));setLoading(false)
   }
@@ -180,7 +180,7 @@ export default function ChatPage(){
     const response=await apiFetch(`${API}/chat/messages/${item.id}/attachment`);if(!response.ok){message.error('دریافت فایل انجام نشد');return}
     const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=item.attachmentName||'attachment';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
   }
-  const filtered=useMemo(()=>users.filter(x=>`${x.fullName} ${x.position||''} ${x.department||''}`.includes(search.trim())),[users,search])
+  const filtered=useMemo(()=>users.filter(x=>x.personType==='user'&&`${x.fullName} ${x.position||''} ${x.department||''}`.includes(search.trim())),[users,search])
   const choose=(id:string)=>{if(id===selectedId&&!activeGroup)return;if(recording)stopRecording();if(selectedId)draftsRef.current[selectedId]=text;setText(draftsRef.current[id]||'');setEmojiOpen(false);setSelectedFile(undefined);setActiveGroup(undefined);setSelectedId(id);history.replaceState(null,'',`/chat?user=${id}`)}
   const chooseGroup=(group:ChatGroup)=>{if(activeGroup?.groupId===group.groupId)return;if(recording)stopRecording();if(selectedId)draftsRef.current[selectedId]=text;setText('');setEmojiOpen(false);setSelectedFile(undefined);setActiveGroup(group);history.replaceState(null,'',`/chat?group=${group.groupId}`)}
   const faTime=(value?:string)=>value?new Date(value).toLocaleString('fa-IR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):''

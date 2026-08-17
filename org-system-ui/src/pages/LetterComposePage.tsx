@@ -432,7 +432,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
       <div style={{ background: 'white', borderBottom: '1px solid #e8edf2', padding: '10px 16px' }}>
         <Form form={form} layout="inline">
           <Row gutter={[12, 8]} style={{ width: '100%' }} align="middle">
-            <Col xs={24} md={5}>
+            <Col xs={24} md={letterType==='internal'?5:4}>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>{letterType==='incoming'?'ثبت‌کننده نامه':'فرستنده نامه'}</div>
               <Form.Item name="fromUser" style={{ margin: 0 }} rules={[{ required: true, message: 'الزامی' }]}>
                 <Input size="small" readOnly value={currentUser.fullName||currentUser.username} />
@@ -441,7 +441,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
             <Col md={1} style={{ textAlign: 'center' }}>
               <SwapLeftOutlined style={{ color: '#1677ff', fontSize: 18, marginTop: 20 }} />
             </Col>
-            <Col xs={24} md={6}>
+            <Col xs={24} md={letterType==='incoming'?4:letterType==='outgoing'?8:6}>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>
                 گیرنده نامه {letterType === 'outgoing' ? '(خارجی)' : '(داخلی سازمان)'}
               </div>
@@ -453,24 +453,24 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
                 </Form.Item>
               ) : (
                 <Space.Compact style={{ width: '100%' }}>
-                  <Form.Item name="toExternal" style={{ margin: 0, width: '55%' }} rules={[{ required: true, message: 'الزامی' }]}>
-                    <Select disabled={recipientsLocked} size="small" showSearch optionFilterProp="label" placeholder="انتخاب مخاطب" options={contacts.map(c=>({value:c.id,label:`${c.fullName} — ${c.companyName||'مخاطب'}`}))}/>
+                  <Form.Item name="toExternal" style={{ margin: 0, width: '60%' }} rules={[{ required: true, message: 'الزامی' }]}>
+                    <Select disabled={recipientsLocked} size="small" showSearch optionFilterProp="label" placeholder="انتخاب مخاطب" options={contacts.map(c=>({value:c.id,label:`${c.fullName} — ${c.companyName||'مخاطب'}`}))} onChange={id=>{const contact=contacts.find(c=>c.id===id);form.setFieldValue('toExternalOrg',contact?.companyName||'')}}/>
                   </Form.Item>
-                  <Form.Item name="toExternalOrg" style={{ margin: 0, width: '45%' }}>
+                  <Form.Item name="toExternalOrg" style={{ margin: 0, width: '40%' }}>
                     <Input disabled={recipientsLocked} size="small" placeholder="سازمان" />
                   </Form.Item>
                 </Space.Compact>
               )}
             </Col>
             {letterType === 'incoming' && (
-              <Col xs={24} md={4}>
+              <Col xs={24} md={6}>
                 <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>سازمان فرستنده</div>
                 <Form.Item name="fromOrg" style={{ margin: 0 }} rules={[{required:true,message:'سازمان فرستنده الزامی است'}]}>
-                  <Select size="small" showSearch allowClear placeholder="انتخاب سازمان/مخاطب" options={contacts.map(c=>({value:c.companyName||c.fullName,label:c.companyName||c.fullName}))}/>
+                  <Select size="small" showSearch allowClear placeholder="نام سازمان/فرستنده خارجی" options={[...new Map(contacts.map(c=>[c.companyName||c.fullName,{value:c.companyName||c.fullName,label:c.companyName?`${c.companyName} — ${c.fullName}`:c.fullName}])).values()]}/>
                 </Form.Item>
               </Col>
             )}
-            <Col xs={24} md={letterType === 'incoming' ? 7 : 11}>
+            <Col xs={24} md={letterType === 'incoming' ? 8 : letterType === 'outgoing' ? 10 : 11}>
               <div style={{ fontSize: 11, color: '#8c8c8c', marginBottom: 2 }}>موضوع نامه *</div>
               <Form.Item name="subject" style={{ margin: 0 }} rules={[{ required: true, message: 'موضوع الزامی است' }]}>
                 <Input size="small" placeholder="موضوع نامه را وارد کنید..." />

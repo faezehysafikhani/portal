@@ -9,6 +9,7 @@ using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Options;
 using OrgSystem.Infrastructure.Auth;
+using OrgSystem.API.Authorization;
 
 namespace OrgSystem.API.Controllers;
 
@@ -62,6 +63,47 @@ public class CustomersController : ControllerBase
         await _db.SaveChangesAsync();
         return Ok(new { id = customer.Id, fullName = customer.FullName, email = customer.Email,
             phone = customer.Phone, companyName = customer.CompanyName, accessToken = CreateCustomerToken(customer) });
+    }
+
+    [HttpPost("portal-access")]
+    [Authorize]
+    [RequirePermission("contacts.edit")]
+    public async Task<IActionResult> SavePortalAccess([FromBody] CustomerPortalAccessRequest request)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(request.FullName))
+            return BadRequest(new { message = "نام مشتری الزامی است" });
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            return BadRequest(new { message = "ایمیل معتبر الزامی است" });
+        var tenantId = Guid.Parse(User.FindFirst("tenant_id")!.Value);
+        var customer = await _db.Customers.IgnoreQueryFilters()
+            .Where(c => c.TenantId == tenantId && c.Email == email && !c.IsDeleted)
+            .OrderByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
+        var updated = customer != null;
+        var password = request.Password?.Trim() ?? "";
+        if (!updated && password.Length < 8)
+            return BadRequest(new { message = "رمز عبور حداقل باید ۸ کاراکتر باشد" });
+        if (updated && password.Length is > 0 and < 8)
+            return BadRequest(new { message = "رمز عبور حداقل باید ۸ کاراکتر باشد" });
+        if (customer == null)
+        {
+            customer = new Customer { Id = Guid.NewGuid(), TenantId = tenantId, Email = email };
+            _db.Customers.Add(customer);
+        }
+
+        customer.FullName = request.FullName.Trim();
+        customer.Phone = request.Phone;
+        customer.CompanyName = request.CompanyName;
+        if (!string.IsNullOrWhiteSpace(password))
+            customer.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password);
+        customer.IsActive = request.IsActive;
+        customer.IsDeleted = false;
+        customer.DeletedAt = null;
+        customer.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return Ok(new { id = customer.Id, fullName = customer.FullName, email = customer.Email,
+            phone = customer.Phone, companyName = customer.CompanyName, customer.IsActive, updated });
     }
 
     [HttpGet("{id}/tickets")]
@@ -183,5 +225,6 @@ public class CustomersController : ControllerBase
 
 public record CustomerLoginRequest(string Email, string Password);
 public record CustomerRegisterRequest(string FullName, string Email, string? Phone, string? CompanyName, string Password);
+public record CustomerPortalAccessRequest(string FullName, string Email, string? Phone, string? CompanyName, string? Password, bool IsActive = true);
 public record CreateCustomerTicketRequest(string Title, string Category, string Priority, string Description);
 public record AddMessageRequest(string Text, string AuthorName, bool IsCustomer);

@@ -80,6 +80,44 @@ export async function handlePublicCustomer(request: Request, path: string): Prom
 }
 
 export async function handleTicketsCustomers(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
+  if (path === '/customers/portal-access' && request.method === 'POST') {
+    requirePermission(auth, 'contacts.edit')
+    const input = await body<Obj>(request)
+    const email = String(input.email ?? '').trim().toLowerCase()
+    const password = String(input.password ?? '')
+    const fullName = String(input.fullName ?? '').trim()
+    if (!fullName) throw new HttpError(400, 'نام مشتری الزامی است')
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'ایمیل معتبر الزامی است')
+
+    const existing = await db.from('Customers').select('Id').eq('TenantId', auth.tenantId)
+      .eq('Email', email).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(1)
+    check(existing.error)
+    const hasExistingCustomer = Boolean(existing.data?.[0]?.Id)
+    if (!hasExistingCustomer && password.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
+    if (hasExistingCustomer && password && password.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
+
+    const values = {
+      FullName: fullName,
+      Phone: input.phone ?? null,
+      CompanyName: input.companyName ?? null,
+      IsActive: input.isActive !== false,
+      UpdatedAt: now(),
+      IsDeleted: false,
+      DeletedAt: null,
+    }
+    const securedValues = password ? { ...values, PasswordHash: await bcrypt.hash(password, 12) } : values
+    if (hasExistingCustomer) {
+      const updated = await db.from('Customers').update(securedValues).eq('TenantId', auth.tenantId)
+        .eq('Id', existing.data[0].Id).select('Id,FullName,CompanyName,Phone,Email,IsActive').single()
+      check(updated.error)
+      return json(request, { ...camelize(updated.data) as Obj, updated: true })
+    }
+
+    const created = await db.from('Customers').insert({ ...base(auth.tenantId, auth.userId), ...securedValues, Email: email }).select('Id,FullName,CompanyName,Phone,Email,IsActive').single()
+    check(created.error)
+    return json(request, { ...camelize(created.data) as Obj, updated: false }, 201)
+  }
+
   if (path === '/customers' && request.method === 'GET') {
     if (auth.permissions.includes('customer')) throw new HttpError(403, 'دسترسی غیرمجاز')
     const result = await db.from('Customers').select('Id,FullName,CompanyName,Phone,Email,IsActive')

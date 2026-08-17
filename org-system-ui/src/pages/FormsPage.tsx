@@ -73,6 +73,16 @@ const visibleFormValue=(value:unknown)=>{
   if(typeof value==='object')return JSON.stringify(value)
   return String(value)
 }
+const formatDuration=(value?:number|string)=>{
+  if(value===undefined||value===null||value==='')return '—'
+  const numeric=Number(value)
+  if(!Number.isFinite(numeric))return String(value)
+  const minutes=Math.round(numeric*60)
+  const hours=Math.floor(minutes/60),rest=minutes%60
+  if(hours<=0)return `${rest.toLocaleString('fa-IR')} دقیقه`
+  if(rest===0)return `${hours.toLocaleString('fa-IR')} ساعت`
+  return `${hours.toLocaleString('fa-IR')} ساعت و ${rest.toLocaleString('fa-IR')} دقیقه`
+}
 
 function FormDataDetails({submission}:{submission:FormSubmission}){
   const hidden=new Set(['manager','hrManager'])
@@ -147,7 +157,7 @@ export default function FormsPage() {
     if (type === 'leave_daily' && days && days * 8 > leaveBalance.availableHours) {
       notification.warning({
         message: '⚠️ مانده مرخصی کافی نیست',
-        description: `مانده مرخصی شما ${leaveBalance.availableHours} ساعت است اما ${days * 8} ساعت درخواست داده‌اید.`,
+        description: `مانده مرخصی شما ${formatDuration(leaveBalance.availableHours)} است اما ${formatDuration(days * 8)} درخواست داده‌اید.`,
         duration: 5,
       })
       return false
@@ -155,7 +165,7 @@ export default function FormsPage() {
     if (type === 'leave_hourly' && hours && hours > leaveBalance.availableHours) {
       notification.warning({
         message: '⚠️ مانده مرخصی ساعتی کافی نیست',
-        description: `مانده مرخصی ساعتی شما ${leaveBalance.availableHours} ساعت است اما ${hours} ساعت درخواست داده‌اید.`,
+        description: `مانده مرخصی ساعتی شما ${formatDuration(leaveBalance.availableHours)} است اما ${formatDuration(hours)} درخواست داده‌اید.`,
         duration: 5,
       })
       return false
@@ -211,7 +221,7 @@ export default function FormsPage() {
   // ── فرم مرخصی روزانه ────────────────────────────────
   const LeaveDailyForm = () => (
     <div>
-      <Alert message={`مانده مرخصی استحقاقی: ${leaveBalance.availableHours} ساعت (معادل ${leaveBalance.days} روز کاری)`} description="برای مرخصی استعلاجی یا بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={`مانده مرخصی استحقاقی: ${formatDuration(leaveBalance.availableHours)} (معادل ${leaveBalance.days.toLocaleString('fa-IR')} روز کاری)`} description="برای مرخصی استعلاجی یا بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="fromDate" label="از تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={12}><Form.Item name="toDate" label="تا تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
@@ -226,7 +236,7 @@ export default function FormsPage() {
   // ── فرم مرخصی ساعتی ─────────────────────────────────
   const LeaveHourlyForm = () => (
     <div>
-      <Alert message={`مانده مرخصی ساعتی شما: ${leaveBalance.availableHours} ساعت`} type={leaveBalance.availableHours<8?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={`مانده مرخصی ساعتی شما: ${formatDuration(leaveBalance.availableHours)}`} type={leaveBalance.availableHours<8?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="date" label="تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={6}><Form.Item name="fromTime" label="از ساعت" rules={[{ required: true }]}><TimePicker format="HH:mm" minuteStep={5} style={{width:'100%'}} placeholder="انتخاب ساعت" /></Form.Item></Col>
@@ -425,7 +435,7 @@ export default function FormsPage() {
     <div>
       <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
         <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
-        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {leaveBalance.days.toLocaleString('fa-IR')} روز</Tag><Tag color="cyan">قابل استفاده: {leaveBalance.availableHours.toLocaleString('fa-IR')} ساعت</Tag><Tag color="green">تخصیص‌یافته: {leaveBalance.accruedHours.toLocaleString('fa-IR')} ساعت</Tag><Tag color="red">مصرف‌شده: {leaveBalance.usedHours.toLocaleString('fa-IR')} ساعت</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {leaveBalance.reservedHours.toLocaleString('fa-IR')} ساعت</Tag>}<Tag color="blue">افزایش ماهانه: {leaveBalance.monthlyAccrualHours} ساعت</Tag></Space>}
+        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {leaveBalance.days.toLocaleString('fa-IR')} روز</Tag><Tag color="cyan">قابل استفاده: {formatDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></Space>}
         <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
       </Card>
 
