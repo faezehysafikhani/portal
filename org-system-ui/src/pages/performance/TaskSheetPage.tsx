@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, DatePicker, Drawer, Form, Input, InputNumber, message, Modal, Rate, Select, Space, Spin, Table, Tag } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Select, Slider, Space, Table, Tag } from 'antd'
+import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, CloseOutlined, FlagOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
+import PersianDatePicker from '../../components/PersianDatePicker'
+import { jalaliToDate } from '../../utils/jalali'
 import {
   API, categoryLabel, creationApprovalColor, creationApprovalLabel, currentUser,
   permissionState, priorityColor, priorityLabel, statusLabel,
@@ -9,7 +11,24 @@ import {
 import type { DirectoryUser, PerformanceTask } from './common'
 
 const PRIMARY = '#8B1A6B'
+const SECONDARY = '#B33F9E'
 const faDate = (v?: string) => v ? new Date(v).toLocaleDateString('fa-IR') : '—'
+
+function GlassSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)',
+      border: '1px solid rgba(139,26,107,0.10)', borderRadius: 14, padding: '16px 18px', marginBottom: 14,
+      boxShadow: '0 4px 16px rgba(94,20,68,0.06)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <span style={{ width: 26, height: 26, borderRadius: 8, background: 'rgba(139,26,107,0.10)', color: PRIMARY, display: 'grid', placeItems: 'center', fontSize: 13 }}>{icon}</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: '#3d1030' }}>{title}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
 
 export default function TaskSheetPage() {
   const { canManage } = permissionState()
@@ -50,7 +69,7 @@ export default function TaskSheetPage() {
         body: JSON.stringify({
           title: values.title, description: values.description, category: values.category,
           priority: values.priority, complexity: values.complexity, impactScore: values.impactScore,
-          dueDate: values.dueDate ? values.dueDate.toDate().toISOString() : null,
+          dueDate: values.dueDate ? jalaliToDate(values.dueDate).toISOString() : null,
           estimatedHours: values.estimatedHours,
         }),
       })
@@ -127,19 +146,78 @@ export default function TaskSheetPage() {
         <Table rowKey="id" loading={loading || saving} columns={columns as any} dataSource={tasks} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} />
       </Card>
 
-      <Drawer title="ثبت وظیفه جدید" open={createOpen} onClose={() => setCreateOpen(false)} width={420}
-        extra={<Button type="primary" loading={saving} style={{ background: PRIMARY }} onClick={submitCreate}>ثبت</Button>}>
-        <Form form={form} layout="vertical" initialValues={{ priority: 'Medium', category: 'Extra', complexity: 3, impactScore: 3 }}>
-          <Form.Item name="title" label="عنوان" rules={[{ required: true, message: 'عنوان الزامی است' }]}><Input maxLength={200} /></Form.Item>
-          <Form.Item name="description" label="توضیحات"><Input.TextArea rows={3} /></Form.Item>
-          <Form.Item name="category" label="دسته"><Select options={Object.entries(categoryLabel).map(([value, label]) => ({ value, label }))} /></Form.Item>
-          <Form.Item name="priority" label="اولویت"><Select options={Object.entries(priorityLabel).map(([value, label]) => ({ value, label }))} /></Form.Item>
-          <Form.Item name="complexity" label="پیچیدگی (۱ تا ۵)" tooltip="پس از ثبت قابل تغییر نیست"><InputNumber min={1} max={5} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="impactScore" label="میزان اثرگذاری (۱ تا ۵)" tooltip="پس از ثبت قابل تغییر نیست"><InputNumber min={1} max={5} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="estimatedHours" label="برآورد زمان (ساعت)"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="dueDate" label="مهلت انجام"><DatePicker style={{ width: '100%' }} /></Form.Item>
-        </Form>
-      </Drawer>
+      <Modal
+        open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} closable={false}
+        width={520} centered destroyOnHidden
+        styles={{
+          mask: { backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', background: 'rgba(40,8,30,0.45)' },
+          root: {
+            padding: 0, borderRadius: 20, overflow: 'hidden',
+            background: 'rgba(255,255,255,0.80)', backdropFilter: 'blur(26px)', WebkitBackdropFilter: 'blur(26px)',
+            border: '1px solid rgba(255,255,255,0.5)', boxShadow: '0 24px 70px rgba(94,20,68,0.35)',
+          },
+        }}
+      >
+        <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, ${SECONDARY} 100%)`, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <PlusOutlined style={{ color: '#fff', fontSize: 17 }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ color: '#fff', fontWeight: 800, fontSize: 15 }}>ثبت وظیفه جدید</div>
+            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>برای Task Sheet شما</div>
+          </div>
+          <Button type="text" icon={<CloseOutlined style={{ color: '#fff' }} />} onClick={() => setCreateOpen(false)} />
+        </div>
+
+        <div style={{ padding: 18, maxHeight: '65vh', overflowY: 'auto' }}>
+          <Form form={form} layout="vertical" initialValues={{ priority: 'Medium', category: 'Extra', complexity: 3, impactScore: 3 }}>
+            <GlassSection icon={<AlignLeftOutlined />} title="اطلاعات وظیفه">
+              <Form.Item name="title" label="عنوان" rules={[{ required: true, message: 'عنوان الزامی است' }]} style={{ marginBottom: 12 }}>
+                <Input maxLength={200} placeholder="مثلاً: تهیه گزارش هفتگی فروش" />
+              </Form.Item>
+              <Form.Item name="description" label="توضیحات" style={{ marginBottom: 0 }}>
+                <Input.TextArea rows={3} placeholder="توضیح کوتاهی از وظیفه بنویسید" />
+              </Form.Item>
+            </GlassSection>
+
+            <GlassSection icon={<AppstoreOutlined />} title="دسته‌بندی و اولویت">
+              <div style={{ display: 'flex', gap: 12 }}>
+                <Form.Item name="category" label="دسته" style={{ flex: 1, marginBottom: 0 }}>
+                  <Select options={Object.entries(categoryLabel).map(([value, label]) => ({ value, label }))} />
+                </Form.Item>
+                <Form.Item name="priority" label="اولویت" style={{ flex: 1, marginBottom: 0 }}>
+                  <Select options={Object.entries(priorityLabel).map(([value, label]) => ({ value, label }))} />
+                </Form.Item>
+              </div>
+            </GlassSection>
+
+            <GlassSection icon={<ThunderboltOutlined />} title="امتیازدهی (پس از ثبت قابل تغییر نیست)">
+              <Form.Item name="complexity" label="پیچیدگی" style={{ marginBottom: 16 }}>
+                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} styles={{ track: { background: PRIMARY }, handle: { borderColor: PRIMARY } }} />
+              </Form.Item>
+              <Form.Item name="impactScore" label="میزان اثرگذاری" style={{ marginBottom: 0 }}>
+                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} styles={{ track: { background: PRIMARY }, handle: { borderColor: PRIMARY } }} />
+              </Form.Item>
+            </GlassSection>
+
+            <GlassSection icon={<CalendarOutlined />} title="زمان‌بندی">
+              <div style={{ display: 'flex', gap: 12 }}>
+                <Form.Item name="dueDate" label="مهلت انجام (تقویم شمسی)" style={{ flex: 1, marginBottom: 0 }}>
+                  <PersianDatePicker style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="estimatedHours" label="برآورد زمان (ساعت)" style={{ flex: 1, marginBottom: 0 }}>
+                  <InputNumber min={0} style={{ width: '100%' }} prefix={<FlagOutlined style={{ color: '#bbb', fontSize: 11 }} />} />
+                </Form.Item>
+              </div>
+            </GlassSection>
+          </Form>
+        </div>
+
+        <div style={{ padding: 14, borderTop: '1px solid rgba(139,26,107,0.08)', display: 'flex', justifyContent: 'flex-end', gap: 8, background: 'rgba(255,255,255,0.5)' }}>
+          <Button onClick={() => setCreateOpen(false)}>انصراف</Button>
+          <Button type="primary" loading={saving} style={{ background: PRIMARY, borderColor: PRIMARY }} onClick={submitCreate}>ثبت وظیفه</Button>
+        </div>
+      </Modal>
 
       <Modal title="ثبت رتبه کیفیت" open={!!qualityTarget} onCancel={() => setQualityTarget(undefined)} onOk={submitQuality} confirmLoading={saving}>
         <p>{qualityTarget?.title}</p>
