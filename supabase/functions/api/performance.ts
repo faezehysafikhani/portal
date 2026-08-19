@@ -163,6 +163,24 @@ async function getEvaluation(request: Request, auth: AuthContext, id: string): P
   return json(request, evaluationDto(row))
 }
 
+async function getEvaluationLogs(request: Request, auth: AuthContext, id: string): Promise<Response> {
+  requirePermission(auth, 'performance.view')
+  const evalResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
+  check(evalResult.error)
+  const evaluation = evalResult.data as Obj | null
+  if (!evaluation) throw new HttpError(404, 'ارزیابی یافت نشد')
+  if (evaluation.UserId !== auth.userId && evaluation.ReviewerUserId !== auth.userId && !isAdminScope(auth)) throw new HttpError(403, 'شما مجوز مشاهده این تاریخچه را ندارید')
+  const result = await db.from('PerformanceAuditLogs').select('*').eq('TenantId', auth.tenantId).eq('EvaluationId', id).eq('IsDeleted', false).order('CreatedAt', { ascending: false })
+  check(result.error)
+  const rows = (result.data ?? []) as Obj[]
+  const names = await userDisplayNames(auth.tenantId, rows.map((r) => String(r.ActorUserId)))
+  return json(request, rows.map((r) => {
+    let details: Obj = {}
+    try { details = JSON.parse(String(r.DetailsJson ?? '{}')) } catch { details = {} }
+    return { id: r.Id, action: r.Action, actorUserId: r.ActorUserId, actorName: names.get(String(r.ActorUserId)) ?? '', createdAt: r.CreatedAt, details }
+  }))
+}
+
 async function logEvaluation(auth: AuthContext, evaluationId: string, action: string, details: Obj = {}): Promise<void> {
   const result = await db.from('PerformanceAuditLogs').insert({
     ...baseInsert(auth), EvaluationId: evaluationId, ActorUserId: auth.userId,
@@ -171,14 +189,7 @@ async function logEvaluation(auth: AuthContext, evaluationId: string, action: st
   check(result.error, 'ثبت تاریخچه ارزیابی انجام نشد')
 }
 
-async function computeEvaluation(request: Request, auth: AuthContext): Promise<Response> {
-  if (!canManage(auth)) throw new HttpError(403, 'شما مجوز محاسبه ارزیابی را ندارید')
-  const input = await body<Obj>(request)
-  const targetUserId = String(input.userId ?? '')
-  const periodYear = Number(input.periodYear)
-  const periodMonth = Number(input.periodMonth)
-  if (!targetUserId || !periodYear || !periodMonth || periodMonth < 1 || periodMonth > 12) throw new HttpError(400, 'کاربر و دوره ماهانه معتبر الزامی است')
-  if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) throw new HttpError(400, 'شناسه کاربر نامعتبر است')
+async function computeOneEvaluation(auth: AuthContext, targetUserId: string, periodYear: number, periodMonth: number, managerQualitativeInput: unknown): Promise<Obj> {
   const reviewerId = await findReviewerFor(db, auth.tenantId, targetUserId)
   if (!isAdminScope(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'فقط ارزیاب این کارمند می‌تواند ارزیابی را محاسبه کند')
 
@@ -226,7 +237,7 @@ async function computeEvaluation(request: Request, auth: AuthContext): Promise<R
   const reported = allDone.filter((t) => t.ActualHours != null)
   const reportingDisciplineScore = allDone.length ? (reported.length / allDone.length) * 100 : 100
 
-  const managerQualitativeScore = Math.max(0, Math.min(100, Number(input.managerQualitativeScore ?? 100)))
+  const managerQualitativeScore = Math.max(0, Math.min(100, Number(managerQualitativeInput ?? 100)))
 
   const finalScore = Math.round((
     settings.WeightTaskCompletion * taskCompletionScore +
@@ -255,7 +266,43 @@ async function computeEvaluation(request: Request, auth: AuthContext): Promise<R
     }).select().single()
   check(savedResult.error)
   await logEvaluation(auth, String(savedResult.data.Id), 'Computed', componentScores)
-  return json(request, evaluationDto(savedResult.data), existing.data ? 200 : 201)
+  return savedResult.data as Obj
+}
+
+async function computeEvaluation(request: Request, auth: AuthContext): Promise<Response> {
+  if (!canManage(auth)) throw new HttpError(403, 'شما مجوز محاسبه ارزیابی را ندارید')
+  const input = await body<Obj>(request)
+  const targetUserId = String(input.userId ?? '')
+  const periodYear = Number(input.periodYear)
+  const periodMonth = Number(input.periodMonth)
+  if (!targetUserId || !periodYear || !periodMonth || periodMonth < 1 || periodMonth > 12) throw new HttpError(400, 'کاربر و دوره ماهانه معتبر الزامی است')
+  if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) throw new HttpError(400, 'شناسه کاربر نامعتبر است')
+  const wasExisting = await db.from('PerformanceEvaluations').select('Id').eq('TenantId', auth.tenantId)
+    .eq('UserId', targetUserId).eq('PeriodYear', periodYear).eq('PeriodMonth', periodMonth).eq('IsDeleted', false).maybeSingle()
+  const saved = await computeOneEvaluation(auth, targetUserId, periodYear, periodMonth, input.managerQualitativeScore)
+  return json(request, evaluationDto(saved), wasExisting.data ? 200 : 201)
+}
+
+async function computeBulkEvaluations(request: Request, auth: AuthContext): Promise<Response> {
+  if (!canManage(auth)) throw new HttpError(403, 'شما مجوز محاسبه ارزیابی را ندارید')
+  const input = await body<Obj>(request)
+  const periodYear = Number(input.periodYear)
+  const periodMonth = Number(input.periodMonth)
+  if (!periodYear || !periodMonth || periodMonth < 1 || periodMonth > 12) throw new HttpError(400, 'دوره ماهانه معتبر الزامی است')
+  const reviewees = await db.from('PerformanceReviewers').select('EmployeeUserId').eq('TenantId', auth.tenantId).eq('ReviewerUserId', auth.userId).eq('IsActive', true).eq('IsDeleted', false)
+  check(reviewees.error)
+  const employeeIds = [...new Set((reviewees.data ?? []).map((r: Obj) => String(r.EmployeeUserId)))]
+  const names = await userDisplayNames(auth.tenantId, employeeIds)
+  const results: Obj[] = []
+  for (const employeeId of employeeIds) {
+    try {
+      const saved = await computeOneEvaluation(auth, employeeId, periodYear, periodMonth, 100)
+      results.push({ userId: employeeId, userName: names.get(employeeId) ?? '', status: 'computed', finalScore: saved.FinalScore })
+    } catch (error) {
+      results.push({ userId: employeeId, userName: names.get(employeeId) ?? '', status: 'skipped', reason: error instanceof HttpError ? error.message : 'خطای غیرمنتظره' })
+    }
+  }
+  return json(request, { periodYear, periodMonth, results, computedCount: results.filter((r) => r.status === 'computed').length })
 }
 
 async function patchEvaluation(request: Request, auth: AuthContext, id: string): Promise<Response> {
@@ -452,7 +499,9 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
       .order('PeriodYear', { ascending: false }).order('PeriodMonth', { ascending: false }).limit(12)
     check(evalResult.error)
     const rows = (evalResult.data ?? []).map(evaluationDto)
-    return json(request, { scope, current: rows[0] ?? null, history: rows.slice(1) })
+    const reviewerId = await findReviewerFor(db, auth.tenantId, auth.userId)
+    const reviewerName = reviewerId ? (await userDisplayNames(auth.tenantId, [reviewerId])).get(reviewerId) ?? '' : ''
+    return json(request, { scope, current: rows[0] ?? null, history: rows.slice(1), reviewerId, reviewerName })
   }
 
   if (scope === 'team') {
@@ -511,6 +560,9 @@ export async function handlePerformance(request: Request, auth: AuthContext, pat
   if (path === '/performance/evaluations' && request.method === 'GET') return await listEvaluations(request, auth, url)
   if (path === '/performance/evaluations/pending' && request.method === 'GET') return await pendingReviewEvaluations(request, auth)
   if (path === '/performance/evaluations/compute' && request.method === 'POST') return await computeEvaluation(request, auth)
+  if (path === '/performance/evaluations/compute-bulk' && request.method === 'POST') return await computeBulkEvaluations(request, auth)
+  const evalLogsMatch = path.match(/^\/performance\/evaluations\/([0-9a-f-]+)\/logs$/i)
+  if (evalLogsMatch && request.method === 'GET') return await getEvaluationLogs(request, auth, evalLogsMatch[1])
   const evalMatch = path.match(/^\/performance\/evaluations\/([0-9a-f-]+)$/i)
   if (evalMatch && request.method === 'GET') return await getEvaluation(request, auth, evalMatch[1])
   if (evalMatch && request.method === 'PATCH') return await patchEvaluation(request, auth, evalMatch[1])

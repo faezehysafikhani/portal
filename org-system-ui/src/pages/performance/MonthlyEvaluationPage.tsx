@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, message, Modal, Row, Select, Slider, Space, Statistic, Table, Tabs, Tag } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, List, message, Modal, Row, Select, Slider, Space, Statistic, Table, Tabs, Tag } from 'antd'
+import { HistoryOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
 import {
   API, bandColor, bandLabel, evaluationStatusColor, evaluationStatusLabel, monthNames, permissionState,
@@ -7,6 +8,54 @@ import {
 import type { EvaluationRow } from './common'
 
 const PRIMARY = '#8B1A6B'
+
+interface AuditLogRow { id: string; action: string; actorName: string; createdAt: string; details: Record<string, unknown> }
+const actionLabel: Record<string, string> = {
+  Computed: 'محاسبه شد', SubmittedForReview: 'برای بازبینی ارسال شد', Finalized: 'نهایی شد', Reopened: 'بازگشایی شد',
+  RewardDecisionUpdated: 'تصمیم پاداش/جریمه ثبت شد', AppealRaised: 'اعتراض ثبت شد', AppealReviewed: 'اعتراض بررسی شد', AppealResolved: 'اعتراض حل شد',
+}
+const faDateTime = (v?: string) => v ? new Date(v).toLocaleString('fa-IR') : '—'
+
+function HistoryButton({ evaluationId }: { evaluationId?: string }) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<AuditLogRow[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const load = async () => {
+    if (!evaluationId) return
+    setLoading(true)
+    try {
+      const response = await apiFetch(`${API}/performance/evaluations/${evaluationId}/logs`)
+      const result = await response.json().catch(() => [])
+      if (response.ok) setRows(result)
+    } finally { setLoading(false) }
+  }
+
+  if (!evaluationId) return null
+  return (
+    <>
+      <Button size="small" icon={<HistoryOutlined />} onClick={() => { setOpen(true); void load() }}>تاریخچه</Button>
+      <Modal title="تاریخچه تغییرات ارزیابی" open={open} onCancel={() => setOpen(false)} footer={null}>
+        <List
+          loading={loading}
+          dataSource={rows}
+          locale={{ emptyText: 'موردی ثبت نشده است' }}
+          renderItem={(item) => (
+            <List.Item>
+              <div style={{ width: '100%' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <b>{actionLabel[item.action] || item.action}</b>
+                  <span style={{ color: '#999', fontSize: 12 }}>{faDateTime(item.createdAt)}</span>
+                </div>
+                <div style={{ color: '#666', fontSize: 12 }}>توسط: {item.actorName || '—'}</div>
+              </div>
+            </List.Item>
+          )}
+        />
+      </Modal>
+    </>
+  )
+}
 
 function ScoreCard({ evaluation }: { evaluation?: EvaluationRow }) {
   if (!evaluation) return <Card size="small"><span style={{ color: '#999' }}>هنوز ارزیابی برای شما ثبت نشده است</span></Card>
@@ -72,6 +121,7 @@ function MyEvaluations() {
     <div>
       <Space style={{ marginBottom: 12 }}>
         {current?.status === 'Finalized' && <Button onClick={() => setAppealOpen(true)}>اعتراض به ارزیابی</Button>}
+        <HistoryButton evaluationId={current?.id} />
       </Space>
       <ScoreCard evaluation={current} />
       <Card size="small" title="تاریخچه ارزیابی‌ها" style={{ marginTop: 16 }} loading={loading}>
@@ -80,6 +130,7 @@ function MyEvaluations() {
           { title: 'امتیاز', dataIndex: 'finalScore' },
           { title: 'برد', dataIndex: 'scoreBand', render: (v: string) => <Tag color={bandColor[v]}>{bandLabel[v] || v}</Tag> },
           { title: 'وضعیت', dataIndex: 'status', render: (v: string) => <Tag color={evaluationStatusColor[v]}>{evaluationStatusLabel[v] || v}</Tag> },
+          { title: '', render: (_: unknown, r: EvaluationRow) => <HistoryButton evaluationId={r.id} /> },
         ]} />
       </Card>
       <Modal title="اعتراض به ارزیابی" open={appealOpen} onCancel={() => setAppealOpen(false)} onOk={submitAppeal} confirmLoading={saving}>
@@ -94,10 +145,12 @@ function ReviewTab() {
   const [employees, setEmployees] = useState<{ userId: string; userName: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
   const [finalizeTarget, setFinalizeTarget] = useState<EvaluationRow>()
   const [rewardDecision, setRewardDecision] = useState<string>('none')
   const [rewardNotes, setRewardNotes] = useState('')
   const [form] = Form.useForm()
+  const [bulkForm] = Form.useForm()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -130,6 +183,24 @@ function ReviewTab() {
     } finally { setSaving(false) }
   }
 
+  const submitBulkCompute = async () => {
+    const values = await bulkForm.validateFields()
+    setBulkSaving(true)
+    try {
+      const response = await apiFetch(`${API}/performance/evaluations/compute-bulk`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periodYear: values.bulkPeriodYear, periodMonth: values.bulkPeriodMonth }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'محاسبه گروهی انجام نشد')
+      const skipped = (result.results || []).filter((r: any) => r.status === 'skipped')
+      message.success(`محاسبه شد: ${result.computedCount} نفر${skipped.length ? `، رد شد: ${skipped.length} نفر` : ''}`)
+      await load()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'محاسبه گروهی انجام نشد')
+    } finally { setBulkSaving(false) }
+  }
+
   const submitFinalize = async () => {
     if (!finalizeTarget) return
     setSaving(true)
@@ -149,7 +220,19 @@ function ReviewTab() {
 
   return (
     <div>
-      <Card size="small" title="محاسبه ارزیابی ماهانه جدید" style={{ marginBottom: 16 }}>
+      <Card size="small" title="محاسبه گروهی برای کل زیرمجموعه" style={{ marginBottom: 16 }}>
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="برای همه‌ی اعضای تیم شما با ارزیابی کیفی خنثی (۱۰۰) محاسبه می‌شود؛ هرکدام را بعداً می‌توانید جدا دوباره محاسبه یا نهایی کنید" />
+        <Form form={bulkForm} layout="inline" initialValues={{ bulkPeriodYear: new Date().getFullYear(), bulkPeriodMonth: new Date().getMonth() + 1 }}>
+          <Form.Item name="bulkPeriodYear" label="سال" rules={[{ required: true }]}><InputNumber style={{ width: 100 }} /></Form.Item>
+          <Form.Item name="bulkPeriodMonth" label="ماه" rules={[{ required: true }]}>
+            <Select style={{ width: 130 }} options={monthNames.map((m, i) => ({ value: i + 1, label: m }))} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" style={{ background: PRIMARY }} loading={bulkSaving} onClick={submitBulkCompute}>محاسبه برای همه‌ی تیم</Button>
+          </Form.Item>
+        </Form>
+      </Card>
+      <Card size="small" title="محاسبه ارزیابی برای یک نفر" style={{ marginBottom: 16 }}>
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message="دوره‌های ارزیابی بر اساس تقویم میلادی محاسبه می‌شوند" />
         <Form form={form} layout="inline" initialValues={{ periodYear: new Date().getFullYear(), periodMonth: new Date().getMonth() + 1, managerQualitativeScore: 100 }}>
           <Form.Item name="userId" label="کارمند" rules={[{ required: true }]}>
@@ -173,7 +256,14 @@ function ReviewTab() {
           { title: 'دوره', render: (_: unknown, r: EvaluationRow) => `${monthNames[r.periodMonth - 1]} ${r.periodYear}` },
           { title: 'امتیاز', dataIndex: 'finalScore' },
           { title: 'برد', dataIndex: 'scoreBand', render: (v: string) => <Tag color={bandColor[v]}>{bandLabel[v] || v}</Tag> },
-          { title: 'عملیات', render: (_: unknown, r: EvaluationRow) => <Button size="small" type="primary" style={{ background: PRIMARY }} onClick={() => setFinalizeTarget(r)}>نهایی‌سازی</Button> },
+          {
+            title: 'عملیات', render: (_: unknown, r: EvaluationRow) => (
+              <Space size="small">
+                <Button size="small" type="primary" style={{ background: PRIMARY }} onClick={() => setFinalizeTarget(r)}>نهایی‌سازی</Button>
+                <HistoryButton evaluationId={r.id} />
+              </Space>
+            ),
+          },
         ]} />
       </Card>
       <Modal title="نهایی‌سازی ارزیابی" open={!!finalizeTarget} onCancel={() => setFinalizeTarget(undefined)} onOk={submitFinalize} confirmLoading={saving}>

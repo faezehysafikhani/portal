@@ -30,6 +30,9 @@ function MeTab() {
         <Card size="small" style={{ borderTop: `4px solid ${bandColor[current?.scoreBand || ''] || '#8B1A6B'}`, borderRadius: 12 }}>
           <Statistic title={current ? `امتیاز دوره ${monthNames[current.periodMonth - 1]} ${current.periodYear}` : 'امتیاز فعلی'} value={current?.finalScore ?? '—'} suffix="/ ۱۰۰" />
           {current?.scoreBand && <Tag color={bandColor[current.scoreBand]} style={{ marginTop: 8 }}>{bandLabel[current.scoreBand]}</Tag>}
+          <div style={{ marginTop: 12, fontSize: 12, color: '#888' }}>
+            ارزیاب شما: <b style={{ color: '#333' }}>{data?.reviewerName || 'هنوز مشخص نشده'}</b>
+          </div>
         </Card>
       </Col>
       <Col xs={24} md={16}>
