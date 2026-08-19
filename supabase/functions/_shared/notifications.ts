@@ -12,6 +12,7 @@ export const notificationType = {
   chat: 6,
   calendar: 7,
   project: 8,
+  performanceEvaluation: 9,
 } as const
 
 interface NotificationInput {

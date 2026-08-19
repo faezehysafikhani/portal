@@ -9,6 +9,7 @@ import { handleCollaboration } from './collaboration.ts'
 import { handleLetters } from './letters.ts'
 import { handleIntegrations } from './integrations.ts'
 import { handleReports } from './reports.ts'
+import { handlePerformance, findReviewerFor } from './performance.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 
 type JsonObject = Record<string, unknown>
@@ -42,6 +43,7 @@ const permissionDependencies: Record<string, string[]> = {
   'company.view': ['company.edit'],
   'chat.view': ['chat.create_group', 'chat.add_member', 'chat.remove_member'],
   'ai.view': ['ai.use', 'ai.settings'],
+  'performance.view': ['performance.manage', 'performance.admin'],
 }
 
 function routePath(url: URL): string {
@@ -492,6 +494,9 @@ async function directory(request: Request, auth: AuthContext): Promise<Response>
 
 const taskStatus = ['Todo', 'InProgress', 'InReview', 'Done', 'Cancelled']
 const taskPriority = ['Low', 'Medium', 'High', 'Critical']
+const taskCategory = ['Planned', 'Extra', 'Support', 'Improvement', 'Admin']
+const creationApprovalStatus = ['Pending', 'Approved', 'Rejected']
+const priorityFactor: Record<string, number> = { Low: 1, Medium: 2, High: 3, Critical: 5 }
 const recurrenceTypes = ['Daily', 'Monthly', 'Yearly', 'EveryNDays', 'LastWeekdayOfMonth', 'FirstWeekdayOfMonth']
 function stringArray(value: unknown, max = 50): string[] {
   let source: unknown = value
@@ -506,9 +511,16 @@ function taskDto(item: JsonObject): JsonObject {
   const result = asCamel(item) as JsonObject
   result.status = typeof item.Status === 'number' ? taskStatus[item.Status] : item.Status
   result.priority = typeof item.Priority === 'number' ? taskPriority[item.Priority] : item.Priority
+  result.category = typeof item.Category === 'number' ? taskCategory[item.Category] : item.Category
+  result.creationApprovalStatus = typeof item.CreationApprovalStatus === 'number' ? creationApprovalStatus[item.CreationApprovalStatus] : item.CreationApprovalStatus
   result.assigneeUserIds = stringArray(item.AssigneeUserIdsJson)
   result.projectIds = stringArray(item.ProjectIdsJson)
   result.tags = stringArray(item.TagsJson)
+  const complexity = item.Complexity == null ? null : Number(item.Complexity)
+  const impactScore = item.ImpactScore == null ? null : Number(item.ImpactScore)
+  result.taskPoint = complexity != null && impactScore != null
+    ? complexity * (priorityFactor[String(result.priority)] ?? 1) * impactScore
+    : null
   delete result.assigneeUserIdsJson
   delete result.projectIdsJson
   delete result.tagsJson
@@ -672,6 +684,10 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     const assignees = stringArray(input.assigneeUserIds ?? input.assignedToUserId ?? [auth.userId], 25)
     if (!assignees.length) assignees.push(auth.userId)
     if (assignees.some((id) => id !== auth.userId)) requirePermission(auth, 'tasks.assign')
+    const isSelfAdded = assignees.every((id) => id === auth.userId) && !canManageTasks(auth)
+    const category = input.category !== undefined ? enumValue(input.category, taskCategory) : null
+    const complexity = input.complexity == null ? null : Math.max(1, Math.min(5, Number(input.complexity)))
+    const impactScore = input.impactScore == null ? null : Math.max(1, Math.min(5, Number(input.impactScore)))
     const projects = stringArray(input.projectIds ?? input.projectId ?? [], 20)
     const tags = stringArray(input.tags, 30).map((tag) => tag.slice(0, 40))
     const isRecurring = Boolean(input.isRecurring)
@@ -695,6 +711,10 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       RequiresCompletionApproval: input.requiresCompletionApproval !== false,
       CompletionRequestedAt: null, CompletionRequestedByUserId: null, IsCompletionApproved: false,
       CompletionApprovedAt: null, CompletionApprovedByUserId: null,
+      Category: category, Complexity: complexity, ImpactScore: impactScore,
+      IsSelfAdded: isSelfAdded, CreationApprovalStatus: isSelfAdded ? 0 : 1,
+      CreationApprovedByUserId: isSelfAdded ? null : auth.userId, CreationApprovedAt: isSelfAdded ? null : now(),
+      QualityRating: null, QualityRatedByUserId: null, QualityRatedAt: null,
     }
     if (!row.Title) throw new HttpError(400, 'عنوان وظیفه الزامی است')
     if (row.Title.length > 200) throw new HttpError(400, 'عنوان وظیفه حداکثر ۲۰۰ نویسه است')
@@ -703,6 +723,12 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     await addTaskLog(auth, String(result.data.Id), 'Created', { assigneeUserIds: assignees, projectIds: projects, tags })
     for (const assignee of assignees.filter((id) => id !== auth.userId)) {
       await createNotification(db, auth, { userId: assignee, title: 'وظیفه جدید برای شما ثبت شد', body: row.Title, type: notificationType.task, actionUrl: '/tasks', entityId: String(result.data.Id), entityType: 'Task' })
+    }
+    if (isSelfAdded) {
+      const reviewerId = await findReviewerFor(db, auth.tenantId, auth.userId)
+      if (reviewerId) {
+        await createNotification(db, auth, { userId: reviewerId, title: 'وظیفه خودافزوده منتظر تأیید شماست', body: row.Title, type: notificationType.performanceEvaluation, actionUrl: '/performance/tasks', entityId: String(result.data.Id), entityType: 'Task' })
+      }
     }
     if (isRecurring) {
       const start = new Date(String(row.StartDate ?? row.DueDate ?? now()))
@@ -754,11 +780,30 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       update.CompletionRequestedByUserId = null; update.IsCompletionApproved = false; update.CompletionApprovedAt = null; update.CompletionApprovedByUserId = null
       action = 'CompletionRejected'
     } else if (input.status !== undefined) update.Status = enumValue(input.status, taskStatus)
+    if (input.approveCreation === true || input.rejectCreation === true) {
+      if (current.CreationApprovalStatus !== 0) throw new HttpError(400, 'این وظیفه در وضعیت انتظار تأیید نیست')
+      const reviewerId = await findReviewerFor(db, auth.tenantId, String(current.AssignedByUserId))
+      if (!canManageTasks(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'فقط ارزیاب مربوطه می‌تواند این وظیفه را تأیید یا رد کند')
+      update.CreationApprovalStatus = input.approveCreation === true ? 1 : 2
+      update.CreationApprovedByUserId = auth.userId
+      update.CreationApprovedAt = now()
+      action = input.approveCreation === true ? 'CreationApproved' : 'CreationRejected'
+    }
+    if (input.rateQuality !== undefined) {
+      if (!current.IsCompletionApproved) throw new HttpError(400, 'فقط وظیفه‌ی تکمیل‌شده قابل رتبه‌بندی کیفیت است')
+      const reviewerId = await findReviewerFor(db, auth.tenantId, String(current.AssignedToUserId))
+      if (!canManageTasks(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'فقط ارزیاب مربوطه می‌تواند کیفیت را ثبت کند')
+      update.QualityRating = Math.max(1, Math.min(5, Number(input.rateQuality)))
+      update.QualityRatedByUserId = auth.userId
+      update.QualityRatedAt = now()
+      action = 'QualityRated'
+    }
     if (input.progress !== undefined) update.Progress = Math.max(0, Math.min(100, Number(input.progress)))
     if (input.actualHours !== undefined) update.ActualHours = input.actualHours
     if (input.title !== undefined) update.Title = String(input.title).trim().slice(0, 200)
     if (input.description !== undefined) update.Description = input.description
     if (input.priority !== undefined) update.Priority = enumValue(input.priority, taskPriority)
+    if (input.category !== undefined) update.Category = enumValue(input.category, taskCategory)
     if (input.startDate !== undefined) update.StartDate = input.startDate
     if (input.dueDate !== undefined) update.DueDate = input.dueDate
     if (input.parentTaskId !== undefined) update.ParentTaskId = input.parentTaskId || null
@@ -832,7 +877,7 @@ async function positions(request: Request, auth: AuthContext, path: string): Pro
 }
 
 async function notifications(request: Request, auth: AuthContext, path: string): Promise<Response> {
-  const notificationTypes=['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project']
+  const notificationTypes=['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project','Performance']
   const read = path.match(/^\/notifications\/([0-9a-f-]+)\/read$/i)
   const one = path.match(/^\/notifications\/([0-9a-f-]+)$/i)
   if (request.method === 'GET') {
@@ -1092,7 +1137,7 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
   return json(request, {
     unreadLetters,newLetters:unreadLetters,totalLetters,activeTasks,openTickets,todayEvents,
     users: usersCount, onlineUsers, contacts: contactsCount, recentLetters:(recentLettersResult.data??[]).map(item=>({id:item.Id,subject:item.Subject,fromUserName:item.FromUserName,status:typeof item.Status==='number'?['Draft','Sent','Received','InReview','Signed','Referred','Archived','Cancelled'][item.Status]:item.Status,createdAt:item.CreatedAt})),
-    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead,actorUserId:item.ActorUserId,actorName:item.ActorName,relatedEntityType:item.RelatedEntityType})),
+    notifications:(recentNotifications.data??[]).map(item=>({id:item.Id,title:item.Title,body:item.Body,type:typeof item.Type==='number'?['Letter','Task','Ticket','Form','System','Sms','Chat','Calendar','Project','Performance'][item.Type]:item.Type,actionUrl:item.ActionUrl,createdAt:item.CreatedAt,isRead:item.IsRead,actorUserId:item.ActorUserId,actorName:item.ActorName,relatedEntityType:item.RelatedEntityType})),
     recentTasks: (recentTasksResult.data ?? []).map(taskDto),
   })
 }
@@ -1233,6 +1278,8 @@ async function dispatch(request: Request): Promise<Response> {
   if (integrationsResponse) return integrationsResponse
   const reportsResponse = await handleReports(request, auth, path)
   if (reportsResponse) return reportsResponse
+  const performanceResponse = await handlePerformance(request, auth, path, url)
+  if (performanceResponse) return performanceResponse
   if (path === '/dashboard/summary' && request.method === 'GET') return await dashboard(request, auth)
 
   throw new HttpError(501, `مسیر ${path} هنوز به Edge Function منتقل نشده است`)

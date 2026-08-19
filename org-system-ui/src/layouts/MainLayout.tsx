@@ -8,7 +8,7 @@ import {
   ContactsOutlined, UnorderedListOutlined,
   InboxOutlined, EditOutlined, BookOutlined,
   SwapOutlined,
-  FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined, WarningOutlined
+  FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined, WarningOutlined, TrophyOutlined, CalendarOutlined
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
 
@@ -24,7 +24,7 @@ export default function MainLayout() {
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
   const allowed = (code: string) => isAdmin || serverPermissions.includes(code)
-  const routeMenuGroup=location.pathname.startsWith('/ptms')?'tasks-group':location.pathname.startsWith('/letters')?'letters-group':location.pathname.startsWith('/forms')?'forms-group':null
+  const routeMenuGroup=location.pathname.startsWith('/ptms')?'tasks-group':location.pathname.startsWith('/performance')?'performance-group':location.pathname.startsWith('/letters')?'letters-group':location.pathname.startsWith('/forms')?'forms-group':null
   const [menuOpenState,setMenuOpenState]=useState<{ pathname: string; keys: string[] }>(()=>({ pathname: location.pathname, keys: routeMenuGroup?[routeMenuGroup]:[] }))
   const openMenuKeys = menuOpenState.pathname === location.pathname ? menuOpenState.keys : routeMenuGroup ? [routeMenuGroup] : []
   const settingsLanding=allowed('company.view')?'/settings/company':allowed('users.view')?'/settings/users':'/settings'
@@ -52,6 +52,18 @@ export default function MainLayout() {
         { key: '/ptms/tasks', icon: <UnorderedListOutlined />, label: 'مدیریت وظایف' },
         { key: '/ptms/risks', icon: <WarningOutlined />, label: 'مدیریت ریسک' },
         { key: '/ptms/documents', icon: <FileTextOutlined />, label: 'مستندات' },
+      ]
+    }] : []),
+    ...(allowed('performance.view') ? [{
+      key: 'performance-group',
+      icon: <TrophyOutlined />,
+      label: 'ارزیابی عملکرد',
+      children: [
+        { key: '/performance/dashboard', icon: <DashboardOutlined />, label: 'داشبورد' },
+        { key: '/performance/tasks', icon: <UnorderedListOutlined />, label: 'Task Sheet من' },
+        { key: '/performance/weekly', icon: <CalendarOutlined />, label: 'گزارش هفتگی' },
+        { key: '/performance/evaluations', icon: <CheckSquareOutlined />, label: 'ارزیابی ماهانه' },
+        ...(allowed('performance.admin') ? [{ key: '/performance/settings', icon: <SettingOutlined />, label: 'معیارها و تنظیمات' }] : []),
       ]
     }] : []),
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
@@ -105,6 +117,11 @@ export default function MainLayout() {
       '/ptms/issues': 'مسائل و مشکلات',
       '/ptms/changes': 'درخواست تغییر',
       '/ptms/documents': 'مستندات پروژه',
+      '/performance/dashboard': 'داشبورد ارزیابی عملکرد',
+      '/performance/tasks': 'Task Sheet من',
+      '/performance/weekly': 'گزارش هفتگی',
+      '/performance/evaluations': 'ارزیابی ماهانه',
+      '/performance/settings': 'معیارها و تنظیمات ارزیابی',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
   }
