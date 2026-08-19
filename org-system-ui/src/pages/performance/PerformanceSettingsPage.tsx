@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Col, Form, Input, InputNumber, message, Popconfirm, Row, Select, Space, Table, Tabs, Tag } from 'antd'
+import { Alert, Button, Card, Col, Form, Input, InputNumber, message, Popconfirm, Row, Select, Space, Table, Tabs, Tag } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
-import { API, bandColor, bandLabel, monthNames } from './common'
+import { API, bandColor, bandLabel, monthNames, permissionState } from './common'
 import type { DirectoryUser, EvaluationRow } from './common'
 
 const PRIMARY = '#8B1A6B'
@@ -175,6 +175,10 @@ function RewardsTab() {
 }
 
 export default function PerformanceSettingsPage() {
+  const { canAdmin } = permissionState()
+  if (!canAdmin) {
+    return <Alert type="warning" showIcon message="دسترسی محدود" description="فقط مدیر منابع انسانی به این بخش دسترسی دارد." />
+  }
   return (
     <Tabs items={[
       { key: 'weights', label: 'وزن‌ها و آستانه‌ها', children: <WeightsTab /> },
