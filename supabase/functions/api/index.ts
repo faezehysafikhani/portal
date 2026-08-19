@@ -686,8 +686,10 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     if (assignees.some((id) => id !== auth.userId)) requirePermission(auth, 'tasks.assign')
     const isSelfAdded = assignees.every((id) => id === auth.userId) && !canManageTasks(auth)
     const category = input.category !== undefined ? enumValue(input.category, taskCategory) : null
-    const complexity = input.complexity == null ? null : Math.max(1, Math.min(5, Number(input.complexity)))
-    const impactScore = input.impactScore == null ? null : Math.max(1, Math.min(5, Number(input.impactScore)))
+    // Self-added tasks never get a complexity/impact rating from their own creator (self-rating conflict of
+    // interest); the reviewer sets these when approving the task's creation instead.
+    const complexity = isSelfAdded || input.complexity == null ? null : Math.max(1, Math.min(5, Number(input.complexity)))
+    const impactScore = isSelfAdded || input.impactScore == null ? null : Math.max(1, Math.min(5, Number(input.impactScore)))
     const projects = stringArray(input.projectIds ?? input.projectId ?? [], 20)
     const tags = stringArray(input.tags, 30).map((tag) => tag.slice(0, 40))
     const isRecurring = Boolean(input.isRecurring)
@@ -784,6 +786,16 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       if (current.CreationApprovalStatus !== 0) throw new HttpError(400, 'این وظیفه در وضعیت انتظار تأیید نیست')
       const reviewerId = await findReviewerFor(db, auth.tenantId, String(current.AssignedByUserId))
       if (!canManageTasks(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'فقط ارزیاب مربوطه می‌تواند این وظیفه را تأیید یا رد کند')
+      if (input.approveCreation === true) {
+        // The reviewer rates complexity/impact at approval time (not the employee who added the task).
+        const complexity = Number(input.complexity)
+        const impactScore = Number(input.impactScore)
+        if (!Number.isFinite(complexity) || complexity < 1 || complexity > 5 || !Number.isFinite(impactScore) || impactScore < 1 || impactScore > 5) {
+          throw new HttpError(400, 'برای تأیید، میزان پیچیدگی و اثرگذاری (۱ تا ۵) را مشخص کنید')
+        }
+        update.Complexity = Math.round(complexity)
+        update.ImpactScore = Math.round(impactScore)
+      }
       update.CreationApprovalStatus = input.approveCreation === true ? 1 : 2
       update.CreationApprovedByUserId = auth.userId
       update.CreationApprovedAt = now()

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Select, Slider, Space, Table, Tag } from 'antd'
-import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { jalaliToDate } from '../../utils/jalali'
@@ -39,6 +39,9 @@ export default function TaskSheetPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [qualityTarget, setQualityTarget] = useState<PerformanceTask>()
   const [qualityValue, setQualityValue] = useState(3)
+  const [approveTarget, setApproveTarget] = useState<PerformanceTask>()
+  const [approveComplexity, setApproveComplexity] = useState(3)
+  const [approveImpact, setApproveImpact] = useState(3)
   const [form] = Form.useForm()
 
   const load = useCallback(async () => {
@@ -58,7 +61,7 @@ export default function TaskSheetPage() {
   }, [])
   useEffect(() => { void load() }, [load])
 
-  const submitCreate = async () => {
+  const submitCreate = async (keepOpen: boolean) => {
     const values = await form.validateFields()
     setSaving(true)
     try {
@@ -67,7 +70,7 @@ export default function TaskSheetPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: values.title, description: values.description, category: values.category,
-          priority: values.priority, complexity: values.complexity, impactScore: values.impactScore,
+          priority: values.priority,
           dueDate: values.dueDate ? jalaliToDate(values.dueDate).toISOString() : null,
           estimatedHours: values.estimatedHours,
         }),
@@ -75,7 +78,8 @@ export default function TaskSheetPage() {
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'ثبت وظیفه انجام نشد')
       message.success(result.isSelfAdded ? 'وظیفه ثبت شد و منتظر تأیید ارزیاب شماست' : 'وظیفه ثبت شد')
-      setCreateOpen(false); form.resetFields(); await load()
+      form.resetFields()
+      if (keepOpen) { await load() } else { setCreateOpen(false); await load() }
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'ثبت وظیفه انجام نشد')
     } finally { setSaving(false) }
@@ -88,8 +92,10 @@ export default function TaskSheetPage() {
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'به‌روزرسانی انجام نشد')
       message.success(successMsg); await load()
+      return true
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'به‌روزرسانی انجام نشد')
+      return false
     } finally { setSaving(false) }
   }
 
@@ -97,6 +103,12 @@ export default function TaskSheetPage() {
     if (!qualityTarget) return
     await patchTask(qualityTarget.id, { rateQuality: qualityValue }, 'کیفیت وظیفه ثبت شد')
     setQualityTarget(undefined)
+  }
+
+  const submitApprove = async () => {
+    if (!approveTarget) return
+    const ok = await patchTask(approveTarget.id, { approveCreation: true, complexity: approveComplexity, impactScore: approveImpact }, 'وظیفه تأیید شد')
+    if (ok) setApproveTarget(undefined)
   }
 
   const userName = (id?: string) => users.find(u => u.id === id)?.fullName || '—'
@@ -124,7 +136,7 @@ export default function TaskSheetPage() {
           )}
           {row.isSelfAdded && row.creationApprovalStatus === 'Pending' && canManage && (
             <>
-              <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => patchTask(row.id, { approveCreation: true }, 'تأیید شد')}>تأیید</Button>
+              <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => { setApproveTarget(row); setApproveComplexity(3); setApproveImpact(3) }}>تأیید</Button>
               <Button size="small" danger onClick={() => patchTask(row.id, { rejectCreation: true }, 'رد شد')}>رد</Button>
             </>
           )}
@@ -149,19 +161,19 @@ export default function TaskSheetPage() {
         title="ثبت وظیفه جدید"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
-        onOk={submitCreate}
-        okText="ثبت وظیفه"
-        cancelText="انصراف"
-        confirmLoading={saving}
         width={520}
         centered
-        okButtonProps={{ style: { background: PRIMARY, borderColor: PRIMARY } }}
+        footer={[
+          <Button key="cancel" onClick={() => setCreateOpen(false)}>انصراف</Button>,
+          <Button key="continue" loading={saving} onClick={() => submitCreate(true)}>ثبت و ادامه</Button>,
+          <Button key="submit" type="primary" loading={saving} style={{ background: PRIMARY, borderColor: PRIMARY }} onClick={() => submitCreate(false)}>ثبت و بستن</Button>,
+        ]}
       >
         <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingTop: 4 }}>
-          <Form form={form} layout="vertical" initialValues={{ priority: 'Medium', category: 'Extra', complexity: 3, impactScore: 3 }}>
+          <Form form={form} layout="vertical" initialValues={{ priority: 'Medium', category: 'Extra' }}>
             <GlassSection icon={<AlignLeftOutlined />} title="اطلاعات وظیفه">
               <Form.Item name="title" label="عنوان" rules={[{ required: true, message: 'عنوان الزامی است' }]} style={{ marginBottom: 12 }}>
-                <Input maxLength={200} placeholder="مثلاً: تهیه گزارش هفتگی فروش" />
+                <Input maxLength={200} placeholder="مثلاً: تهیه گزارش هفتگی فروش" autoFocus />
               </Form.Item>
               <Form.Item name="description" label="توضیحات" style={{ marginBottom: 0 }}>
                 <Input.TextArea rows={3} placeholder="توضیح کوتاهی از وظیفه بنویسید" />
@@ -179,15 +191,6 @@ export default function TaskSheetPage() {
               </div>
             </GlassSection>
 
-            <GlassSection icon={<ThunderboltOutlined />} title="امتیازدهی (پس از ثبت قابل تغییر نیست)">
-              <Form.Item name="complexity" label="پیچیدگی" style={{ marginBottom: 16 }}>
-                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
-              </Form.Item>
-              <Form.Item name="impactScore" label="میزان اثرگذاری" style={{ marginBottom: 0 }}>
-                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
-              </Form.Item>
-            </GlassSection>
-
             <GlassSection icon={<CalendarOutlined />} title="زمان‌بندی">
               <div style={{ display: 'flex', gap: 12 }}>
                 <Form.Item name="dueDate" label="مهلت انجام (تقویم شمسی)" style={{ flex: 1, marginBottom: 0 }}>
@@ -199,12 +202,27 @@ export default function TaskSheetPage() {
               </div>
             </GlassSection>
           </Form>
+          <div style={{ color: '#999', fontSize: 11, padding: '0 4px' }}>
+            میزان پیچیدگی و اثرگذاری این وظیفه را ارزیاب شما هنگام تأیید مشخص می‌کند.
+          </div>
         </div>
       </Modal>
 
       <Modal title="ثبت رتبه کیفیت" open={!!qualityTarget} onCancel={() => setQualityTarget(undefined)} onOk={submitQuality} confirmLoading={saving}>
         <p>{qualityTarget?.title}</p>
         <Rate value={qualityValue} onChange={setQualityValue} />
+      </Modal>
+
+      <Modal title="تأیید وظیفه خودافزوده" open={!!approveTarget} onCancel={() => setApproveTarget(undefined)} onOk={submitApprove} confirmLoading={saving} okText="تأیید نهایی">
+        <p style={{ marginBottom: 16 }}>{approveTarget?.title}</p>
+        <Form layout="vertical">
+          <Form.Item label="پیچیدگی">
+            <Slider min={1} max={5} step={1} value={approveComplexity} onChange={setApproveComplexity} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
+          </Form.Item>
+          <Form.Item label="میزان اثرگذاری">
+            <Slider min={1} max={5} step={1} value={approveImpact} onChange={setApproveImpact} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )
