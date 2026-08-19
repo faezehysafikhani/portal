@@ -141,7 +141,7 @@ export default function TaskSheetPage() {
     <div>
       <Card
         size="small" title="Task Sheet من"
-        extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => setCreateOpen(true)}>ثبت Task جدید</Button>}
+        extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => { message.info('دکمه کلیک شد، در حال باز کردن فرم...'); setCreateOpen(true) }}>ثبت Task جدید</Button>}
       >
         <Table rowKey="id" loading={loading || saving} columns={columns as any} dataSource={tasks} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} />
       </Card>
