@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Select, Slider, Space, Table, Tag } from 'antd'
-import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, CloseOutlined, FlagOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { jalaliToDate } from '../../utils/jalali'
@@ -11,7 +11,6 @@ import {
 import type { DirectoryUser, PerformanceTask } from './common'
 
 const PRIMARY = '#8B1A6B'
-const SECONDARY = '#B33F9E'
 const faDate = (v?: string) => v ? new Date(v).toLocaleDateString('fa-IR') : '—'
 
 function GlassSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -141,35 +140,24 @@ export default function TaskSheetPage() {
     <div>
       <Card
         size="small" title="Task Sheet من"
-        extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => { message.info('دکمه کلیک شد، در حال باز کردن فرم...'); setCreateOpen(true) }}>ثبت Task جدید</Button>}
+        extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => setCreateOpen(true)}>ثبت Task جدید</Button>}
       >
         <Table rowKey="id" loading={loading || saving} columns={columns as any} dataSource={tasks} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} />
       </Card>
 
       <Modal
-        open={createOpen} onCancel={() => setCreateOpen(false)} footer={null} closable={false}
-        width={520} centered destroyOnHidden
-        styles={{
-          mask: { backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', background: 'rgba(40,8,30,0.45)' },
-          root: {
-            padding: 0, borderRadius: 20, overflow: 'hidden',
-            background: 'rgba(255,255,255,0.80)', backdropFilter: 'blur(26px)', WebkitBackdropFilter: 'blur(26px)',
-            border: '1px solid rgba(255,255,255,0.5)', boxShadow: '0 24px 70px rgba(94,20,68,0.35)',
-          },
-        }}
+        title="ثبت وظیفه جدید"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={submitCreate}
+        okText="ثبت وظیفه"
+        cancelText="انصراف"
+        confirmLoading={saving}
+        width={520}
+        centered
+        okButtonProps={{ style: { background: PRIMARY, borderColor: PRIMARY } }}
       >
-        <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, ${SECONDARY} 100%)`, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(255,255,255,0.18)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-            <PlusOutlined style={{ color: '#fff', fontSize: 17 }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ color: '#fff', fontWeight: 800, fontSize: 15 }}>ثبت وظیفه جدید</div>
-            <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>برای Task Sheet شما</div>
-          </div>
-          <Button type="text" icon={<CloseOutlined style={{ color: '#fff' }} />} onClick={() => setCreateOpen(false)} />
-        </div>
-
-        <div style={{ padding: 18, maxHeight: '65vh', overflowY: 'auto' }}>
+        <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingTop: 4 }}>
           <Form form={form} layout="vertical" initialValues={{ priority: 'Medium', category: 'Extra', complexity: 3, impactScore: 3 }}>
             <GlassSection icon={<AlignLeftOutlined />} title="اطلاعات وظیفه">
               <Form.Item name="title" label="عنوان" rules={[{ required: true, message: 'عنوان الزامی است' }]} style={{ marginBottom: 12 }}>
@@ -193,10 +181,10 @@ export default function TaskSheetPage() {
 
             <GlassSection icon={<ThunderboltOutlined />} title="امتیازدهی (پس از ثبت قابل تغییر نیست)">
               <Form.Item name="complexity" label="پیچیدگی" style={{ marginBottom: 16 }}>
-                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} styles={{ track: { background: PRIMARY }, handle: { borderColor: PRIMARY } }} />
+                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
               </Form.Item>
               <Form.Item name="impactScore" label="میزان اثرگذاری" style={{ marginBottom: 0 }}>
-                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} styles={{ track: { background: PRIMARY }, handle: { borderColor: PRIMARY } }} />
+                <Slider min={1} max={5} step={1} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
               </Form.Item>
             </GlassSection>
 
@@ -206,16 +194,11 @@ export default function TaskSheetPage() {
                   <PersianDatePicker style={{ width: '100%' }} />
                 </Form.Item>
                 <Form.Item name="estimatedHours" label="برآورد زمان (ساعت)" style={{ flex: 1, marginBottom: 0 }}>
-                  <InputNumber min={0} style={{ width: '100%' }} prefix={<FlagOutlined style={{ color: '#bbb', fontSize: 11 }} />} />
+                  <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </div>
             </GlassSection>
           </Form>
-        </div>
-
-        <div style={{ padding: 14, borderTop: '1px solid rgba(139,26,107,0.08)', display: 'flex', justifyContent: 'flex-end', gap: 8, background: 'rgba(255,255,255,0.5)' }}>
-          <Button onClick={() => setCreateOpen(false)}>انصراف</Button>
-          <Button type="primary" loading={saving} style={{ background: PRIMARY, borderColor: PRIMARY }} onClick={submitCreate}>ثبت وظیفه</Button>
         </div>
       </Modal>
 
