@@ -657,10 +657,26 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
   }
   if (request.method === 'GET' && !taskMatch && path === '/tasks') {
     let query = db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
-    if (!canManageTasks(auth)) {
+    // "visibility" powers the Performance Task Sheet's من/تیم/همه tabs, independent of the
+    // legacy tasks.assign-based scoping below (kept untouched for existing callers like /ptms/tasks).
+    const visibility = url.searchParams.get('visibility')
+    let requiresLegacyUserFilter = false
+    if (visibility === 'all') {
+      if (!auth.isAdmin && !auth.permissions.includes('performance.admin')) throw new HttpError(403, 'شما مجوز مشاهده همه وظایف را ندارید')
+    } else if (visibility === 'team') {
+      if (!auth.isAdmin && !auth.permissions.includes('performance.manage') && !auth.permissions.includes('performance.admin')) throw new HttpError(403, 'شما مجوز مشاهده وظایف تیم را ندارید')
+      const reviewees = await db.from('PerformanceReviewers').select('EmployeeUserId').eq('TenantId', auth.tenantId).eq('ReviewerUserId', auth.userId).eq('IsActive', true).eq('IsDeleted', false)
+      failOnDb(reviewees.error)
+      const employeeIds = [...new Set((reviewees.data ?? []).map((r) => String(r.EmployeeUserId)))].filter((id) => /^[0-9a-f-]{36}$/i.test(id))
+      if (!employeeIds.length) return json(request, [])
+      query = query.or(employeeIds.flatMap((id) => [`AssignedToUserId.eq.${id}`, `AssigneeUserIdsJson.ilike.%${id}%`]).join(','))
+    } else if (visibility === 'mine') {
+      query = query.or(`AssignedToUserId.eq.${auth.userId},AssigneeUserIdsJson.ilike.%${auth.userId}%`)
+    } else if (!canManageTasks(auth)) {
       query = url.searchParams.get('scope') === 'assigned'
         ? query.eq('AssignedByUserId', auth.userId)
         : query.or(`AssignedToUserId.eq.${auth.userId},AssignedByUserId.eq.${auth.userId},AssigneeUserIdsJson.ilike.%${auth.userId}%`)
+      requiresLegacyUserFilter = true
     }
     const status = url.searchParams.get('status')
     if (status) query = query.eq('Status', enumValue(status, taskStatus))
@@ -672,7 +688,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     const dueTo = url.searchParams.get('dueTo'); if (dueTo) query = query.lte('DueDate', dueTo)
     const result = await query.order('DueDate', { nullsFirst: false })
     failOnDb(result.error)
-    const visible = (result.data ?? []).filter((item) => (!projectId || stringArray(item.ProjectIdsJson).includes(projectId) || item.ProjectId === projectId) && (canManageTasks(auth) || (
+    const visible = (result.data ?? []).filter((item) => (!projectId || stringArray(item.ProjectIdsJson).includes(projectId) || item.ProjectId === projectId) && (!requiresLegacyUserFilter || (
       taskIncludesUser(item, auth.userId)
       && !(Boolean(item.IsCompletionApproved) && item.AssignedByUserId !== auth.userId && stringArray(item.AssigneeUserIdsJson).includes(auth.userId))
     )))
@@ -773,11 +789,19 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       update.IsCompletionApproved = false; update.CompletionApprovedAt = null; update.CompletionApprovedByUserId = null
       action = 'CompletionRequested'
     } else if (input.approveCompletion === true) {
-      if (!isCreator && !canManageTasks(auth)) throw new HttpError(403, 'فقط نویسنده وظیفه می‌تواند پایان آن را تأیید کند')
+      // Self-added tasks have no independent "creator" (the employee created and is doing the work),
+      // so completion approval falls to their reviewer instead of the self-referential creator check.
+      if (Boolean(current.IsSelfAdded)) {
+        const reviewerId = await findReviewerFor(db, auth.tenantId, String(current.AssignedByUserId))
+        if (!canManageTasks(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'برای وظیفه خودافزوده فقط ارزیاب می‌تواند پایان را تأیید کند')
+      } else if (!isCreator && !canManageTasks(auth)) throw new HttpError(403, 'فقط نویسنده وظیفه می‌تواند پایان آن را تأیید کند')
       update.Status = 3; update.Progress = 100; update.IsCompletionApproved = true; update.CompletionApprovedAt = now(); update.CompletionApprovedByUserId = auth.userId
       action = 'CompletionApproved'
     } else if (input.rejectCompletion === true) {
-      if (!isCreator && !canManageTasks(auth)) throw new HttpError(403, 'فقط نویسنده وظیفه می‌تواند پایان آن را رد کند')
+      if (Boolean(current.IsSelfAdded)) {
+        const reviewerId = await findReviewerFor(db, auth.tenantId, String(current.AssignedByUserId))
+        if (!canManageTasks(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'برای وظیفه خودافزوده فقط ارزیاب می‌تواند پایان را رد کند')
+      } else if (!isCreator && !canManageTasks(auth)) throw new HttpError(403, 'فقط نویسنده وظیفه می‌تواند پایان آن را رد کند')
       update.Status = 1; update.Progress = Math.min(99, Number(current.Progress ?? 0)); update.CompletionRequestedAt = null
       update.CompletionRequestedByUserId = null; update.IsCompletionApproved = false; update.CompletionApprovedAt = null; update.CompletionApprovedByUserId = null
       action = 'CompletionRejected'

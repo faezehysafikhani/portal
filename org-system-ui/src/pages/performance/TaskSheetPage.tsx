@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Select, Slider, Space, Table, Tag } from 'antd'
-import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined } from '@ant-design/icons'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Segmented, Select, Slider, Space, Table, Tag } from 'antd'
+import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { jalaliToDate } from '../../utils/jalali'
@@ -30,8 +30,11 @@ function GlassSection({ icon, title, children }: { icon: React.ReactNode; title:
 }
 
 export default function TaskSheetPage() {
-  const { canManage } = permissionState()
+  const { canManage, canAdmin } = permissionState()
   const me = currentUser()
+  const [visibility, setVisibility] = useState<'mine' | 'team' | 'all'>('mine')
+  const [searchText, setSearchText] = useState('')
+  const [employeeFilter, setEmployeeFilter] = useState<string>()
   const [tasks, setTasks] = useState<PerformanceTask[]>([])
   const [users, setUsers] = useState<DirectoryUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,7 +50,7 @@ export default function TaskSheetPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [taskRes, dirRes] = await Promise.all([apiFetch(`${API}/tasks`), apiFetch(`${API}/directory`)])
+      const [taskRes, dirRes] = await Promise.all([apiFetch(`${API}/tasks?visibility=${visibility}`), apiFetch(`${API}/directory`)])
       const taskResult = await taskRes.json().catch(() => [])
       if (!taskRes.ok) throw new Error(taskResult.message || 'دریافت وظایف انجام نشد')
       setTasks(taskResult)
@@ -58,8 +61,13 @@ export default function TaskSheetPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [visibility])
   useEffect(() => { void load() }, [load])
+
+  const filteredTasks = useMemo(() => tasks.filter((t) =>
+    (!searchText || t.title.toLowerCase().includes(searchText.toLowerCase())) &&
+    (!employeeFilter || t.assignedToUserId === employeeFilter || t.assigneeUserIds?.includes(employeeFilter))
+  ), [tasks, searchText, employeeFilter])
 
   const submitCreate = async (keepOpen: boolean) => {
     const values = await form.validateFields()
@@ -140,6 +148,12 @@ export default function TaskSheetPage() {
               <Button size="small" danger onClick={() => patchTask(row.id, { rejectCreation: true }, 'رد شد')}>رد</Button>
             </>
           )}
+          {row.isSelfAdded && row.status === 'InReview' && canManage && (
+            <>
+              <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => patchTask(row.id, { approveCompletion: true }, 'پایان کار تأیید شد')}>تأیید پایان</Button>
+              <Button size="small" danger onClick={() => patchTask(row.id, { rejectCompletion: true }, 'به کار برگشت داده شد')}>رد پایان</Button>
+            </>
+          )}
           {row.isCompletionApproved && !row.qualityRating && canManage && (
             <Button size="small" onClick={() => { setQualityTarget(row); setQualityValue(3) }}>ثبت کیفیت</Button>
           )}
@@ -151,10 +165,30 @@ export default function TaskSheetPage() {
   return (
     <div>
       <Card
-        size="small" title="Task Sheet من"
+        size="small" title="Task Sheet"
         extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => setCreateOpen(true)}>ثبت Task جدید</Button>}
       >
-        <Table rowKey="id" loading={loading || saving} columns={columns as any} dataSource={tasks} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} />
+        <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }} size={12}>
+          {(canManage || canAdmin) && (
+            <Segmented
+              value={visibility}
+              onChange={(v) => setVisibility(v as 'mine' | 'team' | 'all')}
+              options={[
+                { label: 'تسک‌های من', value: 'mine' },
+                ...(canManage ? [{ label: 'تیم من', value: 'team' }] : []),
+                ...(canAdmin ? [{ label: 'همه', value: 'all' }] : []),
+              ]}
+            />
+          )}
+          {visibility !== 'mine' && (
+            <Space wrap>
+              <Input allowClear prefix={<SearchOutlined style={{ color: '#bbb' }} />} placeholder="جستجوی عنوان" style={{ width: 220 }} value={searchText} onChange={(e) => setSearchText(e.target.value)} />
+              <Select allowClear showSearch optionFilterProp="label" placeholder="فیلتر بر اساس کارمند" style={{ width: 220 }} value={employeeFilter} onChange={setEmployeeFilter}
+                options={users.map(u => ({ value: u.id, label: u.fullName }))} />
+            </Space>
+          )}
+        </Space>
+        <Table rowKey="id" loading={loading || saving} columns={columns as any} dataSource={filteredTasks} scroll={{ x: 1100 }} pagination={{ pageSize: 10 }} />
       </Card>
 
       <Modal
