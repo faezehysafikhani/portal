@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Segmented, Select, Slider, Space, Table, Tag } from 'antd'
-import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Segmented, Select, Slider, Space, Table, Tag, Tooltip } from 'antd'
+import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { jalaliToDate } from '../../utils/jalali'
@@ -12,6 +12,15 @@ import type { DirectoryUser, PerformanceTask } from './common'
 
 const PRIMARY = '#8B1A6B'
 const faDate = (v?: string) => v ? new Date(v).toLocaleDateString('fa-IR') : '—'
+
+function HeaderHint({ label, hint }: { label: string; hint: string }) {
+  return (
+    <Space size={4}>
+      {label}
+      <Tooltip title={hint}><QuestionCircleOutlined style={{ color: '#bbb', fontSize: 12 }} /></Tooltip>
+    </Space>
+  )
+}
 
 function GlassSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
@@ -120,26 +129,45 @@ export default function TaskSheetPage() {
   }
 
   const userName = (id?: string) => users.find(u => u.id === id)?.fullName || '—'
+  const pendingApproval = (row: PerformanceTask) => row.isSelfAdded && row.creationApprovalStatus === 'Pending'
+  const isAssignee = (row: PerformanceTask) => !!me.id && (row.assignedToUserId === me.id || row.assigneeUserIds?.includes(me.id))
 
   const columns = [
     { title: 'عنوان', dataIndex: 'title' },
     { title: 'انجام‌دهنده', dataIndex: 'assignedToUserId', render: userName },
     { title: 'دسته', dataIndex: 'category', render: (v?: string) => v ? <Tag>{categoryLabel[v] || v}</Tag> : '—' },
     { title: 'اولویت', dataIndex: 'priority', render: (v: string) => <Tag color={priorityColor[v]}>{priorityLabel[v] || v}</Tag> },
-    { title: 'پیچیدگی', dataIndex: 'complexity', render: (v?: number) => v ?? '—' },
-    { title: 'اثرگذاری', dataIndex: 'impactScore', render: (v?: number) => v ?? '—' },
-    { title: 'امتیاز وظیفه', dataIndex: 'taskPoint', render: (v?: number | null) => v ?? '—' },
+    {
+      title: <HeaderHint label="پیچیدگی" hint="فقط برای وظایف خودافزوده تعیین می‌شود؛ ارزیاب هنگام تأیید ثبت آن را مشخص می‌کند." />,
+      dataIndex: 'complexity',
+      render: (v: number | undefined, row: PerformanceTask) => v ?? (pendingApproval(row) ? <Tag color="gold">در انتظار تأیید</Tag> : '—'),
+    },
+    {
+      title: <HeaderHint label="اثرگذاری" hint="فقط برای وظایف خودافزوده تعیین می‌شود؛ ارزیاب هنگام تأیید ثبت آن را مشخص می‌کند." />,
+      dataIndex: 'impactScore',
+      render: (v: number | undefined, row: PerformanceTask) => v ?? (pendingApproval(row) ? <Tag color="gold">در انتظار تأیید</Tag> : '—'),
+    },
+    {
+      title: <HeaderHint label="امتیاز وظیفه" hint="از حاصل‌ضرب پیچیدگی، اولویت و اثرگذاری محاسبه می‌شود؛ فقط برای وظایف خودافزوده تأییدشده نمایش داده می‌شود." />,
+      dataIndex: 'taskPoint',
+      render: (v: number | null | undefined, row: PerformanceTask) => v ?? (pendingApproval(row) ? <Tag color="gold">در انتظار تأیید</Tag> : '—'),
+    },
     { title: 'وضعیت', dataIndex: 'status', render: (v: string) => <Tag>{statusLabel[v] || v}</Tag> },
     {
-      title: 'تأیید ثبت', dataIndex: 'creationApprovalStatus',
+      title: <HeaderHint label="تأیید ثبت" hint="فقط وظایف خودافزوده نیاز به تأیید ثبت توسط ارزیاب دارند؛ برای وظایف واگذارشده توسط مدیر اعمال نمی‌شود." />,
+      dataIndex: 'creationApprovalStatus',
       render: (v: string, row: PerformanceTask) => row.isSelfAdded ? <Tag color={creationApprovalColor[v]}>{creationApprovalLabel[v] || v}</Tag> : '—',
     },
-    { title: 'کیفیت', dataIndex: 'qualityRating', render: (v?: number) => v ? <Rate disabled value={v} style={{ fontSize: 13 }} /> : '—' },
+    {
+      title: <HeaderHint label="کیفیت" hint="پس از تأیید پایان کار توسط ارزیاب ثبت می‌شود." />,
+      dataIndex: 'qualityRating',
+      render: (v?: number) => v ? <Rate disabled value={v} style={{ fontSize: 13 }} /> : '—',
+    },
     { title: 'مهلت', dataIndex: 'dueDate', render: faDate },
     {
       title: 'عملیات', key: 'actions', render: (_: unknown, row: PerformanceTask) => (
         <Space size="small" wrap>
-          {row.assignedByUserId === me.id && row.status !== 'Done' && row.status !== 'InReview' && (
+          {(isAssignee(row) || row.assignedByUserId === me.id) && row.status !== 'Done' && row.status !== 'InReview' && (
             <Button size="small" onClick={() => patchTask(row.id, { requestCompletion: true }, 'اعلام پایان ثبت شد')}>اعلام پایان</Button>
           )}
           {row.isSelfAdded && row.creationApprovalStatus === 'Pending' && canManage && (
