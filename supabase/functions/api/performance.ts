@@ -3,6 +3,7 @@ import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json, uuid } from '../_shared/http.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 import { jalaliMonthRange } from '../_shared/jalali.ts'
+import { adjustmentCatalog, computeScoreCardTotals, matrixOutcome, rubric } from './performance-rubric.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -92,6 +93,227 @@ async function userDisplayNames(tenantId: string, userIds: string[]): Promise<Ma
   const result = await db.from('Users').select('Id,FirstName,LastName').eq('TenantId', tenantId).in('Id', [...new Set(userIds)])
   check(result.error)
   return new Map((result.data ?? []).map((u: Obj) => [String(u.Id), `${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim()]))
+}
+
+// ---- HR quarterly evaluation rubric (9-category, 100-point) ----
+
+function scoreCardDto(item: Obj): Obj {
+  const result = camelize(item) as Obj
+  try { result.scores = JSON.parse(String(item.ScoresJson ?? '{}')) } catch { result.scores = {} }
+  delete result.scoresJson
+  return result
+}
+
+function quarterlyDto(item: Obj): Obj {
+  const result = camelize(item) as Obj
+  result.status = Number(item.Status) === 1 ? 'Finalized' : 'Draft'
+  return result
+}
+
+function quarterRange(jy: number, quarter: number): { start: Date; end: Date } {
+  const startMonth = (quarter - 1) * 3 + 1
+  const { start } = jalaliMonthRange(jy, startMonth)
+  const { end } = jalaliMonthRange(jy, startMonth + 2)
+  return { start, end }
+}
+
+// Fridays only are treated as non-working (documented simplification — no company holiday
+// calendar integration yet). Never counts days beyond "now" (an in-progress quarter isn't
+// penalized for days that haven't happened).
+function countMissingWeekdays(startDate: Date, endDate: Date, timesheetDates: Set<string>): number {
+  const cappedEnd = endDate.getTime() < Date.now() ? endDate : new Date()
+  let missing = 0
+  for (const d = new Date(startDate); d < cappedEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+    if (d.getUTCDay() === 5) continue
+    if (!timesheetDates.has(d.toISOString().slice(0, 10))) missing++
+  }
+  return missing
+}
+
+async function getRubric(request: Request, auth: AuthContext): Promise<Response> {
+  requirePermission(auth, 'performance.view')
+  return json(request, { rubric, adjustmentCatalog })
+}
+
+async function listScoreCards(request: Request, auth: AuthContext, url: URL): Promise<Response> {
+  requirePermission(auth, 'performance.view')
+  const employeeUserId = url.searchParams.get('employeeUserId') || ''
+  const periodYear = Number(url.searchParams.get('periodYear'))
+  const periodQuarter = Number(url.searchParams.get('periodQuarter'))
+  if (!/^[0-9a-f-]{36}$/i.test(employeeUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
+  if (!periodYear || !periodQuarter || periodQuarter < 1 || periodQuarter > 4) throw new HttpError(400, 'دوره فصلی معتبر الزامی است')
+  if (!(await canViewUser(auth, employeeUserId))) throw new HttpError(403, 'شما مجوز مشاهده امتیازهای این کارمند را ندارید')
+  const result = await db.from('PerformanceScoreCards').select('*').eq('TenantId', auth.tenantId).eq('EmployeeUserId', employeeUserId)
+    .eq('PeriodYear', periodYear).eq('PeriodQuarter', periodQuarter).eq('IsDeleted', false)
+  check(result.error)
+  const rows = (result.data ?? []) as Obj[]
+  const names = await userDisplayNames(auth.tenantId, rows.map((r) => String(r.EvaluatorUserId)))
+  return json(request, rows.map((r) => ({ ...scoreCardDto(r), evaluatorName: names.get(String(r.EvaluatorUserId)) ?? '' })))
+}
+
+async function submitScoreCard(request: Request, auth: AuthContext): Promise<Response> {
+  requirePermission(auth, 'performance.view')
+  const input = await body<Obj>(request)
+  const employeeUserId = String(input.employeeUserId ?? '')
+  const periodYear = Number(input.periodYear)
+  const periodQuarter = Number(input.periodQuarter)
+  if (!/^[0-9a-f-]{36}$/i.test(employeeUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
+  if (!periodYear || !periodQuarter || periodQuarter < 1 || periodQuarter > 4) throw new HttpError(400, 'دوره فصلی معتبر الزامی است')
+  const reviewerId = await findReviewerFor(db, auth.tenantId, employeeUserId)
+  if (!isAdminScope(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'شما مجوز ثبت امتیاز برای این کارمند را ندارید')
+  const scores = input.scores && typeof input.scores === 'object' ? input.scores as Record<string, unknown> : {}
+  const totals = computeScoreCardTotals(scores)
+  const existing = await db.from('PerformanceScoreCards').select('Id').eq('TenantId', auth.tenantId)
+    .eq('EmployeeUserId', employeeUserId).eq('EvaluatorUserId', auth.userId).eq('PeriodYear', periodYear).eq('PeriodQuarter', periodQuarter).eq('IsDeleted', false).maybeSingle()
+  check(existing.error)
+  const values = {
+    ScoresJson: JSON.stringify(totals.normalized), TechnicalScore: totals.technical, BehavioralScore: totals.behavioral, TotalScore: totals.total, UpdatedAt: now(),
+  }
+  const saved = existing.data
+    ? await db.from('PerformanceScoreCards').update(values).eq('Id', (existing.data as Obj).Id).select().single()
+    : await db.from('PerformanceScoreCards').insert({
+      ...baseInsert(auth), EmployeeUserId: employeeUserId, EvaluatorUserId: auth.userId, PeriodYear: periodYear, PeriodQuarter: periodQuarter, ...values,
+    }).select().single()
+  check(saved.error, 'ثبت امتیاز انجام نشد')
+  return json(request, scoreCardDto(saved.data), existing.data ? 200 : 201)
+}
+
+async function listAdjustments(request: Request, auth: AuthContext, url: URL): Promise<Response> {
+  requirePermission(auth, 'performance.view')
+  const employeeUserId = url.searchParams.get('employeeUserId') || ''
+  if (!/^[0-9a-f-]{36}$/i.test(employeeUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
+  if (!(await canViewUser(auth, employeeUserId))) throw new HttpError(403, 'شما مجوز مشاهده این اطلاعات را ندارید')
+  let query = db.from('PerformanceAdjustments').select('*').eq('TenantId', auth.tenantId).eq('EmployeeUserId', employeeUserId).eq('IsDeleted', false)
+  const periodYear = Number(url.searchParams.get('periodYear'))
+  const periodQuarter = Number(url.searchParams.get('periodQuarter'))
+  if (periodYear) query = query.eq('PeriodYear', periodYear)
+  if (periodQuarter) query = query.eq('PeriodQuarter', periodQuarter)
+  const result = await query.order('CreatedAt', { ascending: false })
+  check(result.error)
+  return json(request, camelize(result.data ?? []))
+}
+
+async function createAdjustment(request: Request, auth: AuthContext): Promise<Response> {
+  if (!isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند امتیاز تعدیلی ثبت کند')
+  const input = await body<Obj>(request)
+  const employeeUserId = String(input.employeeUserId ?? '')
+  const periodYear = Number(input.periodYear)
+  const periodQuarter = Number(input.periodQuarter)
+  const type = String(input.type ?? '')
+  const code = String(input.code ?? '')
+  if (!/^[0-9a-f-]{36}$/i.test(employeeUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
+  if (!periodYear || !periodQuarter || periodQuarter < 1 || periodQuarter > 4) throw new HttpError(400, 'دوره فصلی معتبر الزامی است')
+  const catalogList = type === 'Bonus' ? adjustmentCatalog.Bonus : type === 'Malus' ? adjustmentCatalog.Malus : null
+  const catalogItem = catalogList?.find((c) => c.code === code)
+  if (!catalogItem) throw new HttpError(400, 'شاخص تعدیلی معتبر نیست')
+  const row = {
+    ...baseInsert(auth), EmployeeUserId: employeeUserId, PeriodYear: periodYear, PeriodQuarter: periodQuarter,
+    Type: type, Code: code, Points: catalogItem.points, Note: input.note ?? null,
+  }
+  const result = await db.from('PerformanceAdjustments').insert(row).select().single()
+  check(result.error, 'ثبت امتیاز تعدیلی انجام نشد')
+  return json(request, camelize(result.data), 201)
+}
+
+async function deleteAdjustment(request: Request, auth: AuthContext, id: string): Promise<Response> {
+  if (!isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند حذف کند')
+  const result = await db.from('PerformanceAdjustments').update({ IsDeleted: true, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', id)
+  check(result.error)
+  return new Response(null, { status: 204 })
+}
+
+async function listQuarterlyResults(request: Request, auth: AuthContext, url: URL): Promise<Response> {
+  requirePermission(auth, 'performance.view')
+  const employeeUserId = url.searchParams.get('employeeUserId')
+  const scope = url.searchParams.get('scope')
+  if (employeeUserId) {
+    if (!(await canViewUser(auth, employeeUserId))) throw new HttpError(403, 'شما مجوز مشاهده این اطلاعات را ندارید')
+    const result = await db.from('PerformanceQuarterlyResults').select('*').eq('TenantId', auth.tenantId).eq('EmployeeUserId', employeeUserId).eq('IsDeleted', false)
+      .order('PeriodYear', { ascending: false }).order('PeriodQuarter', { ascending: false })
+    check(result.error)
+    return json(request, (result.data ?? []).map(quarterlyDto))
+  }
+  if (scope === 'company') {
+    if (!isAdminScope(auth)) throw new HttpError(403, 'شما مجوز مشاهده این اطلاعات را ندارید')
+    const result = await db.from('PerformanceQuarterlyResults').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+      .order('PeriodYear', { ascending: false }).order('PeriodQuarter', { ascending: false })
+    check(result.error)
+    const rows = (result.data ?? []) as Obj[]
+    const names = await userDisplayNames(auth.tenantId, rows.map((r) => String(r.EmployeeUserId)))
+    return json(request, rows.map((r) => ({ ...quarterlyDto(r), employeeName: names.get(String(r.EmployeeUserId)) ?? '' })))
+  }
+  throw new HttpError(400, 'employeeUserId یا scope=company الزامی است')
+}
+
+async function computeQuarterlyResult(request: Request, auth: AuthContext): Promise<Response> {
+  if (!isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند دوره را محاسبه کند')
+  const input = await body<Obj>(request)
+  const employeeUserId = String(input.employeeUserId ?? '')
+  const periodYear = Number(input.periodYear)
+  const periodQuarter = Number(input.periodQuarter)
+  if (!/^[0-9a-f-]{36}$/i.test(employeeUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
+  if (!periodYear || !periodQuarter || periodQuarter < 1 || periodQuarter > 4) throw new HttpError(400, 'دوره فصلی معتبر الزامی است')
+
+  const existing = await db.from('PerformanceQuarterlyResults').select('*').eq('TenantId', auth.tenantId)
+    .eq('EmployeeUserId', employeeUserId).eq('PeriodYear', periodYear).eq('PeriodQuarter', periodQuarter).eq('IsDeleted', false).maybeSingle()
+  check(existing.error)
+  if (existing.data && Number((existing.data as Obj).Status) === 1) throw new HttpError(400, 'این دوره نهایی شده است؛ ابتدا آن را بازگشایی کنید')
+
+  const cardsResult = await db.from('PerformanceScoreCards').select('TotalScore').eq('TenantId', auth.tenantId)
+    .eq('EmployeeUserId', employeeUserId).eq('PeriodYear', periodYear).eq('PeriodQuarter', periodQuarter).eq('IsDeleted', false)
+  check(cardsResult.error)
+  const cards = (cardsResult.data ?? []) as Obj[]
+  if (!cards.length) throw new HttpError(400, 'هیچ امتیازی برای این دوره ثبت نشده است')
+  const averageScore = Math.round((cards.reduce((sum, c) => sum + Number(c.TotalScore), 0) / cards.length) * 10) / 10
+
+  const adjResult = await db.from('PerformanceAdjustments').select('Points').eq('TenantId', auth.tenantId)
+    .eq('EmployeeUserId', employeeUserId).eq('PeriodYear', periodYear).eq('PeriodQuarter', periodQuarter).eq('IsDeleted', false)
+  check(adjResult.error)
+  const manualAdjustmentTotal = (adjResult.data ?? []).reduce((sum: number, r: Obj) => sum + Number(r.Points), 0)
+
+  const { start, end } = quarterRange(periodYear, periodQuarter)
+  const tsResult = await db.from('DailyTimesheets').select('EntryDate').eq('TenantId', auth.tenantId).eq('UserId', employeeUserId).eq('IsDeleted', false)
+    .gte('EntryDate', start.toISOString().slice(0, 10)).lt('EntryDate', end.toISOString().slice(0, 10))
+  check(tsResult.error)
+  const timesheetDates = new Set((tsResult.data ?? []).map((r: Obj) => String(r.EntryDate)))
+  const missingDays = countMissingWeekdays(start, end, timesheetDates)
+  const timesheetMalus = Math.round(missingDays * -0.2 * 10) / 10
+
+  const adjustmentTotal = Math.round((manualAdjustmentTotal + timesheetMalus) * 10) / 10
+  const finalScore = Math.round((averageScore + adjustmentTotal) * 10) / 10
+  const { band, outcome } = matrixOutcome(finalScore)
+
+  const values = {
+    AverageScore: averageScore, AdjustmentTotal: adjustmentTotal, FinalScore: finalScore, Band: band, FinancialOutcomeText: outcome,
+    Status: 0, UpdatedAt: now(),
+  }
+  const saved = existing.data
+    ? await db.from('PerformanceQuarterlyResults').update(values).eq('Id', (existing.data as Obj).Id).select().single()
+    : await db.from('PerformanceQuarterlyResults').insert({
+      ...baseInsert(auth), EmployeeUserId: employeeUserId, PeriodYear: periodYear, PeriodQuarter: periodQuarter, ...values,
+    }).select().single()
+  check(saved.error, 'محاسبه دوره انجام نشد')
+  return json(request, { ...quarterlyDto(saved.data), missingTimesheetDays: missingDays }, existing.data ? 200 : 201)
+}
+
+async function patchQuarterlyResult(request: Request, auth: AuthContext, id: string): Promise<Response> {
+  if (!isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند نهایی‌سازی کند')
+  const input = await body<Obj>(request)
+  const current = await db.from('PerformanceQuarterlyResults').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
+  check(current.error)
+  if (!current.data) throw new HttpError(404, 'دوره یافت نشد')
+  const update: Obj = { UpdatedAt: now() }
+  if (input.finalize === true) {
+    if (Number((current.data as Obj).Status) === 1) throw new HttpError(400, 'این دوره قبلاً نهایی شده است')
+    update.Status = 1; update.FinalizedAt = now(); update.FinalizedByUserId = auth.userId
+  } else if (input.reopen === true) {
+    update.Status = 0; update.FinalizedAt = null; update.FinalizedByUserId = null
+  } else {
+    throw new HttpError(400, 'هیچ تغییری مشخص نشده است')
+  }
+  const result = await db.from('PerformanceQuarterlyResults').update(update).eq('TenantId', auth.tenantId).eq('Id', id).select().single()
+  check(result.error)
+  return json(request, quarterlyDto(result.data))
 }
 
 // ---- Weekly bilan (computed live, nothing persisted) ----
@@ -596,6 +818,18 @@ export async function handlePerformance(request: Request, auth: AuthContext, pat
   if (path === '/performance/settings') return await settingsRoute(request, auth)
   if (path.startsWith('/performance/reviewers')) return await reviewersRoute(request, auth, path)
   if (path === '/performance/dashboard' && request.method === 'GET') return await dashboardRoute(request, auth, url)
+
+  if (path === '/performance/rubric' && request.method === 'GET') return await getRubric(request, auth)
+  if (path === '/performance/scorecards' && request.method === 'GET') return await listScoreCards(request, auth, url)
+  if (path === '/performance/scorecards' && request.method === 'POST') return await submitScoreCard(request, auth)
+  if (path === '/performance/adjustments' && request.method === 'GET') return await listAdjustments(request, auth, url)
+  if (path === '/performance/adjustments' && request.method === 'POST') return await createAdjustment(request, auth)
+  const adjustmentMatch = path.match(/^\/performance\/adjustments\/([0-9a-f-]+)$/i)
+  if (adjustmentMatch && request.method === 'DELETE') return await deleteAdjustment(request, auth, adjustmentMatch[1])
+  if (path === '/performance/quarterly' && request.method === 'GET') return await listQuarterlyResults(request, auth, url)
+  if (path === '/performance/quarterly/compute' && request.method === 'POST') return await computeQuarterlyResult(request, auth)
+  const quarterlyMatch = path.match(/^\/performance\/quarterly\/([0-9a-f-]+)$/i)
+  if (quarterlyMatch && request.method === 'PATCH') return await patchQuarterlyResult(request, auth, quarterlyMatch[1])
 
   return null
 }

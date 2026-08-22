@@ -11,6 +11,7 @@ import { handleIntegrations } from './integrations.ts'
 import { handleReports } from './reports.ts'
 import { handlePerformance, findReviewerFor } from './performance.ts'
 import { handleProjects, projectExists } from './projects.ts'
+import { handleTimesheets } from './timesheets.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 
 type JsonObject = Record<string, unknown>
@@ -1332,6 +1333,8 @@ async function dispatch(request: Request): Promise<Response> {
   if (performanceResponse) return performanceResponse
   const projectsResponse = await handleProjects(request, auth, path)
   if (projectsResponse) return projectsResponse
+  const timesheetsResponse = await handleTimesheets(request, auth, path, url)
+  if (timesheetsResponse) return timesheetsResponse
   if (path === '/dashboard/summary' && request.method === 'GET') return await dashboard(request, auth)
 
   throw new HttpError(501, `مسیر ${path} هنوز به Edge Function منتقل نشده است`)
