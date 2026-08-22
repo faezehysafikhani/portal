@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Col, Form, Input, InputNumber, message, Popconfirm, Row, Select, Space, Table, Tabs, Tag } from 'antd'
 import { DeleteOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
-import { API, bandColor, bandLabel, monthNames, permissionState } from './common'
+import { API, bandColor, bandLabel, monthNames, permissionState, projectStatusLabel } from './common'
 import type { DirectoryUser, EvaluationRow } from './common'
 
 const PRIMARY = '#8B1A6B'
@@ -114,6 +114,68 @@ function ReviewersTab() {
   )
 }
 
+function ProjectsTab() {
+  const [rows, setRows] = useState<any[]>([])
+  const [users, setUsers] = useState<DirectoryUser[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [form] = Form.useForm()
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [projectsRes, dirRes] = await Promise.all([apiFetch(`${API}/projects`), apiFetch(`${API}/directory`)])
+      const projectsResult = await projectsRes.json().catch(() => [])
+      if (projectsRes.ok) setRows(projectsResult)
+      const dirResult = await dirRes.json().catch(() => ({ users: [] }))
+      if (dirRes.ok) setUsers(dirResult.users || [])
+    } finally { setLoading(false) }
+  }, [])
+  useEffect(() => { void load() }, [load])
+
+  const submit = async () => {
+    const values = await form.validateFields()
+    setSaving(true)
+    try {
+      const response = await apiFetch(`${API}/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'ثبت پروژه انجام نشد')
+      message.success('پروژه ثبت شد'); form.resetFields(); await load()
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'ثبت پروژه انجام نشد')
+    } finally { setSaving(false) }
+  }
+
+  const archive = async (id: string) => {
+    const response = await apiFetch(`${API}/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'Archived' }) })
+    if (response.ok) { message.success('پروژه آرشیو شد'); await load() } else message.error('آرشیو انجام نشد')
+  }
+
+  return (
+    <Card size="small" title="پروژه‌ها" loading={loading}>
+      <Form form={form} layout="inline" style={{ marginBottom: 16 }}>
+        <Form.Item name="name" label="نام پروژه" rules={[{ required: true }]}>
+          <Input style={{ width: 220 }} />
+        </Form.Item>
+        <Form.Item name="code" label="کد">
+          <Input style={{ width: 120 }} />
+        </Form.Item>
+        <Form.Item name="managerUserId" label="مدیر پروژه">
+          <Select style={{ width: 200 }} allowClear showSearch optionFilterProp="label" options={users.map(u => ({ value: u.id, label: u.fullName }))} />
+        </Form.Item>
+        <Form.Item><Button type="primary" style={{ background: PRIMARY }} loading={saving} onClick={submit}>ثبت</Button></Form.Item>
+      </Form>
+      <Table rowKey="id" size="small" dataSource={rows} pagination={{ pageSize: 10 }} columns={[
+        { title: 'نام', dataIndex: 'name' },
+        { title: 'کد', dataIndex: 'code', render: (v?: string) => v || '—' },
+        { title: 'مدیر', dataIndex: 'managerUserId', render: (v?: string) => users.find(u => u.id === v)?.fullName || '—' },
+        { title: 'وضعیت', dataIndex: 'status', render: (v: string) => projectStatusLabel[v] || v },
+        { title: 'عملیات', render: (_: unknown, r: any) => <Popconfirm title="این پروژه آرشیو شود؟" onConfirm={() => archive(r.id)}><Button size="small" icon={<DeleteOutlined />} /></Popconfirm> },
+      ]} />
+    </Card>
+  )
+}
+
 function RewardsTab() {
   const [users, setUsers] = useState<DirectoryUser[]>([])
   const [userId, setUserId] = useState<string>()
@@ -183,6 +245,7 @@ export default function PerformanceSettingsPage() {
     <Tabs items={[
       { key: 'weights', label: 'وزن‌ها و آستانه‌ها', children: <WeightsTab /> },
       { key: 'reviewers', label: 'نگاشت ارزیاب‌ها', children: <ReviewersTab /> },
+      { key: 'projects', label: 'پروژه‌ها', children: <ProjectsTab /> },
       { key: 'rewards', label: 'پاداش و جریمه', children: <RewardsTab /> },
     ]} />
   )

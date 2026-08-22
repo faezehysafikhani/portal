@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Card, Form, Input, InputNumber, message, Modal, Rate, Segmented, Select, Slider, Space, Table, Tag, Tooltip } from 'antd'
-import { AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, QuestionCircleOutlined, SearchOutlined } from '@ant-design/icons'
+import {
+  AlignLeftOutlined, AppstoreOutlined, CalendarOutlined, PlusOutlined, QuestionCircleOutlined, SearchOutlined, UsergroupAddOutlined,
+} from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { jalaliToDate } from '../../utils/jalali'
@@ -8,7 +10,7 @@ import {
   API, categoryLabel, creationApprovalColor, creationApprovalLabel, currentUser,
   permissionState, priorityColor, priorityLabel, statusLabel,
 } from './common'
-import type { DirectoryUser, PerformanceTask } from './common'
+import type { DirectoryUser, PerformanceTask, ProjectRef } from './common'
 
 const PRIMARY = '#8B1A6B'
 const faDate = (v?: string) => v ? new Date(v).toLocaleDateString('fa-IR') : '—'
@@ -39,22 +41,28 @@ function GlassSection({ icon, title, children }: { icon: React.ReactNode; title:
 }
 
 export default function TaskSheetPage() {
-  const { canManage, canAdmin } = permissionState()
+  const { canManage, canAdmin, canAssignTasks } = permissionState()
   const me = currentUser()
   const [visibility, setVisibility] = useState<'mine' | 'team' | 'all'>('mine')
   const [searchText, setSearchText] = useState('')
   const [employeeFilter, setEmployeeFilter] = useState<string>()
   const [tasks, setTasks] = useState<PerformanceTask[]>([])
   const [users, setUsers] = useState<DirectoryUser[]>([])
+  const [projects, setProjects] = useState<ProjectRef[]>([])
+  const [reviewees, setReviewees] = useState<{ userId: string; userName: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
   const [qualityTarget, setQualityTarget] = useState<PerformanceTask>()
   const [qualityValue, setQualityValue] = useState(3)
   const [approveTarget, setApproveTarget] = useState<PerformanceTask>()
   const [approveComplexity, setApproveComplexity] = useState(3)
   const [approveImpact, setApproveImpact] = useState(3)
+  const [assignComplexity, setAssignComplexity] = useState(3)
+  const [assignImpact, setAssignImpact] = useState(3)
   const [form] = Form.useForm()
+  const [assignForm] = Form.useForm()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -73,6 +81,23 @@ export default function TaskSheetPage() {
   }, [visibility])
   useEffect(() => { void load() }, [load])
 
+  useEffect(() => {
+    void (async () => {
+      const response = await apiFetch(`${API}/projects`)
+      const result = await response.json().catch(() => [])
+      if (response.ok) setProjects(result)
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!canManage || !canAssignTasks) return
+    void (async () => {
+      const response = await apiFetch(`${API}/performance/dashboard?scope=team`)
+      const result = await response.json().catch(() => ({ employees: [] }))
+      if (response.ok) setReviewees((result.employees || []).map((e: any) => ({ userId: e.userId, userName: e.userName })))
+    })()
+  }, [canManage, canAssignTasks])
+
   const filteredTasks = useMemo(() => tasks.filter((t) =>
     (!searchText || t.title.toLowerCase().includes(searchText.toLowerCase())) &&
     (!employeeFilter || t.assignedToUserId === employeeFilter || t.assigneeUserIds?.includes(employeeFilter))
@@ -90,6 +115,7 @@ export default function TaskSheetPage() {
           priority: values.priority,
           dueDate: values.dueDate ? jalaliToDate(values.dueDate).toISOString() : null,
           estimatedHours: values.estimatedHours,
+          projectIds: values.projectId ? [values.projectId] : [],
         }),
       })
       const result = await response.json().catch(() => ({}))
@@ -97,6 +123,33 @@ export default function TaskSheetPage() {
       message.success(result.isSelfAdded ? 'وظیفه ثبت شد و منتظر تأیید ارزیاب شماست' : 'وظیفه ثبت شد')
       form.resetFields()
       if (keepOpen) { await load() } else { setCreateOpen(false); await load() }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : 'ثبت وظیفه انجام نشد')
+    } finally { setSaving(false) }
+  }
+
+  const submitAssign = async (keepOpen: boolean) => {
+    const values = await assignForm.validateFields()
+    setSaving(true)
+    try {
+      const response = await apiFetch(`${API}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: values.title, description: values.description, category: values.category,
+          priority: values.priority,
+          dueDate: values.dueDate ? jalaliToDate(values.dueDate).toISOString() : null,
+          estimatedHours: values.estimatedHours,
+          projectIds: values.projectId ? [values.projectId] : [],
+          assigneeUserIds: [values.employeeId],
+          complexity: assignComplexity, impactScore: assignImpact,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'ثبت وظیفه انجام نشد')
+      message.success('وظیفه برای کارمند ثبت شد')
+      assignForm.resetFields(); setAssignComplexity(3); setAssignImpact(3)
+      if (keepOpen) { await load() } else { setAssignOpen(false); await load() }
     } catch (error) {
       message.error(error instanceof Error ? error.message : 'ثبت وظیفه انجام نشد')
     } finally { setSaving(false) }
@@ -131,11 +184,14 @@ export default function TaskSheetPage() {
   const userName = (id?: string) => users.find(u => u.id === id)?.fullName || '—'
   const pendingApproval = (row: PerformanceTask) => row.isSelfAdded && row.creationApprovalStatus === 'Pending'
   const isAssignee = (row: PerformanceTask) => !!me.id && (row.assignedToUserId === me.id || row.assigneeUserIds?.includes(me.id))
+  const projectOptions = projects.map(p => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))
+  const projectNames = (ids?: string[]) => ids?.length ? ids.map(id => projects.find(p => p.id === id)?.name || id).join('، ') : '—'
 
   const columns = [
     { title: 'عنوان', dataIndex: 'title' },
     { title: 'انجام‌دهنده', dataIndex: 'assignedToUserId', render: userName },
     { title: 'دسته', dataIndex: 'category', render: (v?: string) => v ? <Tag>{categoryLabel[v] || v}</Tag> : '—' },
+    { title: 'پروژه', dataIndex: 'projectIds', render: projectNames },
     { title: 'اولویت', dataIndex: 'priority', render: (v: string) => <Tag color={priorityColor[v]}>{priorityLabel[v] || v}</Tag> },
     {
       title: <HeaderHint label="پیچیدگی" hint="فقط برای وظایف خودافزوده تعیین می‌شود؛ ارزیاب هنگام تأیید ثبت آن را مشخص می‌کند." />,
@@ -194,7 +250,14 @@ export default function TaskSheetPage() {
     <div>
       <Card
         size="small" title="Task Sheet"
-        extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => setCreateOpen(true)}>ثبت Task جدید</Button>}
+        extra={(
+          <Space>
+            {canManage && canAssignTasks && (
+              <Button icon={<UsergroupAddOutlined />} onClick={() => setAssignOpen(true)}>ثبت Task برای کارمند</Button>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} style={{ background: PRIMARY }} onClick={() => setCreateOpen(true)}>ثبت Task شخصی</Button>
+          </Space>
+        )}
       >
         <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }} size={12}>
           {(canManage || canAdmin) && (
@@ -251,6 +314,9 @@ export default function TaskSheetPage() {
                   <Select options={Object.entries(priorityLabel).map(([value, label]) => ({ value, label }))} />
                 </Form.Item>
               </div>
+              <Form.Item name="projectId" label="پروژه (اختیاری)" style={{ marginTop: 12, marginBottom: 0 }}>
+                <Select allowClear showSearch optionFilterProp="label" placeholder="در صورت مرتبط‌بودن با یک پروژه انتخاب کنید" options={projectOptions} />
+              </Form.Item>
             </GlassSection>
 
             <GlassSection icon={<CalendarOutlined />} title="زمان‌بندی">
@@ -266,6 +332,75 @@ export default function TaskSheetPage() {
           </Form>
           <div style={{ color: '#999', fontSize: 11, padding: '0 4px' }}>
             میزان پیچیدگی و اثرگذاری این وظیفه را ارزیاب شما هنگام تأیید مشخص می‌کند.
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title="ثبت Task برای کارمند"
+        open={assignOpen}
+        onCancel={() => setAssignOpen(false)}
+        width={520}
+        centered
+        footer={[
+          <Button key="cancel" onClick={() => setAssignOpen(false)}>انصراف</Button>,
+          <Button key="continue" loading={saving} onClick={() => submitAssign(true)}>ثبت و ادامه</Button>,
+          <Button key="submit" type="primary" loading={saving} style={{ background: PRIMARY, borderColor: PRIMARY }} onClick={() => submitAssign(false)}>ثبت و بستن</Button>,
+        ]}
+      >
+        <div style={{ maxHeight: '65vh', overflowY: 'auto', paddingTop: 4 }}>
+          <Form form={assignForm} layout="vertical" initialValues={{ priority: 'Medium', category: 'Planned' }}>
+            <GlassSection icon={<UsergroupAddOutlined />} title="کارمند">
+              <Form.Item name="employeeId" label="کارمند" rules={[{ required: true, message: 'انتخاب کارمند الزامی است' }]} style={{ marginBottom: 0 }}>
+                <Select showSearch optionFilterProp="label" placeholder="از میان زیرمجموعه‌ی شما" options={reviewees.map(e => ({ value: e.userId, label: e.userName }))} />
+              </Form.Item>
+            </GlassSection>
+
+            <GlassSection icon={<AlignLeftOutlined />} title="اطلاعات وظیفه">
+              <Form.Item name="title" label="عنوان" rules={[{ required: true, message: 'عنوان الزامی است' }]} style={{ marginBottom: 12 }}>
+                <Input maxLength={200} placeholder="مثلاً: تهیه گزارش هفتگی فروش" />
+              </Form.Item>
+              <Form.Item name="description" label="توضیحات" style={{ marginBottom: 0 }}>
+                <Input.TextArea rows={3} placeholder="توضیح کوتاهی از وظیفه بنویسید" />
+              </Form.Item>
+            </GlassSection>
+
+            <GlassSection icon={<AppstoreOutlined />} title="دسته‌بندی و اولویت">
+              <div style={{ display: 'flex', gap: 12 }}>
+                <Form.Item name="category" label="دسته" style={{ flex: 1, marginBottom: 0 }}>
+                  <Select options={Object.entries(categoryLabel).map(([value, label]) => ({ value, label }))} />
+                </Form.Item>
+                <Form.Item name="priority" label="اولویت" style={{ flex: 1, marginBottom: 0 }}>
+                  <Select options={Object.entries(priorityLabel).map(([value, label]) => ({ value, label }))} />
+                </Form.Item>
+              </div>
+              <Form.Item name="projectId" label="پروژه (اختیاری)" style={{ marginTop: 12, marginBottom: 0 }}>
+                <Select allowClear showSearch optionFilterProp="label" placeholder="در صورت مرتبط‌بودن با یک پروژه انتخاب کنید" options={projectOptions} />
+              </Form.Item>
+            </GlassSection>
+
+            <GlassSection icon={<CalendarOutlined />} title="زمان‌بندی">
+              <div style={{ display: 'flex', gap: 12 }}>
+                <Form.Item name="dueDate" label="مهلت انجام (تقویم شمسی)" style={{ flex: 1, marginBottom: 0 }}>
+                  <PersianDatePicker style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="estimatedHours" label="برآورد زمان (ساعت)" style={{ flex: 1, marginBottom: 0 }}>
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+            </GlassSection>
+
+            <GlassSection icon={<AppstoreOutlined />} title="پیچیدگی و اثرگذاری">
+              <Form.Item label="پیچیدگی" style={{ marginBottom: 12 }}>
+                <Slider min={1} max={5} step={1} value={assignComplexity} onChange={setAssignComplexity} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
+              </Form.Item>
+              <Form.Item label="میزان اثرگذاری" style={{ marginBottom: 0 }}>
+                <Slider min={1} max={5} step={1} value={assignImpact} onChange={setAssignImpact} marks={{ 1: '۱', 2: '۲', 3: '۳', 4: '۴', 5: '۵' }} />
+              </Form.Item>
+            </GlassSection>
+          </Form>
+          <div style={{ color: '#999', fontSize: 11, padding: '0 4px' }}>
+            چون این وظیفه توسط شما به کارمند واگذار می‌شود، پیچیدگی و اثرگذاری همین حالا ثبت می‌شود و نیازی به تأیید جداگانه ندارد.
           </div>
         </div>
       </Modal>

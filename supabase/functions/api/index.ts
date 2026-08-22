@@ -10,6 +10,7 @@ import { handleLetters } from './letters.ts'
 import { handleIntegrations } from './integrations.ts'
 import { handleReports } from './reports.ts'
 import { handlePerformance, findReviewerFor } from './performance.ts'
+import { handleProjects, projectExists } from './projects.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 
 type JsonObject = Record<string, unknown>
@@ -707,6 +708,12 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     const complexity = isSelfAdded || input.complexity == null ? null : Math.max(1, Math.min(5, Number(input.complexity)))
     const impactScore = isSelfAdded || input.impactScore == null ? null : Math.max(1, Math.min(5, Number(input.impactScore)))
     const projects = stringArray(input.projectIds ?? input.projectId ?? [], 20)
+    if (projects.length && (
+      !projects.every((id) => /^[0-9a-f-]{36}$/i.test(id))
+      || !(await Promise.all(projects.map((id) => projectExists(auth.tenantId, id)))).every(Boolean)
+    )) {
+      throw new HttpError(400, 'پروژه انتخاب‌شده معتبر نیست')
+    }
     const tags = stringArray(input.tags, 30).map((tag) => tag.slice(0, 40))
     const isRecurring = Boolean(input.isRecurring)
     const recurrenceType = isRecurring ? String(input.recurrenceType ?? '') : null
@@ -845,7 +852,14 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     if (input.parentTaskId !== undefined) update.ParentTaskId = input.parentTaskId || null
     if (input.tags !== undefined) update.TagsJson = JSON.stringify(stringArray(input.tags, 30).map((tag) => tag.slice(0, 40)))
     if (input.projectIds !== undefined) {
-      const projects = stringArray(input.projectIds, 20); update.ProjectIdsJson = JSON.stringify(projects); update.ProjectId = projects[0] ?? null
+      const projects = stringArray(input.projectIds, 20)
+      if (projects.length && (
+        !projects.every((id) => /^[0-9a-f-]{36}$/i.test(id))
+        || !(await Promise.all(projects.map((id) => projectExists(auth.tenantId, id)))).every(Boolean)
+      )) {
+        throw new HttpError(400, 'پروژه انتخاب‌شده معتبر نیست')
+      }
+      update.ProjectIdsJson = JSON.stringify(projects); update.ProjectId = projects[0] ?? null
     }
     if (input.assigneeUserIds !== undefined) {
       requirePermission(auth, 'tasks.assign')
@@ -1316,6 +1330,8 @@ async function dispatch(request: Request): Promise<Response> {
   if (reportsResponse) return reportsResponse
   const performanceResponse = await handlePerformance(request, auth, path, url)
   if (performanceResponse) return performanceResponse
+  const projectsResponse = await handleProjects(request, auth, path)
+  if (projectsResponse) return projectsResponse
   if (path === '/dashboard/summary' && request.method === 'GET') return await dashboard(request, auth)
 
   throw new HttpError(501, `مسیر ${path} هنوز به Edge Function منتقل نشده است`)

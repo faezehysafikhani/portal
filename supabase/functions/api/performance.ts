@@ -289,9 +289,18 @@ async function computeBulkEvaluations(request: Request, auth: AuthContext): Prom
   const periodYear = Number(input.periodYear)
   const periodMonth = Number(input.periodMonth)
   if (!periodYear || !periodMonth || periodMonth < 1 || periodMonth > 12) throw new HttpError(400, 'دوره ماهانه معتبر الزامی است')
-  const reviewees = await db.from('PerformanceReviewers').select('EmployeeUserId').eq('TenantId', auth.tenantId).eq('ReviewerUserId', auth.userId).eq('IsActive', true).eq('IsDeleted', false)
-  check(reviewees.error)
-  const employeeIds = [...new Set((reviewees.data ?? []).map((r: Obj) => String(r.EmployeeUserId)))]
+  const companyWide = input.scope === 'company'
+  if (companyWide && !isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند برای کل شرکت محاسبه کند')
+  let employeeIds: string[]
+  if (companyWide) {
+    const usersResult = await db.from('Users').select('Id').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    check(usersResult.error)
+    employeeIds = [...new Set((usersResult.data ?? []).map((u: Obj) => String(u.Id)))]
+  } else {
+    const reviewees = await db.from('PerformanceReviewers').select('EmployeeUserId').eq('TenantId', auth.tenantId).eq('ReviewerUserId', auth.userId).eq('IsActive', true).eq('IsDeleted', false)
+    check(reviewees.error)
+    employeeIds = [...new Set((reviewees.data ?? []).map((r: Obj) => String(r.EmployeeUserId)))]
+  }
   const names = await userDisplayNames(auth.tenantId, employeeIds)
   const results: Obj[] = []
   for (const employeeId of employeeIds) {
@@ -544,9 +553,22 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
     const avgScore = latest.length ? Math.round((latest.reduce((sum, r) => sum + Number(r.FinalScore ?? 0), 0) / latest.length) * 10) / 10 : null
     const pendingResult = await db.from('PerformanceEvaluations').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('Status', 1)
     check(pendingResult.error)
+    // Full employee roster (not just those with an evaluation yet), for the HR "بازبینی کل شرکت"
+    // tab's employee picker/bulk-compute — same {userId, userName, evaluation} shape as scope=team.
+    const usersResult = await db.from('Users').select('Id,FirstName,LastName').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    check(usersResult.error)
+    const employees = (usersResult.data ?? []).map((u: Obj) => {
+      const id = String(u.Id)
+      const evalRow = latestPerUser.get(id)
+      return {
+        userId: id, userName: `${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim(),
+        evaluation: evalRow ? { finalScore: evalRow.FinalScore ?? null, scoreBand: evalRow.ScoreBand ?? null, periodYear: evalRow.PeriodYear, periodMonth: evalRow.PeriodMonth } : null,
+      }
+    })
     return json(request, {
       scope, averageScore: avgScore, evaluatedEmployeeCount: latest.length, pendingReviewCount: pendingResult.count ?? 0,
       bandDistribution: [...bandCounts.entries()].map(([name, value]) => ({ name, value })),
+      employees,
     })
   }
 

@@ -140,7 +140,7 @@ function MyEvaluations() {
   )
 }
 
-function ReviewTab() {
+function ReviewTab({ scope }: { scope: 'team' | 'company' }) {
   const [pending, setPending] = useState<EvaluationRow[]>([])
   const [employees, setEmployees] = useState<{ userId: string; userName: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -151,19 +151,20 @@ function ReviewTab() {
   const [rewardNotes, setRewardNotes] = useState('')
   const [form] = Form.useForm()
   const [bulkForm] = Form.useForm()
+  const scopeLabel = scope === 'company' ? 'کل شرکت' : 'زیرمجموعه'
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const [pendingRes, dashRes] = await Promise.all([
-        apiFetch(`${API}/performance/evaluations/pending`), apiFetch(`${API}/performance/dashboard?scope=team`),
+        apiFetch(`${API}/performance/evaluations/pending`), apiFetch(`${API}/performance/dashboard?scope=${scope}`),
       ])
       const pendingResult = await pendingRes.json().catch(() => [])
       if (pendingRes.ok) setPending(pendingResult)
       const dashResult = await dashRes.json().catch(() => ({ employees: [] }))
       if (dashRes.ok) setEmployees((dashResult.employees || []).map((e: any) => ({ userId: e.userId, userName: e.userName })))
     } finally { setLoading(false) }
-  }, [])
+  }, [scope])
   useEffect(() => { void load() }, [load])
 
   const submitCompute = async () => {
@@ -189,7 +190,7 @@ function ReviewTab() {
     try {
       const response = await apiFetch(`${API}/performance/evaluations/compute-bulk`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ periodYear: values.bulkPeriodYear, periodMonth: values.bulkPeriodMonth }),
+        body: JSON.stringify({ periodYear: values.bulkPeriodYear, periodMonth: values.bulkPeriodMonth, ...(scope === 'company' ? { scope: 'company' } : {}) }),
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'محاسبه گروهی انجام نشد')
@@ -220,15 +221,15 @@ function ReviewTab() {
 
   return (
     <div>
-      <Card size="small" title="محاسبه گروهی برای کل زیرمجموعه" style={{ marginBottom: 16 }}>
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="برای همه‌ی اعضای تیم شما با ارزیابی کیفی خنثی (۱۰۰) محاسبه می‌شود؛ هرکدام را بعداً می‌توانید جدا دوباره محاسبه یا نهایی کنید" />
+      <Card size="small" title={`محاسبه گروهی برای ${scopeLabel}`} style={{ marginBottom: 16 }}>
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`برای همه‌ی اعضای ${scopeLabel === 'کل شرکت' ? 'شرکت' : 'تیم شما'} با ارزیابی کیفی خنثی (۱۰۰) محاسبه می‌شود؛ هرکدام را بعداً می‌توانید جدا دوباره محاسبه یا نهایی کنید`} />
         <Form form={bulkForm} layout="inline" initialValues={{ bulkPeriodYear: new Date().getFullYear(), bulkPeriodMonth: new Date().getMonth() + 1 }}>
           <Form.Item name="bulkPeriodYear" label="سال" rules={[{ required: true }]}><InputNumber style={{ width: 100 }} /></Form.Item>
           <Form.Item name="bulkPeriodMonth" label="ماه" rules={[{ required: true }]}>
             <Select style={{ width: 130 }} options={monthNames.map((m, i) => ({ value: i + 1, label: m }))} />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" style={{ background: PRIMARY }} loading={bulkSaving} onClick={submitBulkCompute}>محاسبه برای همه‌ی تیم</Button>
+            <Button type="primary" style={{ background: PRIMARY }} loading={bulkSaving} onClick={submitBulkCompute}>محاسبه برای همه‌ی {scopeLabel === 'کل شرکت' ? 'شرکت' : 'تیم'}</Button>
           </Form.Item>
         </Form>
       </Card>
@@ -280,10 +281,11 @@ function ReviewTab() {
 }
 
 export default function MonthlyEvaluationPage() {
-  const { canManage } = permissionState()
+  const { canManage, canAdmin } = permissionState()
   const items = [
     { key: 'me', label: 'ارزیابی من', children: <MyEvaluations /> },
-    ...(canManage ? [{ key: 'review', label: 'بازبینی زیرمجموعه', children: <ReviewTab /> }] : []),
+    ...(canManage ? [{ key: 'review', label: 'بازبینی زیرمجموعه', children: <ReviewTab scope="team" /> }] : []),
+    ...(canAdmin ? [{ key: 'company', label: 'بازبینی کل شرکت', children: <ReviewTab scope="company" /> }] : []),
   ]
   return <Tabs items={items} />
 }

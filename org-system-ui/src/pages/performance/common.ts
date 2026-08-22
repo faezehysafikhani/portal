@@ -16,6 +16,7 @@ export const bandLabel: Record<string, string> = {
 export const bandColor: Record<string, string> = {
   Exceptional: '#52c41a', Excellent: '#1677ff', Good: '#722ed1', NeedsImprovement: '#fa8c16', PerformanceReview: '#f5222d',
 }
+export const projectStatusLabel: Record<string, string> = { Active: 'فعال', Archived: 'آرشیوشده' }
 // دوره‌های ارزیابی بر اساس ماه میلادی محاسبه می‌شوند (هم‌راستا با محاسبه‌ی بازه در بک‌اند).
 export const monthNames = ['ژانویه', 'فوریه', 'مارس', 'آوریل', 'مه', 'ژوئن', 'ژوئیه', 'اوت', 'سپتامبر', 'اکتبر', 'نوامبر', 'دسامبر']
 
@@ -27,16 +28,20 @@ export function permissionState() {
   const granted: string[] = (() => { try { return JSON.parse(localStorage.getItem('permissions') || '[]') } catch { return [] } })()
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
   const allowed = (code: string) => isAdmin || granted.includes(code)
-  return { isAdmin, allowed, canManage: allowed('performance.manage') || allowed('performance.admin'), canAdmin: allowed('performance.admin') }
+  return {
+    isAdmin, allowed, canManage: allowed('performance.manage') || allowed('performance.admin'), canAdmin: allowed('performance.admin'),
+    canAssignTasks: allowed('tasks.assign'),
+  }
 }
 
 export interface DirectoryUser { id: string; fullName?: string; username?: string; position?: string; department?: string }
+export interface ProjectRef { id: string; name: string; code?: string }
 
 export interface PerformanceTask {
   id: string; title: string; description?: string; status: string; priority: string; category?: string
   complexity?: number; impactScore?: number; taskPoint?: number | null; isSelfAdded: boolean
   creationApprovalStatus: string; qualityRating?: number; dueDate?: string; assignedByUserId: string
-  assignedToUserId?: string; assigneeUserIds: string[]; isCompletionApproved: boolean
+  assignedToUserId?: string; assigneeUserIds: string[]; isCompletionApproved: boolean; projectIds?: string[]
 }
 
 export interface EvaluationRow {
