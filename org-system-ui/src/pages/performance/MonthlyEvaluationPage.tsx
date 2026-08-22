@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, List, message, Modal, Row, Select, Slider, Space, Statistic, Table, Tabs, Tag } from 'antd'
 import { HistoryOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../utils/api'
+import { currentJalali } from '../../utils/jalali'
 import {
   API, bandColor, bandLabel, evaluationStatusColor, evaluationStatusLabel, monthNames, permissionState,
 } from './common'
@@ -223,7 +224,7 @@ function ReviewTab({ scope }: { scope: 'team' | 'company' }) {
     <div>
       <Card size="small" title={`محاسبه گروهی برای ${scopeLabel}`} style={{ marginBottom: 16 }}>
         <Alert type="info" showIcon style={{ marginBottom: 12 }} message={`برای همه‌ی اعضای ${scopeLabel === 'کل شرکت' ? 'شرکت' : 'تیم شما'} با ارزیابی کیفی خنثی (۱۰۰) محاسبه می‌شود؛ هرکدام را بعداً می‌توانید جدا دوباره محاسبه یا نهایی کنید`} />
-        <Form form={bulkForm} layout="inline" initialValues={{ bulkPeriodYear: new Date().getFullYear(), bulkPeriodMonth: new Date().getMonth() + 1 }}>
+        <Form form={bulkForm} layout="inline" initialValues={{ bulkPeriodYear: currentJalali().year, bulkPeriodMonth: currentJalali().month }}>
           <Form.Item name="bulkPeriodYear" label="سال" rules={[{ required: true }]}><InputNumber style={{ width: 100 }} /></Form.Item>
           <Form.Item name="bulkPeriodMonth" label="ماه" rules={[{ required: true }]}>
             <Select style={{ width: 130 }} options={monthNames.map((m, i) => ({ value: i + 1, label: m }))} />
@@ -234,8 +235,8 @@ function ReviewTab({ scope }: { scope: 'team' | 'company' }) {
         </Form>
       </Card>
       <Card size="small" title="محاسبه ارزیابی برای یک نفر" style={{ marginBottom: 16 }}>
-        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="دوره‌های ارزیابی بر اساس تقویم میلادی محاسبه می‌شوند" />
-        <Form form={form} layout="inline" initialValues={{ periodYear: new Date().getFullYear(), periodMonth: new Date().getMonth() + 1, managerQualitativeScore: 100 }}>
+        <Alert type="info" showIcon style={{ marginBottom: 12 }} message="دوره‌های ارزیابی بر اساس تقویم شمسی محاسبه می‌شوند" />
+        <Form form={form} layout="inline" initialValues={{ periodYear: currentJalali().year, periodMonth: currentJalali().month, managerQualitativeScore: 100 }}>
           <Form.Item name="userId" label="کارمند" rules={[{ required: true }]}>
             <Select style={{ width: 200 }} options={employees.map(e => ({ value: e.userId, label: e.userName }))} />
           </Form.Item>

@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json, uuid } from '../_shared/http.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
+import { jalaliMonthRange } from '../_shared/jalali.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -199,8 +200,9 @@ async function computeOneEvaluation(auth: AuthContext, targetUserId: string, per
   if (existing.data && Number((existing.data as Obj).Status) === 2) throw new HttpError(400, 'این ارزیابی نهایی شده است؛ ابتدا آن را بازگشایی کنید')
 
   const settings = await loadSettings(auth.tenantId)
-  const monthStart = new Date(Date.UTC(periodYear, periodMonth - 1, 1))
-  const monthEnd = new Date(Date.UTC(periodYear, periodMonth, 1))
+  // periodYear/periodMonth are Jalali (شمسی) — convert to the Gregorian instant range they cover
+  // so Task.DueDate/CompletionApprovedAt (stored as absolute timestamps) can be filtered against it.
+  const { start: monthStart, end: monthEnd } = jalaliMonthRange(periodYear, periodMonth)
 
   const tasksResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     .or(`AssignedToUserId.eq.${targetUserId},AssigneeUserIdsJson.ilike.%${targetUserId}%`)

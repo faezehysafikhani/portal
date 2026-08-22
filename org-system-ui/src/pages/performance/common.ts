@@ -17,8 +17,8 @@ export const bandColor: Record<string, string> = {
   Exceptional: '#52c41a', Excellent: '#1677ff', Good: '#722ed1', NeedsImprovement: '#fa8c16', PerformanceReview: '#f5222d',
 }
 export const projectStatusLabel: Record<string, string> = { Active: 'فعال', Archived: 'آرشیوشده' }
-// دوره‌های ارزیابی بر اساس ماه میلادی محاسبه می‌شوند (هم‌راستا با محاسبه‌ی بازه در بک‌اند).
-export const monthNames = ['ژانویه', 'فوریه', 'مارس', 'آوریل', 'مه', 'ژوئن', 'ژوئیه', 'اوت', 'سپتامبر', 'اکتبر', 'نوامبر', 'دسامبر']
+// دوره‌های ارزیابی بر اساس ماه شمسی محاسبه می‌شوند (هم‌راستا با jalaliMonthRange در بک‌اند).
+export const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند']
 
 export function currentUser(): { id?: string; fullName?: string } {
   try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} }
