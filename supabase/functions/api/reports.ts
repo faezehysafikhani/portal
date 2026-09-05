@@ -69,7 +69,8 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
     const historiesR=ids.length?await db.from('FormWorkflowHistories').select('FormId,Action,ActorName,Note,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormId',ids).order('CreatedAt'):({data:[],error:null} as any);check(historiesR.error)
     const histories=new Map<string,Obj[]>();for(const h of historiesR.data??[]){const list=histories.get(h.FormId)??[];list.push(h);histories.set(h.FormId,list)}
     const actionLabel:Obj={submitted:'ارسال فرم',approve:'تأیید',complete:'خاتمه فرم',reject:'رد فرم',return:'برگشت برای اصلاح'}
-    return json(request,filtered.map((x:Obj)=>({id:x.Id,title:x.Title,formType:x.FormType,employeeName:x.SubmitterName,managerName:x.ManagerName,hrName:x.HrName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,history:(histories.get(x.Id)??[]).map((h:Obj)=>({action:actionLabel[String(h.Action)]||h.Action,by:h.ActorName,note:h.Note,createdAt:h.CreatedAt}))})))
+    const effectiveFormType=(x:Obj)=>{if(x.FormType!=='leave_daily')return x.FormType;try{const data=typeof x.DataJson==='string'?JSON.parse(x.DataJson):(x.DataJson??{});return data.leaveType==='استعلاجی'?'leave_sick':x.FormType}catch{return x.FormType}}
+    return json(request,filtered.map((x:Obj)=>({id:x.Id,title:x.Title,formType:effectiveFormType(x),employeeName:x.SubmitterName,managerName:x.ManagerName,hrName:x.HrName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,history:(histories.get(x.Id)??[]).map((h:Obj)=>({action:actionLabel[String(h.Action)]||h.Action,by:h.ActorName,note:h.Note,createdAt:h.CreatedAt}))})))
   }
 
   if (path === '/reports/forms/pending') {
