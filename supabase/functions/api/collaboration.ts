@@ -246,6 +246,15 @@ function requestedLeaveHours(formType:string,data:Obj):number {
     if(minutes>480)throw new HttpError(400,'مرخصی ساعتی در یک روز نمی‌تواند بیشتر از ۸ ساعت باشد.')
     return minutes/60
   }
+  if(formType==='leave_sick'){
+    const from=jalaliDayNumber(data.fromDate),to=jalaliDayNumber(data.toDate)
+    if(from===null||to===null)throw new HttpError(400,'تاریخ شروع یا پایان مرخصی استعلاجی معتبر نیست.')
+    const days=to-from+1
+    if(days<=0)throw new HttpError(400,'تاریخ پایان باید بعد از تاریخ شروع باشد.')
+    if(days>3)throw new HttpError(400,'مرخصی استعلاجی در هر درخواست نمی‌تواند بیشتر از ۳ روز باشد.')
+    if(String(data.fromDate).slice(0,7)!==String(data.toDate).slice(0,7))throw new HttpError(400,'بازه مرخصی استعلاجی باید در یک ماه شمسی باشد.')
+    return days*8
+  }
   return 0
 }
 
@@ -268,7 +277,7 @@ async function workflow(auth: AuthContext) {
   return { submitter:person(current.data), manager, hrManager, isConfigured:Boolean(manager&&hrManager), message:manager&&hrManager?undefined:'مدیر مستقیم یا مسئول منابع انسانی در پروفایل کاربر تنظیم نشده است.', users }
 }
 
-async function leaveAccount(auth: AuthContext, userId=auth.userId) {
+export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
   const ym=jalaliYearMonth(),[found,user,personnel,pending,approved]=await Promise.all([
     db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle(),
     db.from('Users').select('CreatedAt').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
@@ -323,11 +332,22 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     if(!hrManager)throw new HttpError(400,'مدیر منابع انسانی در پروفایل شما تنظیم نشده است.')
     if(!isPersonnel&&!route.isConfigured)throw new HttpError(400,route.message)
     const requestedHours=requestedLeaveHours(formType,input.data??{})
-    if(['leave_daily','leave_hourly'].includes(String(input.formType))&&requestedHours<=0)throw new HttpError(400,'مدت مرخصی معتبر نیست.')
+    if(['leave_daily','leave_hourly','leave_sick'].includes(String(input.formType))&&requestedHours<=0)throw new HttpError(400,'مدت مرخصی معتبر نیست.')
+    if(formType==='leave_sick'){
+      const yearMonth=String((input.data??{}).fromDate??'').slice(0,7)
+      const sameType=await db.from('OrganizationalForms').select('DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',auth.userId).eq('IsDeleted',false).eq('FormType','leave_sick').in('Status',['manager_pending','hr_pending','approved','completed']);check(sameType.error)
+      const usedDays=(sameType.data??[]).filter((item:Obj)=>String(formData(item.DataJson).fromDate??'').slice(0,7)===yearMonth).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0)/8,0)
+      const newDays=requestedHours/8
+      if(usedDays+newDays>3)throw new HttpError(400,`مجموع مرخصی استعلاجی این ماه از ۳ روز بیشتر می‌شود (تاکنون ${usedDays} روز ثبت شده است).`)
+      const attachmentData=String(input.attachmentData??'')
+      if(!attachmentData)throw new HttpError(400,'آپلود تصویر یا فایل استعلاجی پزشک الزامی است.')
+      if(attachmentData.length>3_000_000)throw new HttpError(413,'حجم فایل استعلاجی بیش از حد مجاز است (حداکثر حدود ۲ مگابایت).')
+      if(!/^(image\/(png|jpe?g)|application\/pdf)$/i.test(String(input.attachmentContentType??'')))throw new HttpError(400,'فایل استعلاجی باید تصویر JPG/PNG یا PDF باشد.')
+    }
     const chargesBalance=consumesLeaveBalance(formType,input.data??{})
     let account:Obj|null=null
     if(requestedHours>0&&chargesBalance){account=await leaveAccount(auth);if(requestedHours>account.availableHours)throw new HttpError(400,`مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)}
-    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager?.id??null, ManagerName:route.manager?.fullName??null, HrUserId: hrManager.id, HrName:hrManager.fullName, Status: isPersonnel?'hr_pending':'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}), ClientRequestId:clientRequestId }
+    const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager?.id??null, ManagerName:route.manager?.fullName??null, HrUserId: hrManager.id, HrName:hrManager.fullName, Status: isPersonnel?'hr_pending':'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}), ClientRequestId:clientRequestId, AttachmentData: formType==='leave_sick'?String(input.attachmentData):null, AttachmentName: formType==='leave_sick'?String(input.attachmentName??'attachment').slice(0,260):null, AttachmentContentType: formType==='leave_sick'?String(input.attachmentContentType??''):null }
     const result = await db.from('OrganizationalForms').insert(row).select().single()
     if(result.error?.code==='23505'){const duplicate=await db.from('OrganizationalForms').select('*').eq('TenantId',auth.tenantId).eq('SubmitterUserId',auth.userId).eq('ClientRequestId',clientRequestId).eq('IsDeleted',false).single();check(duplicate.error);return json(request,{...camelize(duplicate.data) as Obj,message:'این فرم قبلاً ثبت شده است.',duplicate:true})}
     check(result.error)
@@ -369,6 +389,15 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
       ])
     }else await createNotification(db,auth,{userId:form.SubmitterUserId,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'})
     return json(request, { status: result.data.Status })
+  }
+  const attachmentMatch = path.match(/^\/forms\/([0-9a-f-]+)\/attachment$/i)
+  if (attachmentMatch && request.method === 'GET') {
+    requirePermission(auth, 'forms.view')
+    const result=await db.from('OrganizationalForms').select('SubmitterUserId,ManagerUserId,HrUserId,AttachmentData,AttachmentName,AttachmentContentType').eq('TenantId',auth.tenantId).eq('Id',attachmentMatch[1]).eq('IsDeleted',false).maybeSingle();check(result.error)
+    const allowed=!!result.data&&(result.data.SubmitterUserId===auth.userId||result.data.ManagerUserId===auth.userId||result.data.HrUserId===auth.userId||auth.isAdmin)
+    if(!result.data||!allowed||!result.data.AttachmentData)throw new HttpError(404,'فایل پیوست یافت نشد')
+    const binary=Uint8Array.from(atob(String(result.data.AttachmentData)),c=>c.charCodeAt(0))
+    return new Response(binary,{headers:{...corsHeaders(request),'Content-Type':result.data.AttachmentContentType||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(result.data.AttachmentName||'attachment')}`}})
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }

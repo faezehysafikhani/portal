@@ -1,5 +1,6 @@
 import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
 import { camelize, HttpError, json } from '../_shared/http.ts'
+import { leaveAccount } from './collaboration.ts'
 
 type Obj = Record<string, any>
 const db = adminClient(); const taskStatuses = ['Todo', 'InProgress', 'InReview', 'Done', 'Cancelled']; const priorities = ['Low', 'Medium', 'High', 'Critical']; const letterTypes = ['Internal', 'Incoming', 'Outgoing']; const letterStatuses = ['Draft', 'Sent', 'Received', 'InReview', 'Signed', 'Referred', 'Archived', 'Cancelled']
@@ -29,18 +30,46 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
   if (path === '/reports/forms/leave') {
     const userId=url.searchParams.get('userId'), fromDate=url.searchParams.get('fromDate')?.replaceAll('-','/'), toDate=url.searchParams.get('toDate')?.replaceAll('-','/')
     if (fromDate && toDate && fromDate > toDate) throw new HttpError(400, 'تاریخ پایان نمی‌تواند قبل از تاریخ شروع باشد')
-    let query=db.from('OrganizationalForms').select('Id,FormType,DataJson,SubmitterUserId,SubmitterName,ManagerName,Status,RequestedHours,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormType',['leave_daily','leave_hourly']).eq('Status','approved')
+    let query=db.from('OrganizationalForms').select('Id,FormType,DataJson,SubmitterUserId,SubmitterName,ManagerName,Status,RequestedHours,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormType',['leave_daily','leave_hourly','leave_sick']).eq('Status','approved')
     if(userId) query=query.eq('SubmitterUserId',userId)
     const formsR=await query.order('CreatedAt',{ascending:false});check(formsR.error)
     const rows:Obj[]=[]
     for(const item of formsR.data??[]){
       let data:Obj={};try{data=typeof item.DataJson==='string'?JSON.parse(item.DataJson):(item.DataJson??{})}catch{continue}
-      const daily=item.FormType==='leave_daily', start=String(data[daily?'fromDate':'date']??'').replaceAll('-','/'), end=String(daily?(data.toDate??start):start).replaceAll('-','/')
+      const dayBased=item.FormType==='leave_daily'||item.FormType==='leave_sick', start=String(data[dayBased?'fromDate':'date']??'').replaceAll('-','/'), end=String(dayBased?(data.toDate??start):start).replaceAll('-','/')
       if(!/^\d{4}\/\d{2}\/\d{2}$/.test(start)||!/^\d{4}\/\d{2}\/\d{2}$/.test(end))continue
       if((fromDate&&end<fromDate)||(toDate&&start>toDate))continue
-      rows.push({id:item.Id,employeeName:item.SubmitterName,leaveKind:daily?'روزانه':'ساعتی',startDate:daily?start:'—',endDate:daily?end:'—',dayCount:daily?Number(item.RequestedHours??0)/8:'—',hourlyDate:daily?'—':start,startTime:daily?'—':(data.fromTime??'—'),endTime:daily?'—':(data.toTime??'—'),totalHours:daily?'—':Number(item.RequestedHours??0),managerName:item.ManagerName,createdAt:item.CreatedAt})
+      const leaveKind=item.FormType==='leave_sick'||data.leaveType==='استعلاجی'?'استعلاجی':dayBased?'روزانه':'ساعتی'
+      rows.push({id:item.Id,employeeName:item.SubmitterName,leaveKind,startDate:dayBased?start:'—',endDate:dayBased?end:'—',dayCount:dayBased?Number(item.RequestedHours??0)/8:'—',hourlyDate:dayBased?'—':start,startTime:dayBased?'—':(data.fromTime??'—'),endTime:dayBased?'—':(data.toTime??'—'),totalHours:dayBased?'—':Number(item.RequestedHours??0),managerName:item.ManagerName,createdAt:item.CreatedAt})
     }
     return json(request,rows)
+  }
+
+  if (path === '/reports/forms/leave-balance') {
+    const userId=url.searchParams.get('userId')
+    const withPerson=async(u:Obj)=>{const account=camelize(await leaveAccount(auth,u.Id)) as Obj;return{...account,userId:u.Id,employeeName:`${u.FirstName??''} ${u.LastName??''}`.trim(),position:u.Position,department:u.Department}}
+    if(userId){
+      const userR=await db.from('Users').select('Id,FirstName,LastName,Position,Department').eq('TenantId',auth.tenantId).eq('Id',userId).maybeSingle();check(userR.error)
+      if(!userR.data)throw new HttpError(404,'کارمند یافت نشد')
+      return json(request,[await withPerson(userR.data)])
+    }
+    const usersR=await db.from('Users').select('Id,FirstName,LastName,Position,Department').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('IsActive',true).order('FirstName');check(usersR.error)
+    const rows=await Promise.all((usersR.data??[]).map(withPerson))
+    return json(request,rows.sort((a:Obj,b:Obj)=>String(a.employeeName).localeCompare(String(b.employeeName),'fa')))
+  }
+
+  if (path === '/reports/forms/leave-workflow') {
+    const userId=url.searchParams.get('userId'), fromDate=url.searchParams.get('fromDate')?.replaceAll('-','/'), toDate=url.searchParams.get('toDate')?.replaceAll('-','/')
+    if (fromDate && toDate && fromDate > toDate) throw new HttpError(400, 'تاریخ پایان نمی‌تواند قبل از تاریخ شروع باشد')
+    let query=db.from('OrganizationalForms').select('Id,FormType,Title,DataJson,SubmitterName,ManagerName,HrName,Status,RequestedHours,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormType',['leave_daily','leave_hourly','leave_sick'])
+    if(userId) query=query.eq('SubmitterUserId',userId)
+    const formsR=await query.order('CreatedAt',{ascending:false}).limit(500);check(formsR.error)
+    const filtered=(formsR.data??[]).filter((item:Obj)=>{if(!fromDate&&!toDate)return true;const day=String(item.CreatedAt).slice(0,10).replaceAll('-','/');return (!fromDate||day>=fromDate)&&(!toDate||day<=toDate)})
+    const ids=filtered.map((x:Obj)=>x.Id)
+    const historiesR=ids.length?await db.from('FormWorkflowHistories').select('FormId,Action,ActorName,Note,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('FormId',ids).order('CreatedAt'):({data:[],error:null} as any);check(historiesR.error)
+    const histories=new Map<string,Obj[]>();for(const h of historiesR.data??[]){const list=histories.get(h.FormId)??[];list.push(h);histories.set(h.FormId,list)}
+    const actionLabel:Obj={submitted:'ارسال فرم',approve:'تأیید',complete:'خاتمه فرم',reject:'رد فرم',return:'برگشت برای اصلاح'}
+    return json(request,filtered.map((x:Obj)=>({id:x.Id,title:x.Title,formType:x.FormType,employeeName:x.SubmitterName,managerName:x.ManagerName,hrName:x.HrName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,history:(histories.get(x.Id)??[]).map((h:Obj)=>({action:actionLabel[String(h.Action)]||h.Action,by:h.ActorName,note:h.Note,createdAt:h.CreatedAt}))})))
   }
 
   if (path === '/reports/forms/pending') {

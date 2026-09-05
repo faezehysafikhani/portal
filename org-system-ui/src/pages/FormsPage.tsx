@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker, Descriptions } from 'antd'
-import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
+import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useLocation } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
 import PersianDatePicker from '../components/PersianDatePicker'
@@ -12,6 +12,7 @@ const codePattern=/<[^>]*>|javascript\s*:|--|\/\*|\*\/|;\s*(select|insert|update
 const safeRule={validator:(_:unknown,value?:string)=>!value||!codePattern.test(value)?Promise.resolve():Promise.reject(new Error('ورود کد HTML، JavaScript یا SQL مجاز نیست'))}
 const nameRule={pattern:/^[\p{L}\p{M}\s\u200c-]+$/u,message:'این فیلد فقط باید شامل حروف باشد'}
 const onlyDigits=(value='')=>value.replace(/[۰-۹]/g,c=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[٠-٩]/g,c=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/\D/g,'')
+const fileToBase64=(file:Blob)=>new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(new Error('read'));reader.onload=()=>resolve(String(reader.result).split(',')[1]||'');reader.readAsDataURL(file)})
 interface InternalUser { id:string; fullName:string; position?:string; department?:string }
 interface LeaveBalance { accruedHours:number; usedHours:number; availableHours:number; days:number; remainingHours:number; monthlyAccrualHours:number; reservedHours:number }
 interface WorkflowConfig { submitter?:InternalUser; manager?:InternalUser; hrManager?:InternalUser; isConfigured:boolean; message?:string; users:InternalUser[] }
@@ -48,6 +49,7 @@ const STATUS_CONFIG: Record<FormStatus, { color: string; step: number }> = {
 export const FORM_TYPES: Record<string, { label: string; icon: string; color: string }> = {
   leave_daily: { label: 'مرخصی روزانه', icon: '🗓️', color: '#1677ff' },
   leave_hourly: { label: 'مرخصی ساعتی', icon: '⏰', color: '#13c2c2' },
+  leave_sick: { label: 'مرخصی استعلاجی', icon: '🏥', color: '#eb2f96' },
   mission: { label: 'ماموریت', icon: '🚀', color: '#722ed1' },
   loan: { label: 'وام', icon: '💰', color: '#52c41a' },
   payslip: { label: 'فیش حقوقی', icon: '📄', color: '#fa8c16' },
@@ -178,9 +180,11 @@ export default function FormsPage() {
     setSubmittingForm(true)
     try {
       const values=await form.validateFields()
-      const data={...values,fromTime:values.fromTime?.format?.('HH:mm')??values.fromTime,toTime:values.toTime?.format?.('HH:mm')??values.toTime}
+      const data:Record<string,any>={...values,fromTime:values.fromTime?.format?.('HH:mm')??values.fromTime,toTime:values.toTime?.format?.('HH:mm')??values.toTime}
+      delete data.medicalCertificate
       if(Object.values(data).some(v=>typeof v==='string'&&codePattern.test(v))){notification.error({message:'ورود کد HTML، JavaScript یا SQL مجاز نیست'});return}
       let requestedHours=0
+      let attachment:{attachmentData:string;attachmentName:string;attachmentContentType:string}|undefined
       if(newFormType==='leave_daily'){
         const from=jalaliToDate(values.fromDate),to=jalaliToDate(values.toDate)
         const days=Math.floor((to.getTime()-from.getTime())/86400000)+1
@@ -194,8 +198,21 @@ export default function FormsPage() {
         if(!checkLeaveBalance(newFormType,undefined,hours))return
         requestedHours=hours
       }
+      if(newFormType==='leave_sick'){
+        const from=jalaliToDate(values.fromDate),to=jalaliToDate(values.toDate)
+        const days=Math.floor((to.getTime()-from.getTime())/86400000)+1
+        if(days<=0){notification.error({message:'تاریخ پایان باید بعد از تاریخ شروع باشد'});return}
+        if(days>3){notification.error({message:'مرخصی استعلاجی نمی‌تواند بیشتر از ۳ روز در هر درخواست باشد'});return}
+        requestedHours=days*8
+        const file=values.medicalCertificate?.[0]?.originFileObj as File|undefined
+        if(!file){notification.error({message:'آپلود تصویر یا فایل استعلاجی پزشک الزامی است'});return}
+        if(file.size>2*1024*1024){notification.error({message:'حجم فایل استعلاجی نباید بیشتر از ۲ مگابایت باشد'});return}
+        const attachmentData=await fileToBase64(file).catch(()=>null)
+        if(!attachmentData){notification.error({message:'خواندن فایل استعلاجی انجام نشد'});return}
+        attachment={attachmentData,attachmentName:file.name,attachmentContentType:file.type||'application/octet-stream'}
+      }
 
-      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data,clientRequestId:formRequestId.current})})
+      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data,clientRequestId:formRequestId.current,...attachment})})
       const result=await res.json().catch(()=>({}));if(!res.ok){notification.error({message:result.message||'خطا در ارسال فرم'});return}
       setNewFormModal(false)
       form.resetFields()
@@ -207,6 +224,12 @@ export default function FormsPage() {
     } finally {
       setSubmittingForm(false)
     }
+  }
+
+  const downloadAttachment = async (id: string, name?: string) => {
+    const res = await apiFetch(`${API}/forms/${id}/attachment`)
+    if (!res.ok) { notification.error({ message: 'دریافت فایل استعلاجی انجام نشد' }); return }
+    const url = URL.createObjectURL(await res.blob()); const link = document.createElement('a'); link.href = url; link.download = name || 'attachment'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   const handleAction = async () => {
@@ -221,11 +244,11 @@ export default function FormsPage() {
   // ── فرم مرخصی روزانه ────────────────────────────────
   const LeaveDailyForm = () => (
     <div>
-      <Alert message={`مانده مرخصی استحقاقی: ${formatDuration(leaveBalance.availableHours)} (معادل ${leaveBalance.days.toLocaleString('fa-IR')} روز کاری)`} description="برای مرخصی استعلاجی یا بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={`مانده مرخصی استحقاقی: ${formatDuration(leaveBalance.availableHours)} (معادل ${leaveBalance.days.toLocaleString('fa-IR')} روز کاری)`} description="برای مرخصی بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست. برای مرخصی استعلاجی از فرم جداگانه «مرخصی استعلاجی» استفاده کنید." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="fromDate" label="از تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={12}><Form.Item name="toDate" label="تا تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
-        <Col span={12}><Form.Item name="leaveType" label="نوع مرخصی"><Select><Select.Option value="استحقاقی">استحقاقی</Select.Option><Select.Option value="استعلاجی">استعلاجی</Select.Option><Select.Option value="بدون حقوق">بدون حقوق</Select.Option></Select></Form.Item></Col>
+        <Col span={12}><Form.Item name="leaveType" label="نوع مرخصی"><Select><Select.Option value="استحقاقی">استحقاقی</Select.Option><Select.Option value="بدون حقوق">بدون حقوق</Select.Option></Select></Form.Item></Col>
         <Col span={12}><Form.Item name="manager" label="مدیر مستقیم"><Select disabled placeholder="از پروفایل سازمانی تعیین می‌شود" options={managerOptions}/></Form.Item></Col>
         <Col span={12}><Form.Item name="replacement" label="جانشین در غیاب"><Select allowClear options={userOptions}/></Form.Item></Col>
         <Col span={24}><Form.Item name="reason" label="علت مرخصی" rules={[{ required: true },safeRule]}><Input.TextArea rows={3} maxLength={1000} showCount /></Form.Item></Col>
@@ -243,6 +266,26 @@ export default function FormsPage() {
         <Col span={6}><Form.Item name="toTime" label="تا ساعت" rules={[{ required: true }]}><TimePicker format="HH:mm" minuteStep={5} style={{width:'100%'}} placeholder="انتخاب ساعت" /></Form.Item></Col>
         <Col span={12}><Form.Item name="manager" label="مدیر مستقیم"><Select disabled placeholder="از پروفایل سازمانی تعیین می‌شود" options={managerOptions}/></Form.Item></Col>
         <Col span={24}><Form.Item name="reason" label="علت مرخصی" rules={[{ required: true },safeRule]}><Input.TextArea rows={2} maxLength={1000} showCount /></Form.Item></Col>
+      </Row>
+    </div>
+  )
+
+  // ── فرم مرخصی استعلاجی ──────────────────────────────
+  const LeaveSickForm = () => (
+    <div>
+      <Alert message="مرخصی استعلاجی از مانده مرخصی شما کسر نمی‌شود." description="حداکثر ۳ روز در هر ماه شمسی و صرفاً به‌صورت روزانه (بدون تعیین ساعت) قابل ثبت است. آپلود تصویر یا فایل استعلاجی پزشک الزامی است." type="info" showIcon style={{ marginBottom: 16 }} />
+      <Row gutter={16}>
+        <Col span={12}><Form.Item name="fromDate" label="از تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
+        <Col span={12}><Form.Item name="toDate" label="تا تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
+        <Col span={12}><Form.Item name="manager" label="مدیر مستقیم"><Select disabled placeholder="از پروفایل سازمانی تعیین می‌شود" options={managerOptions}/></Form.Item></Col>
+        <Col span={12}>
+          <Form.Item name="medicalCertificate" label="تصویر استعلاجی پزشک" valuePropName="fileList" getValueFromEvent={(e:any)=>Array.isArray(e)?e:e?.fileList} rules={[{ required: true, message: 'آپلود تصویر یا فایل استعلاجی پزشک الزامی است' }]}>
+            <Upload beforeUpload={() => false} accept=".pdf,.jpg,.jpeg,.png" maxCount={1}>
+              <Button icon={<UploadOutlined />}>انتخاب فایل استعلاجی</Button>
+            </Upload>
+          </Form.Item>
+        </Col>
+        <Col span={24}><Form.Item name="reason" label="توضیحات (اختیاری)" rules={[safeRule]}><Input.TextArea rows={2} maxLength={1000} showCount /></Form.Item></Col>
       </Row>
     </div>
   )
@@ -373,6 +416,7 @@ export default function FormsPage() {
     switch (newFormType) {
       case 'leave_daily': return <LeaveDailyForm />
       case 'leave_hourly': return <LeaveHourlyForm />
+      case 'leave_sick': return <LeaveSickForm />
       case 'mission': return <MissionForm />
       case 'loan': return <LoanForm />
       case 'payslip': return <PayslipForm />
@@ -486,6 +530,11 @@ export default function FormsPage() {
 
             <Divider>مشخصات ثبت‌شده در فرم</Divider>
             <FormDataDetails submission={selectedForm}/>
+
+            {selectedForm.formType==='leave_sick' && (
+              <Alert style={{ marginBottom: 16 }} type="success" showIcon message="فایل استعلاجی پزشک"
+                action={<Button size="small" icon={<DownloadOutlined />} onClick={() => downloadAttachment(selectedForm.id, `استعلاجی-${selectedForm.submitter}`)}>دانلود فایل</Button>} />
+            )}
 
             {selectedForm.status === 'برگشت برای اصلاح' && (
               <Alert message="این فرم برای اصلاح برگشت داده شده است." type="warning" showIcon
