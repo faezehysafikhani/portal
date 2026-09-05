@@ -447,7 +447,7 @@ export default function UsersPage() {
           ).map(([module,permissions])=>{
             const selectedCount=permissions.filter(permission=>selectedPermissionIds.includes(permission.id)).length
             const allSelected=selectedCount===permissions.length
-            const moduleLabels:Record<string,string>={letters:'نامه‌نگاری و دبیرخانه',calendar:'تقویم و جلسات',users:'مدیریت کاربران',tickets:'تیکت‌ها',contacts:'مخاطبین',tasks:'وظایف و پروژه',forms:'فرم‌های سازمانی',sms:'پیامک',settings:'تنظیمات',reports:'گزارش‌ها',company:'اطلاعات شرکت',chat:'چت داخلی',ai:'هوش مصنوعی'}
+            const moduleLabels:Record<string,string>={letters:'نامه‌نگاری و دبیرخانه',calendar:'تقویم و جلسات',users:'مدیریت کاربران',tickets:'تیکت‌ها',contacts:'مخاطبین',tasks:'وظایف و پروژه',forms:'فرم‌های سازمانی',sms:'پیامک',settings:'تنظیمات',reports:'گزارش‌ها',company:'اطلاعات شرکت',chat:'چت داخلی',ai:'هوش مصنوعی',performance:'ارزیابی عملکرد'}
             return {
               key:module,
               label:<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>{moduleLabels[module]||module}</strong><Badge count={`${selectedCount}/${permissions.length}`} style={{background:selectedCount?'#8B1A6B':'#bfbfbf'}}/></div>,

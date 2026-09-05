@@ -77,6 +77,8 @@ const TaskSheetPage = lazyWithRecovery('performance-tasks', () => import('./page
 const WeeklyReportPage = lazyWithRecovery('performance-weekly', () => import('./pages/performance/WeeklyReportPage'))
 const MonthlyEvaluationPage = lazyWithRecovery('performance-evaluations', () => import('./pages/performance/MonthlyEvaluationPage'))
 const PerformanceSettingsPage = lazyWithRecovery('performance-settings', () => import('./pages/performance/PerformanceSettingsPage'))
+const QuarterlyReviewPage = lazyWithRecovery('performance-quarterly', () => import('./pages/performance/QuarterlyReviewPage'))
+const TimesheetPage = lazyWithRecovery('performance-timesheet', () => import('./pages/performance/TimesheetPage'))
 
 function App() {
   const token = localStorage.getItem('token')
@@ -124,6 +126,8 @@ function App() {
           <Route path="/performance/weekly" element={<WeeklyReportPage />} />
           <Route path="/performance/evaluations" element={<MonthlyEvaluationPage />} />
           <Route path="/performance/settings" element={<PerformanceSettingsPage />} />
+          <Route path="/performance/quarterly" element={<QuarterlyReviewPage />} />
+          <Route path="/performance/timesheet" element={<TimesheetPage />} />
           <Route path="/letters" element={<LettersPage />} />
           <Route path="/letters/new" element={<LettersPage />} />
           <Route path="/letters/registry" element={<LettersPage />} />

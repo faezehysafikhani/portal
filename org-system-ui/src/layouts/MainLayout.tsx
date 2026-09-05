@@ -8,7 +8,8 @@ import {
   ContactsOutlined, UnorderedListOutlined,
   InboxOutlined, EditOutlined, BookOutlined,
   SwapOutlined,
-  FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined, WarningOutlined, TrophyOutlined, CalendarOutlined
+  FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined, WarningOutlined, TrophyOutlined, CalendarOutlined,
+  FieldTimeOutlined, AuditOutlined,
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
 
@@ -63,6 +64,8 @@ export default function MainLayout() {
         { key: '/performance/tasks', icon: <UnorderedListOutlined />, label: 'Task Sheet من' },
         { key: '/performance/weekly', icon: <CalendarOutlined />, label: 'گزارش هفتگی' },
         { key: '/performance/evaluations', icon: <CheckSquareOutlined />, label: 'ارزیابی ماهانه' },
+        { key: '/performance/timesheet', icon: <FieldTimeOutlined />, label: 'تایم‌شیت روزانه' },
+        { key: '/performance/quarterly', icon: <AuditOutlined />, label: 'ارزیابی فصلی HR' },
         ...(allowed('performance.admin') ? [{ key: '/performance/settings', icon: <SettingOutlined />, label: 'معیارها و تنظیمات' }] : []),
       ]
     }] : []),
@@ -121,6 +124,8 @@ export default function MainLayout() {
       '/performance/tasks': 'Task Sheet من',
       '/performance/weekly': 'گزارش هفتگی',
       '/performance/evaluations': 'ارزیابی ماهانه',
+      '/performance/timesheet': 'تایم‌شیت روزانه',
+      '/performance/quarterly': 'ارزیابی فصلی HR',
       '/performance/settings': 'معیارها و تنظیمات ارزیابی',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
