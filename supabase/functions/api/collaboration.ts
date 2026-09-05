@@ -280,7 +280,7 @@ async function workflow(auth: AuthContext) {
 export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
   const ym=jalaliYearMonth(),[found,user,personnel,pending,approved]=await Promise.all([
     db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle(),
-    db.from('Users').select('CreatedAt').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
+    db.from('Users').select('CreatedAt,EmploymentStartDate').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
     db.from('OrganizationalForms').select('DataJson,CreatedAt').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).eq('FormType','personnel').in('Status',['hr_pending','approved','completed']).order('CreatedAt',{ascending:false}).limit(10),
     db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']),
     db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['approved','completed']),
@@ -288,7 +288,8 @@ export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
   const personnelStart = (personnel.data ?? [])
     .map((item:Obj) => validYearMonth(formData(item.DataJson).startDate))
     .find((value:number|null) => value !== null)
-  const startedYm=personnelStart ?? (user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym)
+  const employmentStart = validYearMonth(user.data?.EmploymentStartDate)
+  const startedYm=employmentStart ?? personnelStart ?? (user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym)
   const entitledMonths=Math.max(1,monthIndex(ym)-monthIndex(startedYm)+1)
   const actualReserved=(pending.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
   const actualUsed=(approved.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)

@@ -73,6 +73,18 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
     return json(request,filtered.map((x:Obj)=>({id:x.Id,title:x.Title,formType:effectiveFormType(x),employeeName:x.SubmitterName,managerName:x.ManagerName,hrName:x.HrName,status:x.Status,requestedHours:x.RequestedHours,createdAt:x.CreatedAt,history:(histories.get(x.Id)??[]).map((h:Obj)=>({action:actionLabel[String(h.Action)]||h.Action,by:h.ActorName,note:h.Note,createdAt:h.CreatedAt}))})))
   }
 
+  if (path === '/reports/meetings') {
+    const fromDate=url.searchParams.get('fromDate'), toDate=url.searchParams.get('toDate')
+    let query=db.from('CalendarEvents').select('Id,Title,Description,StartAt,EndAt,IsAllDay,Location,OnlineMeetingUrl,Status,OrganizerDisplayName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('EventType','meeting')
+    if(fromDate) query=query.gte('StartAt',fromDate)
+    if(toDate) query=query.lte('StartAt',toDate)
+    const eventsR=await query.order('StartAt',{ascending:false}).limit(500);check(eventsR.error)
+    const events=eventsR.data??[], ids=events.map((x:Obj)=>x.Id)
+    const participantsR=ids.length?await db.from('EventParticipants').select('EventId,DisplayName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('EventId',ids):({data:[],error:null} as any);check(participantsR.error)
+    const byEvent=new Map<string,string[]>();for(const p of participantsR.data??[]){const list=byEvent.get(p.EventId)??[];if(p.DisplayName)list.push(p.DisplayName);byEvent.set(p.EventId,list)}
+    return json(request,events.map((e:Obj)=>{const names=byEvent.get(e.Id)??[];return{id:e.Id,title:e.Title,description:e.Description,startAt:e.StartAt,endAt:e.EndAt,isAllDay:e.IsAllDay,location:e.Location,onlineMeetingUrl:e.OnlineMeetingUrl,status:e.Status,organizerName:e.OrganizerDisplayName,participantCount:names.length,participantNames:names.join('، ')}}))
+  }
+
   if (path === '/reports/forms/pending') {
     const result=await db.from('OrganizationalForms').select('Id,Title,FormType,DataJson,SubmitterUserId,SubmitterName,Status,RequestedHours,CreatedAt,ManagerName,HrName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).order('CreatedAt');check(result.error)
     const all=result.data??[], pending=all.filter((x:Obj)=>['manager_pending','hr_pending'].includes(x.Status)), ids=pending.map((x:Obj)=>x.Id)
