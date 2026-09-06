@@ -26,11 +26,31 @@ function timesheetDto(item: Obj): Obj {
   return result
 }
 
+// Tehran is UTC+3:30 with no DST — a fixed offset is safe here.
+function todayIsoInTehran(): string {
+  return new Date(Date.now() + 3.5 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 async function submitTimesheet(request: Request, auth: AuthContext): Promise<Response> {
   requirePermission(auth, 'performance.view')
   const input = await body<Obj>(request)
-  const date = String(input.date ?? '')
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpError(400, 'تاریخ معتبر نیست')
+  const targetUserId = input.userId ? String(input.userId) : auth.userId
+  const isForOther = targetUserId !== auth.userId
+
+  let date: string
+  if (isForOther) {
+    // A manager logging on a reviewee's behalf may pick any date (e.g. backfilling).
+    if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
+    const reviewerId = await findReviewerFor(db, auth.tenantId, targetUserId)
+    if (!isAdminScope(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'شما فقط می‌توانید برای زیرمجموعه‌ی خودتان تایم‌شیت ثبت کنید')
+    date = String(input.date ?? '')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new HttpError(400, 'تاریخ معتبر نیست')
+  } else {
+    // Self-entry is always today's date — never trust a client-supplied date here, so nobody
+    // can backdate their own timesheet after the fact.
+    date = todayIsoInTehran()
+  }
+
   const entriesInput = Array.isArray(input.entries) ? input.entries : []
   const entries = entriesInput
     .map((e: Obj) => ({
@@ -41,13 +61,13 @@ async function submitTimesheet(request: Request, auth: AuthContext): Promise<Res
   if (!entries.length) throw new HttpError(400, 'حداقل یک فعالیت الزامی است')
 
   const existing = await db.from('DailyTimesheets').select('Id').eq('TenantId', auth.tenantId)
-    .eq('UserId', auth.userId).eq('EntryDate', date).eq('IsDeleted', false).maybeSingle()
+    .eq('UserId', targetUserId).eq('EntryDate', date).eq('IsDeleted', false).maybeSingle()
   check(existing.error)
   const values = { EntriesJson: JSON.stringify(entries), UpdatedAt: now() }
   const saved = existing.data
     ? await db.from('DailyTimesheets').update(values).eq('Id', (existing.data as Obj).Id).select().single()
     : await db.from('DailyTimesheets').insert({
-      Id: uuid(), TenantId: auth.tenantId, UserId: auth.userId, EntryDate: date,
+      Id: uuid(), TenantId: auth.tenantId, UserId: targetUserId, EntryDate: date,
       CreatedAt: now(), CreatedByUserId: auth.userId, IsDeleted: false, DeletedAt: null, ...values,
     }).select().single()
   check(saved.error, 'ثبت تایم‌شیت انجام نشد')
