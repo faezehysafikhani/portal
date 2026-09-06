@@ -95,6 +95,25 @@ async function userDisplayNames(tenantId: string, userIds: string[]): Promise<Ma
   return new Map((result.data ?? []).map((u: Obj) => [String(u.Id), `${u.FirstName ?? ''} ${u.LastName ?? ''}`.trim()]))
 }
 
+// Everyone who holds performance.admin (HR), plus the built-in "admin" account (which bypasses
+// permission rows entirely) — used to keep HR in the loop on anything that needs their sign-off.
+async function hrAdminUserIds(tenantId: string): Promise<string[]> {
+  const ids = new Set<string>()
+  const permResult = await db.from('Permissions').select('Id').eq('TenantId', tenantId).eq('Code', 'performance.admin').eq('IsDeleted', false).maybeSingle()
+  if (permResult.data) {
+    const grants = await db.from('UserPermissions').select('UserId').eq('TenantId', tenantId).eq('PermissionId', (permResult.data as Obj).Id).eq('IsDeleted', false)
+    for (const g of (grants.data ?? []) as Obj[]) ids.add(String(g.UserId))
+  }
+  const adminResult = await db.from('Users').select('Id').eq('TenantId', tenantId).eq('Username', 'admin').eq('IsDeleted', false).maybeSingle()
+  if (adminResult.data) ids.add(String((adminResult.data as Obj).Id))
+  return [...ids]
+}
+
+export async function notifyHrAdmins(db: SupabaseClient, auth: AuthContext, input: { title: string; body?: string; actionUrl?: string; entityId?: string; entityType?: string }): Promise<void> {
+  const ids = await hrAdminUserIds(auth.tenantId)
+  await Promise.all(ids.map((userId) => createNotification(db, auth, { ...input, userId, type: notificationType.performanceEvaluation })))
+}
+
 // ---- HR quarterly evaluation rubric (9-category, 100-point) ----
 
 function scoreCardDto(item: Obj): Obj {
@@ -479,9 +498,12 @@ async function computeOneEvaluation(auth: AuthContext, targetUserId: string, per
     plannedTaskCount: planned.length, completedTaskCount: allDone.length,
   }
 
+  const previousStatus = existing.data ? Number((existing.data as Obj).Status) : null
   const values = {
+    // Computing always lands the evaluation in "PendingReview" — only HR/admin can finalize it
+    // from here (see patchEvaluation), so the reviewer's compute step is what puts it in HR's queue.
     ComponentScoresJson: JSON.stringify(componentScores), FinalScore: finalScore, ScoreBand: band,
-    Status: 0, ReviewerUserId: reviewerId, UpdatedAt: now(),
+    Status: 1, ReviewerUserId: reviewerId, UpdatedAt: now(),
   }
   const savedResult = existing.data
     ? await db.from('PerformanceEvaluations').update(values).eq('Id', (existing.data as Obj).Id).select().single()
@@ -490,6 +512,14 @@ async function computeOneEvaluation(auth: AuthContext, targetUserId: string, per
     }).select().single()
   check(savedResult.error)
   await logEvaluation(auth, String(savedResult.data.Id), 'Computed', componentScores)
+  if (previousStatus !== 1) {
+    const employeeName = (await userDisplayNames(auth.tenantId, [targetUserId])).get(targetUserId) ?? ''
+    await notifyHrAdmins(db, auth, {
+      title: 'ارزیابی ماهانه آماده نهایی‌سازی است',
+      body: `ارزیابی ${employeeName} برای دوره ${periodMonth}/${periodYear} محاسبه شد و منتظر نهایی‌سازی شماست`,
+      actionUrl: '/performance/evaluations', entityId: String(savedResult.data.Id), entityType: 'PerformanceEvaluation',
+    })
+  }
   return savedResult.data as Obj
 }
 
@@ -555,7 +585,10 @@ async function patchEvaluation(request: Request, auth: AuthContext, id: string):
     update.Status = 1; action = 'SubmittedForReview'
   } else if (input.finalize === true) {
     if (Number(current.Status) === 2) throw new HttpError(400, 'این ارزیابی قبلاً نهایی شده است')
-    if (!isReviewer && !isAdminScope(auth)) throw new HttpError(403, 'فقط ارزیاب یا مدیر منابع انسانی می‌تواند ارزیابی را نهایی کند')
+    // Only HR/admin finalizes — the reviewer's role ends at computing the evaluation (which already
+    // puts it in HR's pending-review queue and notifies them); this keeps the pay-affecting sign-off
+    // out of the direct-manager's hands.
+    if (!isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند ارزیابی را نهایی کند')
     update.Status = 2; update.FinalizedAt = now(); update.FinalizedByUserId = auth.userId
     if (input.rewardDecision !== undefined) update.RewardDecision = String(input.rewardDecision).slice(0, 40)
     if (input.rewardNotes !== undefined) update.RewardNotes = String(input.rewardNotes).slice(0, 2000)

@@ -9,7 +9,7 @@ import { handleCollaboration } from './collaboration.ts'
 import { handleLetters } from './letters.ts'
 import { handleIntegrations } from './integrations.ts'
 import { handleReports } from './reports.ts'
-import { handlePerformance, findReviewerFor } from './performance.ts'
+import { handlePerformance, findReviewerFor, notifyHrAdmins } from './performance.ts'
 import { handleProjects, projectExists } from './projects.ts'
 import { handleTimesheets } from './timesheets.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
@@ -755,6 +755,10 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
       if (reviewerId) {
         await createNotification(db, auth, { userId: reviewerId, title: 'وظیفه خودافزوده منتظر تأیید شماست', body: row.Title, type: notificationType.performanceEvaluation, actionUrl: '/performance/tasks', entityId: String(result.data.Id), entityType: 'Task' })
       }
+      await notifyHrAdmins(db, auth, {
+        title: 'وظیفه خودافزوده جدید ثبت شد', body: `${row.Title} — در انتظار تأیید ارزیاب`,
+        actionUrl: '/performance/tasks', entityId: String(result.data.Id), entityType: 'Task',
+      })
     }
     if (isRecurring) {
       const start = new Date(String(row.StartDate ?? row.DueDate ?? now()))

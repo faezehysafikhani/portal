@@ -142,6 +142,7 @@ function MyEvaluations() {
 }
 
 function ReviewTab({ scope }: { scope: 'team' | 'company' }) {
+  const { canAdmin } = permissionState()
   const [pending, setPending] = useState<EvaluationRow[]>([])
   const [employees, setEmployees] = useState<{ userId: string; userName: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -253,6 +254,9 @@ function ReviewTab({ scope }: { scope: 'team' | 'company' }) {
         </Form>
       </Card>
       <Card size="small" title="در انتظار بازبینی" loading={loading}>
+        {!canAdmin && (
+          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="پس از محاسبه، ارزیابی خودکار برای مدیر منابع انسانی ارسال می‌شود تا نهایی شود؛ نهایی‌سازی و ثبت پاداش/جریمه فقط دست منابع انسانی است." />
+        )}
         <Table rowKey="id" size="small" dataSource={pending} pagination={{ pageSize: 8 }} columns={[
           { title: 'کارمند', dataIndex: 'userName' },
           { title: 'دوره', render: (_: unknown, r: EvaluationRow) => `${monthNames[r.periodMonth - 1]} ${r.periodYear}` },
@@ -261,22 +265,24 @@ function ReviewTab({ scope }: { scope: 'team' | 'company' }) {
           {
             title: 'عملیات', render: (_: unknown, r: EvaluationRow) => (
               <Space size="small">
-                <Button size="small" type="primary" style={{ background: PRIMARY }} onClick={() => setFinalizeTarget(r)}>نهایی‌سازی</Button>
+                {canAdmin && <Button size="small" type="primary" style={{ background: PRIMARY }} onClick={() => setFinalizeTarget(r)}>نهایی‌سازی</Button>}
                 <HistoryButton evaluationId={r.id} />
               </Space>
             ),
           },
         ]} />
       </Card>
-      <Modal title="نهایی‌سازی ارزیابی" open={!!finalizeTarget} onCancel={() => setFinalizeTarget(undefined)} onOk={submitFinalize} confirmLoading={saving}>
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <div>امتیاز نهایی: <b>{finalizeTarget?.finalScore}</b> — برد: <Tag color={bandColor[finalizeTarget?.scoreBand || '']}>{bandLabel[finalizeTarget?.scoreBand || ''] || '—'}</Tag></div>
-          <Select style={{ width: '100%' }} value={rewardDecision} onChange={setRewardDecision} options={[
-            { value: 'reward', label: 'پاداش' }, { value: 'none', label: 'بدون تصمیم خاص' }, { value: 'penalty_recommended', label: 'پیشنهاد جریمه' },
-          ]} />
-          <Input.TextArea rows={3} placeholder="یادداشت برای منابع انسانی" value={rewardNotes} onChange={(e) => setRewardNotes(e.target.value)} />
-        </Space>
-      </Modal>
+      {canAdmin && (
+        <Modal title="نهایی‌سازی ارزیابی" open={!!finalizeTarget} onCancel={() => setFinalizeTarget(undefined)} onOk={submitFinalize} confirmLoading={saving}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <div>امتیاز نهایی: <b>{finalizeTarget?.finalScore}</b> — برد: <Tag color={bandColor[finalizeTarget?.scoreBand || '']}>{bandLabel[finalizeTarget?.scoreBand || ''] || '—'}</Tag></div>
+            <Select style={{ width: '100%' }} value={rewardDecision} onChange={setRewardDecision} options={[
+              { value: 'reward', label: 'پاداش' }, { value: 'none', label: 'بدون تصمیم خاص' }, { value: 'penalty_recommended', label: 'پیشنهاد جریمه' },
+            ]} />
+            <Input.TextArea rows={3} placeholder="یادداشت برای منابع انسانی" value={rewardNotes} onChange={(e) => setRewardNotes(e.target.value)} />
+          </Space>
+        </Modal>
+      )}
     </div>
   )
 }
