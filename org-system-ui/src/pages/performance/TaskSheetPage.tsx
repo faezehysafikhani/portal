@@ -114,7 +114,7 @@ export default function TaskSheetPage() {
           title: values.title, description: values.description, category: values.category,
           priority: values.priority,
           dueDate: values.dueDate ? jalaliToDate(values.dueDate).toISOString() : null,
-          estimatedHours: values.estimatedHours,
+          estimatedHours: (Number(values.estimatedHours) || 0) + (Number(values.estimatedMinutes) || 0) / 60 || null,
           projectIds: values.projectId ? [values.projectId] : [],
         }),
       })
@@ -139,7 +139,7 @@ export default function TaskSheetPage() {
           title: values.title, description: values.description, category: values.category,
           priority: values.priority,
           dueDate: values.dueDate ? jalaliToDate(values.dueDate).toISOString() : null,
-          estimatedHours: values.estimatedHours,
+          estimatedHours: (Number(values.estimatedHours) || 0) + (Number(values.estimatedMinutes) || 0) / 60 || null,
           projectIds: values.projectId ? [values.projectId] : [],
           assigneeUserIds: [values.employeeId],
           complexity: assignComplexity, impactScore: assignImpact,
@@ -324,8 +324,11 @@ export default function TaskSheetPage() {
                 <Form.Item name="dueDate" label="مهلت انجام (تقویم شمسی)" style={{ flex: 1, marginBottom: 0 }}>
                   <PersianDatePicker style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name="estimatedHours" label="برآورد زمان (ساعت)" style={{ flex: 1, marginBottom: 0 }}>
-                  <InputNumber min={0} style={{ width: '100%' }} />
+                <Form.Item label="برآورد زمان" style={{ flex: 1, marginBottom: 0 }}>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Form.Item name="estimatedHours" noStyle><InputNumber min={0} addonAfter="ساعت" style={{ width: '50%' }} /></Form.Item>
+                    <Form.Item name="estimatedMinutes" noStyle><InputNumber min={0} max={59} addonAfter="دقیقه" style={{ width: '50%' }} /></Form.Item>
+                  </Space.Compact>
                 </Form.Item>
               </div>
             </GlassSection>
@@ -384,8 +387,11 @@ export default function TaskSheetPage() {
                 <Form.Item name="dueDate" label="مهلت انجام (تقویم شمسی)" style={{ flex: 1, marginBottom: 0 }}>
                   <PersianDatePicker style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item name="estimatedHours" label="برآورد زمان (ساعت)" style={{ flex: 1, marginBottom: 0 }}>
-                  <InputNumber min={0} style={{ width: '100%' }} />
+                <Form.Item label="برآورد زمان" style={{ flex: 1, marginBottom: 0 }}>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Form.Item name="estimatedHours" noStyle><InputNumber min={0} addonAfter="ساعت" style={{ width: '50%' }} /></Form.Item>
+                    <Form.Item name="estimatedMinutes" noStyle><InputNumber min={0} max={59} addonAfter="دقیقه" style={{ width: '50%' }} /></Form.Item>
+                  </Space.Compact>
                 </Form.Item>
               </div>
             </GlassSection>
