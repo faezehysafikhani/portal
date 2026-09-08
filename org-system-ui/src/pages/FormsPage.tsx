@@ -173,13 +173,19 @@ export default function FormsPage() {
     form.resetFields();setNewFormType(type);form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,leaveType:type==='leave_daily'?'استحقاقی':undefined});setNewFormModal(true)
   }
 
+  const parseHHmm=(value?:string)=>{
+    const match=String(value??'').match(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    if(!match)return undefined
+    return dayjs().hour(Number(match[1])).minute(Number(match[2])).second(0).millisecond(0)
+  }
+
   const openResubmit=(target:FormSubmission)=>{
     form.resetFields()
     setNewFormType(target.formType)
     setEditingFormId(target.id)
     const values:Record<string,any>={...target.data}
-    if(values.fromTime)values.fromTime=dayjs(values.fromTime,'HH:mm')
-    if(values.toTime)values.toTime=dayjs(values.toTime,'HH:mm')
+    if(values.fromTime)values.fromTime=parseHHmm(values.fromTime)
+    if(values.toTime)values.toTime=parseHHmm(values.toTime)
     form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,...values})
     setViewModal(false)
     setNewFormModal(true)
