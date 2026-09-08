@@ -179,16 +179,20 @@ export default function FormsPage() {
     return dayjs().hour(Number(match[1])).minute(Number(match[2])).second(0).millisecond(0)
   }
 
-  const openResubmit=(target:FormSubmission)=>{
-    form.resetFields()
-    setNewFormType(target.formType)
-    setEditingFormId(target.id)
-    const values:Record<string,any>={...target.data}
-    if(values.fromTime)values.fromTime=parseHHmm(values.fromTime)
-    if(values.toTime)values.toTime=parseHHmm(values.toTime)
-    form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,...values})
-    setViewModal(false)
-    setNewFormModal(true)
+  const openView=(target:FormSubmission)=>{
+    setSelectedForm(target)
+    if(target.status==='برگشت برای اصلاح'){
+      form.resetFields()
+      setNewFormType(target.formType)
+      setEditingFormId(target.id)
+      const values:Record<string,any>={...target.data}
+      if(values.fromTime)values.fromTime=parseHHmm(values.fromTime)
+      if(values.toTime)values.toTime=parseHHmm(values.toTime)
+      form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,...values})
+    } else {
+      setEditingFormId(null)
+    }
+    setViewModal(true)
   }
 
   const checkLeaveBalance = (type: string, days?: number, hours?: number) => {
@@ -254,6 +258,7 @@ export default function FormsPage() {
         : await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data,clientRequestId:formRequestId.current,...attachment})})
       const result=await res.json().catch(()=>({}));if(!res.ok){notification.error({message:result.message||'خطا در ارسال فرم'});return}
       setNewFormModal(false)
+      if(isEdit)setViewModal(false)
       setEditingFormId(null)
       form.resetFields()
       formRequestId.current=crypto.randomUUID()
@@ -489,7 +494,7 @@ export default function FormsPage() {
     {
       title: 'عملیات', key: 'actions', width: 100,
       render: (_: unknown, r: FormSubmission) => (
-        <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedForm(r); setViewModal(true) }}>مشاهده کامل</Button>
+        <Button size="small" icon={<EyeOutlined />} onClick={() => openView(r)}>مشاهده کامل</Button>
       )
     },
   ]
@@ -504,7 +509,7 @@ export default function FormsPage() {
     {
       title:'عملیات',key:'actions',width:250,
       render:(_:unknown,r:FormSubmission)=><Space>
-        <Button size="small" icon={<EyeOutlined/>} onClick={()=>{setSelectedForm(r);setViewModal(true)}}>مشاهده کامل</Button>
+        <Button size="small" icon={<EyeOutlined/>} onClick={()=>openView(r)}>مشاهده کامل</Button>
         {r.isHrCopy&&!r.canAct&&<Tag color="gold">رونوشت HR؛ منتظر تأیید مدیر</Tag>}
         {r.canAct&&r.formType==='personnel'&&r.status==='در بررسی منابع انسانی'&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('complete')}}>خاتمه</Button>}
         {r.canAct&&r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>تأیید</Button>}
@@ -552,7 +557,7 @@ export default function FormsPage() {
       {/* Modal مشاهده فرم */}
       <Modal
         title={selectedForm && <Space><span style={{ fontSize: 20 }}>{FORM_TYPES[selectedForm.formType]?.icon}</span><span>{FORM_TYPES[selectedForm.formType]?.label}</span><Tag color={STATUS_CONFIG[selectedForm.status]?.color}>{selectedForm.status}</Tag></Space>}
-        open={viewModal} onCancel={() => setViewModal(false)} footer={null} width={920} styles={{body:{maxHeight:'78vh',overflowY:'auto'}}}
+        open={viewModal} onCancel={() => { setViewModal(false); setEditingFormId(null); form.resetFields() }} footer={null} width={920} styles={{body:{maxHeight:'78vh',overflowY:'auto'}}}
       >
         {selectedForm && (
           <div>
@@ -568,18 +573,30 @@ export default function FormsPage() {
               ]}
             />
 
-            <Divider>مشخصات ثبت‌شده در فرم</Divider>
-            <FormDataDetails submission={selectedForm}/>
-
-            {selectedForm.formType==='leave_sick' && (
-              <Alert style={{ marginBottom: 16 }} type="success" showIcon message="فایل استعلاجی پزشک"
-                action={<Button size="small" icon={<DownloadOutlined />} onClick={() => downloadAttachment(selectedForm.id, `استعلاجی-${selectedForm.submitter}`)}>دانلود فایل</Button>} />
+            {selectedForm.status === 'برگشت برای اصلاح' && editingFormId === selectedForm.id ? (
+              <div>
+                <Alert message="این فرم برای اصلاح برگشت داده شده است؛ موارد لازم را اصلاح کرده و مجدداً ارسال کنید." type="warning" showIcon style={{ marginBottom: 16 }} />
+                <Divider>اصلاح مشخصات فرم</Divider>
+                <Form form={form} layout="vertical" requiredMark="optional">
+                  {renderForm()}
+                  <Form.Item name="hrManager" label="مسئول منابع انسانی" style={{ marginTop: 8 }}>
+                    <Select disabled options={hrOptions}/>
+                  </Form.Item>
+                </Form>
+                <div style={{ textAlign: 'left', marginTop: 8 }}>
+                  <Button type="primary" icon={<SendOutlined />} loading={submittingForm} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }} onClick={handleSubmitForm}>ارسال مجدد</Button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <Divider>مشخصات ثبت‌شده در فرم</Divider>
+                <FormDataDetails submission={selectedForm}/>
+              </div>
             )}
 
-            {selectedForm.status === 'برگشت برای اصلاح' && (
-              <Alert message="این فرم برای اصلاح برگشت داده شده است." type="warning" showIcon
-                action={<Button size="small" type="primary" icon={<SendOutlined />} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }} onClick={()=>openResubmit(selectedForm)}>اصلاح و ارسال مجدد</Button>}
-                style={{ marginBottom: 16 }} />
+            {selectedForm.formType==='leave_sick' && (
+              <Alert style={{ marginBottom: 16, marginTop: 16 }} type="success" showIcon message="فایل استعلاجی پزشک"
+                action={<Button size="small" icon={<DownloadOutlined />} onClick={() => downloadAttachment(selectedForm.id, `استعلاجی-${selectedForm.submitter}`)}>دانلود فایل</Button>} />
             )}
 
             {selectedForm.isHrCopy&&!selectedForm.canAct&&<Alert message="این فرم به‌صورت رونوشت در کارتابل منابع انسانی قرار دارد" description="پس از تصمیم مدیر مستقیم، دکمه‌های اقدام منابع انسانی فعال می‌شوند." type="warning" showIcon style={{marginBottom:16}}/>}
