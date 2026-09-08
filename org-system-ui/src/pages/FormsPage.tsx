@@ -85,6 +85,21 @@ const formatDuration=(value?:number|string)=>{
   if(rest===0)return `${hours.toLocaleString('fa-IR')} ساعت`
   return `${hours.toLocaleString('fa-IR')} ساعت و ${rest.toLocaleString('fa-IR')} دقیقه`
 }
+const formatDaysDuration=(hoursValue?:number|string,hoursPerDay=8)=>{
+  if(hoursValue===undefined||hoursValue===null||hoursValue==='')return '—'
+  const hours=Number(hoursValue)
+  if(!Number.isFinite(hours))return String(hoursValue)
+  const totalMinutes=Math.round(hours*60)
+  const minutesPerDay=hoursPerDay*60
+  const days=Math.floor(totalMinutes/minutesPerDay)
+  const rest=totalMinutes%minutesPerDay
+  const restHours=Math.floor(rest/60),restMinutes=rest%60
+  const parts:string[]=[]
+  if(days>0)parts.push(`${days.toLocaleString('fa-IR')} روز`)
+  if(restHours>0)parts.push(`${restHours.toLocaleString('fa-IR')} ساعت`)
+  if(restMinutes>0||parts.length===0)parts.push(`${restMinutes.toLocaleString('fa-IR')} دقیقه`)
+  return parts.join(' و ')
+}
 
 function FormDataDetails({submission}:{submission:FormSubmission}){
   const hidden=new Set(['manager','hrManager'])
@@ -244,7 +259,7 @@ export default function FormsPage() {
   // ── فرم مرخصی روزانه ────────────────────────────────
   const LeaveDailyForm = () => (
     <div>
-      <Alert message={`مانده مرخصی استحقاقی: ${formatDuration(leaveBalance.availableHours)} (معادل ${leaveBalance.days.toLocaleString('fa-IR')} روز کاری)`} description="برای مرخصی بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست. برای مرخصی استعلاجی از فرم جداگانه «مرخصی استعلاجی» استفاده کنید." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={`مانده مرخصی استحقاقی: ${formatDaysDuration(leaveBalance.availableHours)}`} description="برای مرخصی بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست. برای مرخصی استعلاجی از فرم جداگانه «مرخصی استعلاجی» استفاده کنید." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="fromDate" label="از تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={12}><Form.Item name="toDate" label="تا تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
@@ -479,7 +494,7 @@ export default function FormsPage() {
     <div>
       <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
         <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
-        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {leaveBalance.days.toLocaleString('fa-IR')} روز</Tag><Tag color="cyan">قابل استفاده: {formatDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></Space>}
+        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {formatDaysDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDaysDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDaysDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDaysDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></Space>}
         <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
       </Card>
 
