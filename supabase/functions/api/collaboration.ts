@@ -364,13 +364,18 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     requirePermission(auth, 'forms.create'); const input = await body<Obj>(request)
     const current = await db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('Id', editMatch[1]).eq('IsDeleted', false).single(); check(current.error)
     const form = current.data
-    if (form.SubmitterUserId !== auth.userId) throw new HttpError(403, 'شما نمی‌توانید این فرم را ویرایش کنید')
+    const isOwner = form.SubmitterUserId === auth.userId
+    const isManagerOfForm = form.ManagerUserId === auth.userId
+    const isHrOfForm = form.HrUserId === auth.userId
+    if (!isOwner && !auth.isAdmin && !isManagerOfForm && !isHrOfForm) throw new HttpError(403, 'شما نمی‌توانید این فرم را ویرایش کنید')
     if (form.Status !== 'returned') throw new HttpError(400, 'فقط فرم‌های برگشت‌داده‌شده برای اصلاح قابل ویرایش‌اند')
     const formType = String(form.FormType)
     const isPersonnel = formType === 'personnel'
-    const route = await workflow(auth); const hrManager = route.hrManager
-    if (!hrManager) throw new HttpError(400, 'مدیر منابع انسانی در پروفایل شما تنظیم نشده است.')
-    if (!isPersonnel && !route.isConfigured) throw new HttpError(400, route.message)
+    // Keep the form's existing manager/HR routing as-is — resolving workflow() here would
+    // route by the ACTING user (e.g. admin fixing it on the employee's behalf) instead of
+    // the form's real owner, silently reassigning it to the wrong approver.
+    if (!isPersonnel && !form.ManagerUserId) throw new HttpError(400, 'مدیر مستقیم این فرم مشخص نیست')
+    if (!form.HrUserId) throw new HttpError(400, 'مسئول منابع انسانی این فرم مشخص نیست')
     let requestedHours = 0
     let attachmentFields: Obj = {}
     if (!isPersonnel) {
@@ -378,7 +383,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
       if (['leave_daily', 'leave_hourly', 'leave_sick'].includes(formType) && requestedHours <= 0) throw new HttpError(400, 'مدت مرخصی معتبر نیست.')
       if (formType === 'leave_sick') {
         const yearMonth = String((input.data ?? {}).fromDate ?? '').slice(0, 7)
-        const sameType = await db.from('OrganizationalForms').select('Id,DataJson,RequestedHours').eq('TenantId', auth.tenantId).eq('SubmitterUserId', auth.userId).eq('IsDeleted', false).eq('FormType', 'leave_sick').neq('Id', form.Id).in('Status', ['manager_pending', 'hr_pending', 'approved', 'completed']); check(sameType.error)
+        const sameType = await db.from('OrganizationalForms').select('Id,DataJson,RequestedHours').eq('TenantId', auth.tenantId).eq('SubmitterUserId', form.SubmitterUserId).eq('IsDeleted', false).eq('FormType', 'leave_sick').neq('Id', form.Id).in('Status', ['manager_pending', 'hr_pending', 'approved', 'completed']); check(sameType.error)
         const usedDays = (sameType.data ?? []).filter((item: Obj) => String(formData(item.DataJson).fromDate ?? '').slice(0, 7) === yearMonth).reduce((sum: number, item: Obj) => sum + Number(item.RequestedHours ?? 0) / 8, 0)
         const newDays = requestedHours / 8
         if (usedDays + newDays > 3) throw new HttpError(400, `مجموع مرخصی استعلاجی این ماه از ۳ روز بیشتر می‌شود (تاکنون ${usedDays} روز ثبت شده است).`)
@@ -389,21 +394,22 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
         attachmentFields = { AttachmentData: attachmentData, AttachmentName: String(input.attachmentName ?? 'attachment').slice(0, 260), AttachmentContentType: String(input.attachmentContentType ?? '') }
       }
       if (requestedHours > 0 && consumesLeaveBalance(formType, input.data ?? {})) {
-        const account = await leaveAccount(auth)
-        if (requestedHours > account.availableHours) throw new HttpError(400, `مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)
+        const account = await leaveAccount(auth, form.SubmitterUserId)
+        if (requestedHours > account.availableHours) throw new HttpError(400, `مانده مرخصی کافی نیست. مانده قابل استفاده ${form.SubmitterName} ${account.availableHours} ساعت است.`)
       }
     }
     const update: Obj = {
       DataJson: JSON.stringify(input.data ?? {}), RequestedHours: requestedHours,
       Status: isPersonnel ? 'hr_pending' : 'manager_pending',
-      ManagerUserId: route.manager?.id ?? null, ManagerName: route.manager?.fullName ?? null,
-      HrUserId: hrManager.id, HrName: hrManager.fullName,
       ...attachmentFields, UpdatedAt: now(),
     }
     const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', form.Id).select().single(); check(result.error)
-    const history = await db.from('FormWorkflowHistories').insert({ ...base(auth), FormId: form.Id, ActorUserId: auth.userId, ActorName: route.submitter.fullName, Action: 'resubmitted', Note: null }); check(history.error)
-    const firstApprover = isPersonnel ? hrManager : route.manager
-    if (firstApprover) await createNotification(db, auth, { userId: firstApprover.id, title: 'فرم اصلاح‌شده مجدداً ارسال شد', body: form.Title, type: notificationType.form, actionUrl: '/forms/approvals', entityId: form.Id, entityType: 'OrganizationalForm' })
+    const actor = await db.from('Users').select('Username,FirstName,LastName').eq('TenantId', auth.tenantId).eq('Id', auth.userId).single(); check(actor.error)
+    const actorName = `${actor.data.FirstName ?? ''} ${actor.data.LastName ?? ''}`.trim() || actor.data.Username
+    const history = await db.from('FormWorkflowHistories').insert({ ...base(auth), FormId: form.Id, ActorUserId: auth.userId, ActorName: actorName, Action: 'resubmitted', Note: null }); check(history.error)
+    const firstApproverId = isPersonnel ? form.HrUserId : form.ManagerUserId
+    if (firstApproverId) await createNotification(db, auth, { userId: firstApproverId, title: 'فرم اصلاح‌شده مجدداً ارسال شد', body: form.Title, type: notificationType.form, actionUrl: '/forms/approvals', entityId: form.Id, entityType: 'OrganizationalForm' })
+    if (form.SubmitterUserId !== auth.userId) await createNotification(db, auth, { userId: form.SubmitterUserId, title: 'فرم شما اصلاح و مجدداً ارسال شد', body: form.Title, type: notificationType.form, actionUrl: '/forms/inbox', entityId: form.Id, entityType: 'OrganizationalForm' })
     return json(request, { ...camelize(result.data) as Obj, message: 'فرم اصلاح‌شده مجدداً ارسال شد.' })
   }
   const action = path.match(/^\/forms\/([0-9a-f-]+)\/action$/i)
