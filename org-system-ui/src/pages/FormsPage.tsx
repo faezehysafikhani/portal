@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker, Descriptions } from 'antd'
 import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useLocation } from 'react-router-dom'
+import dayjs from 'dayjs'
 import { apiFetch } from '../utils/api'
 import PersianDatePicker from '../components/PersianDatePicker'
 import { jalaliToDate, formatJalaliDate } from '../utils/jalali'
@@ -151,6 +152,7 @@ export default function FormsPage() {
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance>({accruedHours:0,usedHours:0,availableHours:0,days:0,remainingHours:0,monthlyAccrualHours:20,reservedHours:0})
   const [newFormModal, setNewFormModal] = useState(false)
   const [newFormType, setNewFormType] = useState<string>('leave_daily')
+  const [editingFormId, setEditingFormId] = useState<string | null>(null)
   const [viewModal, setViewModal] = useState(false)
   const [selectedForm, setSelectedForm] = useState<FormSubmission | null>(null)
   const [actionModal, setActionModal] = useState<'approve' | 'complete' | 'reject' | 'return' | null>(null)
@@ -167,7 +169,20 @@ export default function FormsPage() {
   const userOptions=users.map(u=>({value:u.id,label:u.fullName}))
   const openForm=(type:string)=>{
     formRequestId.current=crypto.randomUUID()
+    setEditingFormId(null)
     form.resetFields();setNewFormType(type);form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,leaveType:type==='leave_daily'?'استحقاقی':undefined});setNewFormModal(true)
+  }
+
+  const openResubmit=(target:FormSubmission)=>{
+    form.resetFields()
+    setNewFormType(target.formType)
+    setEditingFormId(target.id)
+    const values:Record<string,any>={...target.data}
+    if(values.fromTime)values.fromTime=dayjs(values.fromTime,'HH:mm')
+    if(values.toTime)values.toTime=dayjs(values.toTime,'HH:mm')
+    form.setFieldsValue({manager:workflow.manager?.id,hrManager:workflow.hrManager?.id,...values})
+    setViewModal(false)
+    setNewFormModal(true)
   }
 
   const checkLeaveBalance = (type: string, days?: number, hours?: number) => {
@@ -227,12 +242,16 @@ export default function FormsPage() {
         attachment={attachmentData,attachmentName:file.name,attachmentContentType:file.type||'application/octet-stream'}
       }
 
-      const res=await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data,clientRequestId:formRequestId.current,...attachment})})
+      const isEdit=Boolean(editingFormId)
+      const res=isEdit
+        ? await apiFetch(`${API}/forms/${editingFormId}`,{method:'PATCH',headers:headers(),body:JSON.stringify({data,amount:requestedHours,...attachment})})
+        : await apiFetch(`${API}/forms`,{method:'POST',headers:headers(),body:JSON.stringify({formType:newFormType,title:FORM_TYPES[newFormType].label,amount:requestedHours,data,clientRequestId:formRequestId.current,...attachment})})
       const result=await res.json().catch(()=>({}));if(!res.ok){notification.error({message:result.message||'خطا در ارسال فرم'});return}
       setNewFormModal(false)
+      setEditingFormId(null)
       form.resetFields()
       formRequestId.current=crypto.randomUUID()
-      notification.success({ message: 'فرم با موفقیت ارسال شد', description: result.message })
+      notification.success({ message: isEdit?'فرم اصلاح‌شده مجدداً ارسال شد':'فرم با موفقیت ارسال شد', description: result.message })
       await load()
     } catch(error:any) {
       if(!error?.errorFields)notification.error({message:error?.message||'خطا در ارسال فرم'})
@@ -500,10 +519,10 @@ export default function FormsPage() {
 
       {/* Modal فرم جدید */}
       <Modal
-        title={<Space><span style={{ fontSize: 20 }}>{FORM_TYPES[newFormType]?.icon}</span><span>{FORM_TYPES[newFormType]?.label}</span></Space>}
-        open={newFormModal} onOk={handleSubmitForm} confirmLoading={submittingForm} onCancel={() => { if(submittingForm)return;setNewFormModal(false);form.resetFields() }}
+        title={<Space><span style={{ fontSize: 20 }}>{FORM_TYPES[newFormType]?.icon}</span><span>{editingFormId?'اصلاح و ارسال مجدد — ':''}{FORM_TYPES[newFormType]?.label}</span></Space>}
+        open={newFormModal} onOk={handleSubmitForm} confirmLoading={submittingForm} onCancel={() => { if(submittingForm)return;setNewFormModal(false);setEditingFormId(null);form.resetFields() }}
         maskClosable={false} centered
-        okText="ارسال فرم" cancelText="انصراف" width={860}
+        okText={editingFormId?'ارسال مجدد':'ارسال فرم'} cancelText="انصراف" width={860}
         okButtonProps={{ disabled:submittingForm,style: { background: '#8B1A6B', borderColor: '#8B1A6B' }, icon: <SendOutlined /> }}
       >
         <Card bordered={false} style={{background:`linear-gradient(145deg,#fff,${FORM_TYPES[newFormType]?.color}0d)`,borderRadius:16,borderTop:`4px solid ${FORM_TYPES[newFormType]?.color}`}}>
@@ -553,7 +572,7 @@ export default function FormsPage() {
 
             {selectedForm.status === 'برگشت برای اصلاح' && (
               <Alert message="این فرم برای اصلاح برگشت داده شده است." type="warning" showIcon
-                action={<Button size="small" type="primary" icon={<SendOutlined />} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }}>ارسال مجدد</Button>}
+                action={<Button size="small" type="primary" icon={<SendOutlined />} style={{ background: '#8B1A6B', borderColor: '#8B1A6B' }} onClick={()=>openResubmit(selectedForm)}>اصلاح و ارسال مجدد</Button>}
                 style={{ marginBottom: 16 }} />
             )}
 

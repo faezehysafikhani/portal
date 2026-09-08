@@ -359,6 +359,53 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     await createNotification(db,auth,{userId:firstApprover.id,title:isPersonnel?'فرم مشخصات پرسنلی جدید':'فرم جدید در انتظار تأیید شماست',body:row.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:result.data.Id,entityType:'OrganizationalForm'})
     return json(request, {...camelize(result.data) as Obj,message:isPersonnel?'فرم مستقیماً برای مدیر منابع انسانی ارسال شد.':'فرم ثبت شد و برای مدیر مستقیم شما ارسال گردید.'}, 201)
   }
+  const editMatch = path.match(/^\/forms\/([0-9a-f-]+)$/i)
+  if (editMatch && request.method === 'PATCH') {
+    requirePermission(auth, 'forms.create'); const input = await body<Obj>(request)
+    const current = await db.from('OrganizationalForms').select('*').eq('TenantId', auth.tenantId).eq('Id', editMatch[1]).eq('IsDeleted', false).single(); check(current.error)
+    const form = current.data
+    if (form.SubmitterUserId !== auth.userId) throw new HttpError(403, 'شما نمی‌توانید این فرم را ویرایش کنید')
+    if (form.Status !== 'returned') throw new HttpError(400, 'فقط فرم‌های برگشت‌داده‌شده برای اصلاح قابل ویرایش‌اند')
+    const formType = String(form.FormType)
+    const isPersonnel = formType === 'personnel'
+    const route = await workflow(auth); const hrManager = route.hrManager
+    if (!hrManager) throw new HttpError(400, 'مدیر منابع انسانی در پروفایل شما تنظیم نشده است.')
+    if (!isPersonnel && !route.isConfigured) throw new HttpError(400, route.message)
+    let requestedHours = 0
+    let attachmentFields: Obj = {}
+    if (!isPersonnel) {
+      requestedHours = requestedLeaveHours(formType, input.data ?? {})
+      if (['leave_daily', 'leave_hourly', 'leave_sick'].includes(formType) && requestedHours <= 0) throw new HttpError(400, 'مدت مرخصی معتبر نیست.')
+      if (formType === 'leave_sick') {
+        const yearMonth = String((input.data ?? {}).fromDate ?? '').slice(0, 7)
+        const sameType = await db.from('OrganizationalForms').select('Id,DataJson,RequestedHours').eq('TenantId', auth.tenantId).eq('SubmitterUserId', auth.userId).eq('IsDeleted', false).eq('FormType', 'leave_sick').neq('Id', form.Id).in('Status', ['manager_pending', 'hr_pending', 'approved', 'completed']); check(sameType.error)
+        const usedDays = (sameType.data ?? []).filter((item: Obj) => String(formData(item.DataJson).fromDate ?? '').slice(0, 7) === yearMonth).reduce((sum: number, item: Obj) => sum + Number(item.RequestedHours ?? 0) / 8, 0)
+        const newDays = requestedHours / 8
+        if (usedDays + newDays > 3) throw new HttpError(400, `مجموع مرخصی استعلاجی این ماه از ۳ روز بیشتر می‌شود (تاکنون ${usedDays} روز ثبت شده است).`)
+        const attachmentData = String(input.attachmentData ?? '')
+        if (!attachmentData) throw new HttpError(400, 'آپلود تصویر یا فایل استعلاجی پزشک الزامی است.')
+        if (attachmentData.length > 3_000_000) throw new HttpError(413, 'حجم فایل استعلاجی بیش از حد مجاز است (حداکثر حدود ۲ مگابایت).')
+        if (!/^(image\/(png|jpe?g)|application\/pdf)$/i.test(String(input.attachmentContentType ?? ''))) throw new HttpError(400, 'فایل استعلاجی باید تصویر JPG/PNG یا PDF باشد.')
+        attachmentFields = { AttachmentData: attachmentData, AttachmentName: String(input.attachmentName ?? 'attachment').slice(0, 260), AttachmentContentType: String(input.attachmentContentType ?? '') }
+      }
+      if (requestedHours > 0 && consumesLeaveBalance(formType, input.data ?? {})) {
+        const account = await leaveAccount(auth)
+        if (requestedHours > account.availableHours) throw new HttpError(400, `مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)
+      }
+    }
+    const update: Obj = {
+      DataJson: JSON.stringify(input.data ?? {}), RequestedHours: requestedHours,
+      Status: isPersonnel ? 'hr_pending' : 'manager_pending',
+      ManagerUserId: route.manager?.id ?? null, ManagerName: route.manager?.fullName ?? null,
+      HrUserId: hrManager.id, HrName: hrManager.fullName,
+      ...attachmentFields, UpdatedAt: now(),
+    }
+    const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', form.Id).select().single(); check(result.error)
+    const history = await db.from('FormWorkflowHistories').insert({ ...base(auth), FormId: form.Id, ActorUserId: auth.userId, ActorName: route.submitter.fullName, Action: 'resubmitted', Note: null }); check(history.error)
+    const firstApprover = isPersonnel ? hrManager : route.manager
+    if (firstApprover) await createNotification(db, auth, { userId: firstApprover.id, title: 'فرم اصلاح‌شده مجدداً ارسال شد', body: form.Title, type: notificationType.form, actionUrl: '/forms/approvals', entityId: form.Id, entityType: 'OrganizationalForm' })
+    return json(request, { ...camelize(result.data) as Obj, message: 'فرم اصلاح‌شده مجدداً ارسال شد.' })
+  }
   const action = path.match(/^\/forms\/([0-9a-f-]+)\/action$/i)
   if (action && request.method === 'POST') {
     requirePermission(auth, 'forms.approve'); const input = await body<Obj>(request)
