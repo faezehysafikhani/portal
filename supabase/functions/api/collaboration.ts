@@ -290,16 +290,17 @@ export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
     .find((value:number|null) => value !== null)
   const employmentStart = validYearMonth(user.data?.EmploymentStartDate)
   const startedYm=employmentStart ?? personnelStart ?? (user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym)
-  const entitledMonths=Math.max(1,monthIndex(ym)-monthIndex(startedYm)+1)
+  const entitledMonths=Math.max(0,monthIndex(ym)-monthIndex(startedYm)+1)
   const actualReserved=(pending.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
   const actualUsed=(approved.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
   let account=found.data
   if(!account){
     const created=await db.from('LeaveAccounts').insert({...base(auth),UserId:userId,AccruedThroughYearMonth:ym,AccruedHours:entitledMonths*20,UsedHours:actualUsed,ReservedHours:actualReserved,MonthlyAccrualHours:20,HoursPerDay:8}).select().single();check(created.error);account=created.data
   } else {
-    const previous=account.AccruedThroughYearMonth??0,months=Math.max(0,monthIndex(ym)-monthIndex(previous)),monthly=Number(account.MonthlyAccrualHours??20)
-    const minimumAccrued=entitledMonths*monthly
-    const accrued=Math.max(minimumAccrued,Number(account.AccruedHours??0)+(Number(previous)?months*monthly:0))
+    // Accrual is derived from this employee's own start date on every read.
+    // Never carry a manually-corrupted/over-accrued cached value forward.
+    const monthly=Number(account.MonthlyAccrualHours??20)
+    const accrued=entitledMonths*monthly
     const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,UsedHours:actualUsed,ReservedHours:actualReserved,AccruedThroughYearMonth:ym,MonthlyAccrualHours:monthly,HoursPerDay:Number(account.HoursPerDay??8),UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data
   }
   const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
