@@ -1,5 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
-import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
+import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json, uuid } from '../_shared/http.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 import { jalaliMonthRange } from '../_shared/jalali.ts'
@@ -71,6 +71,13 @@ function canManage(auth: AuthContext): boolean {
 }
 function isAdminScope(auth: AuthContext): boolean {
   return auth.isAdmin || auth.permissions.includes('performance.admin')
+}
+// performance.view/performance.admin keep granting the whole module (backward compatible);
+// each page also accepts its own narrower permission so an employee can be given just one
+// page — e.g. performance.weekly — without unlocking the rest of the module.
+export function requireSection(auth: AuthContext, section: string): void {
+  if (canManage(auth) || auth.permissions.includes('performance.view') || auth.permissions.includes(section)) return
+  throw new HttpError(403, 'شما مجوز انجام این عملیات را ندارید')
 }
 async function canViewUser(auth: AuthContext, targetUserId: string): Promise<boolean> {
   if (targetUserId === auth.userId) return true
@@ -150,12 +157,12 @@ function countMissingWeekdays(startDate: Date, endDate: Date, timesheetDates: Se
 }
 
 async function getRubric(request: Request, auth: AuthContext): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.quarterly')
   return json(request, { rubric, adjustmentCatalog })
 }
 
 async function listScoreCards(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.quarterly')
   const employeeUserId = url.searchParams.get('employeeUserId') || ''
   const periodYear = Number(url.searchParams.get('periodYear'))
   const periodQuarter = Number(url.searchParams.get('periodQuarter'))
@@ -171,7 +178,7 @@ async function listScoreCards(request: Request, auth: AuthContext, url: URL): Pr
 }
 
 async function submitScoreCard(request: Request, auth: AuthContext): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.quarterly')
   const input = await body<Obj>(request)
   const employeeUserId = String(input.employeeUserId ?? '')
   const periodYear = Number(input.periodYear)
@@ -198,7 +205,7 @@ async function submitScoreCard(request: Request, auth: AuthContext): Promise<Res
 }
 
 async function listAdjustments(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.quarterly')
   const employeeUserId = url.searchParams.get('employeeUserId') || ''
   if (!/^[0-9a-f-]{36}$/i.test(employeeUserId)) throw new HttpError(400, 'شناسه کارمند نامعتبر است')
   if (!(await canViewUser(auth, employeeUserId))) throw new HttpError(403, 'شما مجوز مشاهده این اطلاعات را ندارید')
@@ -242,7 +249,7 @@ async function deleteAdjustment(request: Request, auth: AuthContext, id: string)
 }
 
 async function listQuarterlyResults(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.quarterly')
   const employeeUserId = url.searchParams.get('employeeUserId')
   const scope = url.searchParams.get('scope')
   if (employeeUserId) {
@@ -338,7 +345,7 @@ async function patchQuarterlyResult(request: Request, auth: AuthContext, id: str
 // ---- Weekly bilan (computed live, nothing persisted) ----
 
 async function weeklyReport(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.weekly')
   const targetUserId = url.searchParams.get('userId') || auth.userId
   if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) throw new HttpError(400, 'شناسه کاربر نامعتبر است')
   if (!(await canViewUser(auth, targetUserId))) throw new HttpError(403, 'شما مجوز مشاهده گزارش این کاربر را ندارید')
@@ -372,7 +379,7 @@ async function weeklyReport(request: Request, auth: AuthContext, url: URL): Prom
 // ---- Evaluations ----
 
 async function listEvaluations(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.evaluations')
   const targetUserId = url.searchParams.get('userId') || auth.userId
   if (!(await canViewUser(auth, targetUserId))) throw new HttpError(403, 'شما مجوز مشاهده ارزیابی این کاربر را ندارید')
   let query = db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('UserId', targetUserId)
@@ -395,7 +402,7 @@ async function pendingReviewEvaluations(request: Request, auth: AuthContext): Pr
 }
 
 async function getEvaluation(request: Request, auth: AuthContext, id: string): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.evaluations')
   const result = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(result.error)
   const row = result.data as Obj | null
@@ -406,7 +413,7 @@ async function getEvaluation(request: Request, auth: AuthContext, id: string): P
 }
 
 async function getEvaluationLogs(request: Request, auth: AuthContext, id: string): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.evaluations')
   const evalResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(evalResult.error)
   const evaluation = evalResult.data as Obj | null
@@ -569,7 +576,7 @@ async function computeBulkEvaluations(request: Request, auth: AuthContext): Prom
 }
 
 async function patchEvaluation(request: Request, auth: AuthContext, id: string): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.evaluations')
   const input = await body<Obj>(request)
   const currentResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(currentResult.error)
@@ -623,7 +630,7 @@ async function patchEvaluation(request: Request, auth: AuthContext, id: string):
 // ---- Appeals ----
 
 async function createAppeal(request: Request, auth: AuthContext): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.evaluations')
   const input = await body<Obj>(request)
   const evaluationId = String(input.evaluationId ?? '')
   const reason = String(input.reason ?? '').trim()
@@ -680,7 +687,7 @@ async function resolveAppeal(request: Request, auth: AuthContext, id: string): P
 // ---- Settings ----
 
 async function settingsRoute(request: Request, auth: AuthContext): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.admin')
   if (request.method === 'GET') return json(request, await loadSettings(auth.tenantId))
   if (request.method === 'PUT') {
     if (!isAdminScope(auth)) throw new HttpError(403, 'فقط مدیر منابع انسانی می‌تواند تنظیمات را ذخیره کند')
@@ -757,7 +764,7 @@ async function reviewersRoute(request: Request, auth: AuthContext, path: string)
 // ---- Dashboard ----
 
 async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.dashboard')
   const scope = url.searchParams.get('scope') || 'me'
 
   if (scope === 'me') {

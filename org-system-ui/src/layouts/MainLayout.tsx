@@ -55,22 +55,22 @@ export default function MainLayout() {
         { key: '/ptms/documents', icon: <FileTextOutlined />, label: 'مستندات' },
       ]
     }] : []),
-    ...(allowed('performance.view') || allowed('tasks.view') ? [{
+    // هر صفحه‌ی این گروه یک مجوز مستقل هم دارد (performance.dashboard/weekly/
+    // evaluations/timesheet/quarterly)، مستقل از performance.view — تا بشود
+    // فقط یک صفحه را به یک نفر داد بدون باز کردن کل ماژول ارزیابی عملکرد.
+    // performance.view/performance.admin هر دو همچنان همه‌چیز را باز می‌کنند.
+    // Task Sheet یک استثناست: به‌جای این مجوزها، با tasks.view/tasks.create کار می‌کند.
+    ...(allowed('performance.view') || allowed('tasks.view') || allowed('performance.dashboard') || allowed('performance.weekly') || allowed('performance.evaluations') || allowed('performance.timesheet') || allowed('performance.quarterly') || allowed('performance.admin') ? [{
       key: 'performance-group',
       icon: <TrophyOutlined />,
       label: 'ارزیابی عملکرد',
       children: [
-        // Task Sheet فقط به tasks.view نیاز دارد (همان مجوز بخش «وظایف و پروژه»)؛
-        // بقیه صفحات این گروه به performance.view نیاز دارند تا بتوان به نیروها
-        // صرفاً دسترسی ثبت وظایف شخصی داد بدون باز کردن ارزیابی/تایم‌شیت/گزارش تیم.
-        ...(allowed('performance.view') ? [{ key: '/performance/dashboard', icon: <DashboardOutlined />, label: 'داشبورد' }] : []),
-        { key: '/performance/tasks', icon: <UnorderedListOutlined />, label: 'Task Sheet من' },
-        ...(allowed('performance.view') ? [
-          { key: '/performance/weekly', icon: <CalendarOutlined />, label: 'گزارش هفتگی' },
-          { key: '/performance/evaluations', icon: <CheckSquareOutlined />, label: 'ارزیابی ماهانه' },
-          { key: '/performance/timesheet', icon: <FieldTimeOutlined />, label: 'تایم‌شیت روزانه' },
-          { key: '/performance/quarterly', icon: <AuditOutlined />, label: 'ارزیابی فصلی HR' },
-        ] : []),
+        ...(allowed('performance.view') || allowed('performance.dashboard') ? [{ key: '/performance/dashboard', icon: <DashboardOutlined />, label: 'داشبورد' }] : []),
+        ...(allowed('performance.view') || allowed('tasks.view') ? [{ key: '/performance/tasks', icon: <UnorderedListOutlined />, label: 'Task Sheet من' }] : []),
+        ...(allowed('performance.view') || allowed('performance.weekly') ? [{ key: '/performance/weekly', icon: <CalendarOutlined />, label: 'گزارش هفتگی' }] : []),
+        ...(allowed('performance.view') || allowed('performance.evaluations') ? [{ key: '/performance/evaluations', icon: <CheckSquareOutlined />, label: 'ارزیابی ماهانه' }] : []),
+        ...(allowed('performance.view') || allowed('performance.timesheet') ? [{ key: '/performance/timesheet', icon: <FieldTimeOutlined />, label: 'تایم‌شیت روزانه' }] : []),
+        ...(allowed('performance.view') || allowed('performance.quarterly') ? [{ key: '/performance/quarterly', icon: <AuditOutlined />, label: 'ارزیابی فصلی HR' }] : []),
         ...(allowed('performance.admin') ? [{ key: '/performance/settings', icon: <SettingOutlined />, label: 'معیارها و تنظیمات' }] : []),
       ]
     }] : []),

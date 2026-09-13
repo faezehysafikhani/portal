@@ -1,6 +1,6 @@
-import { AuthContext, adminClient, requirePermission } from '../_shared/auth.ts'
+import { AuthContext, adminClient } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json, uuid } from '../_shared/http.ts'
-import { findReviewerFor } from './performance.ts'
+import { findReviewerFor, requireSection } from './performance.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -32,7 +32,7 @@ function todayIsoInTehran(): string {
 }
 
 async function submitTimesheet(request: Request, auth: AuthContext): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.timesheet')
   const input = await body<Obj>(request)
   const targetUserId = input.userId ? String(input.userId) : auth.userId
   const isForOther = targetUserId !== auth.userId
@@ -75,7 +75,7 @@ async function submitTimesheet(request: Request, auth: AuthContext): Promise<Res
 }
 
 async function listTimesheets(request: Request, auth: AuthContext, url: URL): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  requireSection(auth, 'performance.timesheet')
   const userId = url.searchParams.get('userId') || auth.userId
   if (userId !== auth.userId && !/^[0-9a-f-]{36}$/i.test(userId)) throw new HttpError(400, 'شناسه کاربر نامعتبر است')
   if (!(await canView(auth, userId))) throw new HttpError(403, 'شما مجوز مشاهده این تایم‌شیت را ندارید')
