@@ -1,4 +1,4 @@
-import { adminClient, AuthContext, requirePermission } from '../_shared/auth.ts'
+import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { body, camelize, HttpError, json, uuid } from '../_shared/http.ts'
 
 type Obj = Record<string, any>
@@ -19,7 +19,9 @@ function projectDto(item: Obj): Obj {
 }
 
 async function listProjects(request: Request, auth: AuthContext): Promise<Response> {
-  requirePermission(auth, 'performance.view')
+  if (!auth.isAdmin && !auth.permissions.includes('performance.view') && !auth.permissions.includes('tasks.view')) {
+    throw new HttpError(403, 'شما مجوز انجام این عملیات را ندارید')
+  }
   const result = await db.from('Projects').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('Status', 0).order('Name')
   check(result.error)
   return json(request, (result.data ?? []).map(projectDto))
