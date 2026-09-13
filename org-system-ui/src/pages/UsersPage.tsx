@@ -442,6 +442,10 @@ export default function UsersPage() {
           <Collapse defaultActiveKey={['letters','calendar','forms']} items={Object.entries(
             availablePermissions.reduce<Record<string,typeof availablePermissions>>((groups,permission)=>{
               ;(groups[permission.module] ||= []).push(permission)
+              // Task Sheet (زیرمنوی «ارزیابی عملکرد») در واقع با tasks.view/tasks.create کار
+              // می‌کند، نه performance.view — این دو را اینجا هم نشان می‌دهیم تا مدیر مجبور
+              // نباشد برای دادن دسترسی فقط به Task Sheet به منوی «وظایف و پروژه» برود.
+              if(permission.code==='tasks.view'||permission.code==='tasks.create')(groups['performance'] ||= []).push(permission)
               return groups
             },{})
           ).map(([module,permissions])=>{
@@ -451,7 +455,7 @@ export default function UsersPage() {
             return {
               key:module,
               label:<div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><strong>{moduleLabels[module]||module}</strong><Badge count={`${selectedCount}/${permissions.length}`} style={{background:selectedCount?'#8B1A6B':'#bfbfbf'}}/></div>,
-              children:<div><Button size="small" style={{marginBottom:10}} onClick={()=>setSelectedPermissionIds(current=>allSelected?current.filter(id=>!permissions.some(p=>p.id===id)):[...new Set([...current,...permissions.map(p=>p.id)])])}>{allSelected?'برداشتن همه این منو':'انتخاب همه این منو'}</Button><Row gutter={[10,10]}>{permissions.map(permission=><Col xs={24} md={12} key={permission.id}><Card size="small" style={{borderColor:selectedPermissionIds.includes(permission.id)?'#8B1A6B':'#e8e8e8'}}><Checkbox value={permission.id}><strong>{permission.name}</strong><div style={{fontSize:10,color:'#999',direction:'ltr',textAlign:'left'}}>{permission.code}</div></Checkbox></Card></Col>)}</Row></div>
+              children:<div>{module==='performance'&&<div style={{marginBottom:10,padding:'8px 12px',background:'#f0f5ff',border:'1px solid #adc6ff',borderRadius:6,fontSize:12,color:'#555'}}>برای دسترسی کارمند فقط به Task Sheet شخصی، همین‌جا «مشاهده وظایف» و «ایجاد وظیفه» را فعال کنید؛ فعال‌کردن «مشاهده و مدیریت کارتابل ارزیابی من» کل ماژول ارزیابی عملکرد (داشبورد، گزارش هفتگی، ارزیابی ماهانه، تایم‌شیت، ارزیابی فصلی) را باز می‌کند.</div>}<Button size="small" style={{marginBottom:10}} onClick={()=>setSelectedPermissionIds(current=>allSelected?current.filter(id=>!permissions.some(p=>p.id===id)):[...new Set([...current,...permissions.map(p=>p.id)])])}>{allSelected?'برداشتن همه این منو':'انتخاب همه این منو'}</Button><Row gutter={[10,10]}>{permissions.map(permission=><Col xs={24} md={12} key={permission.id}><Card size="small" style={{borderColor:selectedPermissionIds.includes(permission.id)?'#8B1A6B':'#e8e8e8'}}><Checkbox value={permission.id}><strong>{permission.name}</strong><div style={{fontSize:10,color:'#999',direction:'ltr',textAlign:'left'}}>{permission.code}</div></Checkbox></Card></Col>)}</Row></div>
             }
           })}/>
         </Checkbox.Group>
