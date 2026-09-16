@@ -204,13 +204,17 @@ export default function UsersPage() {
   const handleToggleActive = async (user: User) => {
     if (user.username === 'admin') return
     try {
-      await fetch(`${API}/users/${user.id}/toggle-active`, {
+      const response = await fetch(`${API}/users/${user.id}/toggle-active`, {
         method: 'PATCH',
         headers: authHeaders()
       })
-      fetchUsers()
-    } catch {
-      notification.error({ message: 'خطا در تغییر وضعیت' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || `خطای ${response.status}`)
+      setUsers(current => current.map(item => item.id === user.id ? { ...item, isActive: Boolean(result.isActive) } : item))
+      notification.success({ message: result.isActive ? 'کاربر فعال شد' : 'کاربر غیرفعال شد' })
+      await fetchUsers()
+    } catch (error) {
+      notification.error({ message: error instanceof Error ? error.message : 'خطا در تغییر وضعیت' })
     }
   }
 
@@ -275,7 +279,10 @@ export default function UsersPage() {
     {
       title: 'وضعیت', dataIndex: 'isActive', key: 'isActive', width: 90,
       render: (active: boolean, record: User) => (
-        <Switch checked={active} size="small" disabled={record.username === 'admin' || !allowed('users.edit')} onChange={() => handleToggleActive(record)} />
+        <Space size={6}>
+          <Badge color={active ? '#52c41a' : '#bfbfbf'} />
+          <Switch checked={active} size="small" checkedChildren="فعال" unCheckedChildren="غیرفعال" disabled={record.username === 'admin' || !allowed('users.edit')} onChange={() => handleToggleActive(record)} />
+        </Space>
       )
     },
     {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox, Popconfirm, List, Empty } from 'antd'
-import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined, DeleteOutlined, SyncOutlined, StopOutlined, PaperClipOutlined, HistoryOutlined } from '@ant-design/icons'
+import { Table, Button, Tag, Space, Badge, Tabs, Input, Modal, notification, Tooltip, Avatar, Card, Row, Col, Divider, Select, Collapse, Form, Checkbox, Popconfirm, List, Empty, Upload } from 'antd'
+import { PlusOutlined, MailOutlined, InboxOutlined, SendOutlined, FileTextOutlined, FolderOutlined, EyeOutlined, SettingOutlined, SearchOutlined, FilterOutlined, SwapLeftOutlined, EditOutlined, PrinterOutlined, DeleteOutlined, SyncOutlined, StopOutlined, PaperClipOutlined, HistoryOutlined, DownloadOutlined } from '@ant-design/icons'
 import LetterComposePage from './LetterComposePage'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../utils/api'
@@ -276,6 +276,7 @@ export default function LettersPage() {
   const [viewModal, setViewModal] = useState(false)
   const [letterDetail, setLetterDetail] = useState<any>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [attachmentUploading,setAttachmentUploading]=useState(false)
   const [referModal, setReferModal] = useState(false)
   const [referLoading,setReferLoading]=useState(false)
   const referralRequestId=useRef(crypto.randomUUID())
@@ -293,7 +294,8 @@ export default function LettersPage() {
   const isDrafts=location.pathname==='/letters/drafts'
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
-  const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
+  const isAdmin=Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin')
+  const allowed=(code:string)=>isAdmin||grantedPermissions.includes(code)
 
   useEffect(() => {
     if (location.pathname === '/letters/new') setComposing(true)
@@ -494,16 +496,55 @@ export default function LettersPage() {
       const result = await res.json()
       if (!res.ok) { notification.error({ message: result.message || 'خطا در ذخیره نامه' }); return false }
 
-      notification.success({ message: result.letterNumber ? `نامه با شماره ${result.letterNumber} ثبت شد` : 'پیش‌نویس ذخیره شد' })
+      const letterId = result.id || editingDraft?.id
+      const files = (data.attachments || [])
+        .map((item: any) => item.originFileObj || item)
+        .filter((item: unknown): item is File => item instanceof File)
+      if (files.length) {
+        if (!letterId) throw new Error('شناسه نامه برای ثبت پیوست دریافت نشد')
+        for (const file of files) {
+          const formData = new FormData()
+          formData.append('file', file, file.name)
+          const uploadResponse = await apiFetch(`${API}/letters/${letterId}/attachments`, { method: 'POST', body: formData })
+          const uploadResult = await uploadResponse.json().catch(() => ({}))
+          if (!uploadResponse.ok) throw new Error(uploadResult.message || `ارسال پیوست «${file.name}» انجام نشد`)
+        }
+      }
+
+      notification.success({ message: files.length ? `نامه و ${files.length.toLocaleString('fa-IR')} پیوست با موفقیت ثبت شد` : result.letterNumber ? `نامه با شماره ${result.letterNumber} ثبت شد` : 'پیش‌نویس ذخیره شد' })
       setComposing(false)
       setEditingDraft(null)
       navigate(new URLSearchParams(location.search).has('type')?`/letters/registry/${data.letterType}`:'/letters')
       fetchLetters()
       return true
-    } catch {
-      notification.error({ message: 'خطا در اتصال به سرور' })
+    } catch (error) {
+      notification.error({ message: error instanceof Error ? error.message : 'خطا در اتصال به سرور' })
       return false
     }
+  }
+
+  const downloadLetterAttachment = async (letterId:string, attachment:any) => {
+    const response = await apiFetch(`${API}/letters/${letterId}/attachments/${attachment.id}`)
+    const result = response.ok ? null : await response.json().catch(() => ({}))
+    if (!response.ok) { notification.error({message:result?.message||'دریافت پیوست انجام نشد'}); return }
+    const url=URL.createObjectURL(await response.blob())
+    const link=document.createElement('a');link.href=url;link.download=attachment.fileName||'attachment';link.click()
+    setTimeout(()=>URL.revokeObjectURL(url),1000)
+  }
+
+  const uploadLetterAttachment = async (file:File) => {
+    if(!letterDetail?.id||attachmentUploading)return
+    if(file.size>20*1024*1024){notification.warning({message:'حجم پیوست بیش از حد مجاز است',description:'حداکثر حجم هر فایل ۲۰ مگابایت است'});return}
+    setAttachmentUploading(true)
+    try{
+      const formData=new FormData();formData.append('file',file,file.name)
+      const response=await apiFetch(`${API}/letters/${letterDetail.id}/attachments`,{method:'POST',body:formData})
+      const result=await response.json().catch(()=>({}))
+      if(!response.ok)throw new Error(result.message||'ثبت پیوست انجام نشد')
+      notification.success({message:result.duplicate?'این پیوست قبلاً ثبت شده است':'پیوست به نامه اضافه شد'})
+      await refreshLetterDetail(letterDetail.id)
+    }catch(error){notification.error({message:error instanceof Error?error.message:'ثبت پیوست انجام نشد'})}
+    finally{setAttachmentUploading(false)}
   }
 
   const applyFilters = (ls: Letter[], f: SearchFilters) => {
@@ -686,7 +727,7 @@ export default function LettersPage() {
         ) : letterDetail && (
           <Tabs items={[
             allowed('letters.content.view')&&{key:'letter',label:<span><FileTextOutlined/> نامه و ارجاعات</span>,children:<div><div style={{display:'grid',gridTemplateColumns:'360px minmax(0,1fr)',gap:16,alignItems:'start',direction:'ltr'}}><aside style={{direction:'rtl',padding:14,background:'#fafafa',border:'1px solid #eee',borderRadius:10,minWidth:0}}><ReferralMessages detail={letterDetail}/></aside><main style={{direction:'rtl',overflowX:'auto',padding:8,background:'#f5f5f5',borderRadius:10}}><SavedLetterPage detail={letterDetail} compact/></main></div><div style={{background:'#f8f9fa',borderRadius:8,padding:'10px 14px',marginTop:12,border:'1px solid #e8e8e8',display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}><span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span><span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span><span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>{letterDetail.signedByName&&<span><strong>امضاکننده:</strong> {letterDetail.signedByName}</span>}</div></div>},
-            allowed('letters.attachments.view')&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>},
+            (allowed('letters.attachments.view')||letterDetail.fromUserId===currentUser.id)&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:<div>{(isAdmin||letterDetail.fromUserId===currentUser.id)&&letterDetail.status!=='Cancelled'&&<Space style={{marginBottom:12}}><Upload accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" showUploadList={false} beforeUpload={file=>{void uploadLetterAttachment(file);return false}}><Button type="primary" loading={attachmentUploading} icon={<PaperClipOutlined/>}>افزودن پیوست به نامه</Button></Upload><span style={{fontSize:12,color:'#888'}}>پس از صدور شماره و ارسال نامه نیز قابل استفاده است</span></Space>}{letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item actions={[<Button size="small" icon={<DownloadOutlined/>} onClick={()=>downloadLetterAttachment(letterDetail.id,item)}>دانلود</Button>]}><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>}</div>},
             allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه</span>,children:<div>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} wrap style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><Tag color="blue" style={{fontSize:10,margin:0}} dir="ltr">IP: {w.ipAddress&&w.ipAddress!=='unknown'?w.ipAddress:'ثبت نشده'}</Tag></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</div>}
           ].filter(Boolean) as any}/>
         )}

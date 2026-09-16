@@ -967,6 +967,7 @@ function profileDto(user: JsonObject): JsonObject {
     phoneNumber: user.PhoneNumber, fixedPhone: user.FixedPhone, address: user.Address,
     birthDate: user.BirthDate ?? null,
     department: user.Department, position: user.Position, avatarUrl: user.AvatarUrl,
+    isActive: Boolean(user.IsActive),
     signatureDataUrl: user.SignatureDataUrl, signatureText: user.SignatureText,
   }
 }

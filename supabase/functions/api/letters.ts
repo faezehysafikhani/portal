@@ -8,6 +8,8 @@ const db = adminClient()
 const now = () => new Date().toISOString()
 const base = (auth: AuthContext): Obj => ({ Id: crypto.randomUUID(), TenantId: auth.tenantId, CreatedAt: now(), UpdatedAt: null, CreatedByUserId: auth.userId, IsDeleted: false, DeletedAt: null })
 const types = ['Internal', 'Incoming', 'Outgoing']; const statuses = ['Draft', 'Sent', 'Received', 'InReview', 'Signed', 'Referred', 'Archived', 'Cancelled']; const priorities = ['Low', 'Normal', 'High', 'Urgent']; const recipientTypes = ['To', 'CC', 'Referral']; const actions = ['Created', 'Sent', 'Received', 'Signed', 'Referred', 'Archived', 'Cancelled', 'Edited', 'SignatureRevoked']
+const letterAttachmentBucket = 'letter-attachments'
+const allowedAttachmentExtensions = new Set(['.doc', '.docx', '.pdf', '.zip', '.rar', '.jpg', '.jpeg', '.png'])
 function check(error: { message: string } | null): void { if (error) { console.error(error.message); throw new HttpError(500, 'خطا در پایگاه داده') } }
 function enumIn(value: unknown, names: string[]): number { if (typeof value === 'number') return value; const i = names.findIndex((x) => x.toLowerCase() === String(value).toLowerCase()); return i < 0 ? 0 : i }
 function enumOut(value: unknown, names: string[]): unknown { return typeof value === 'number' ? names[value] : value }
@@ -27,7 +29,7 @@ async function details(auth: AuthContext, letter: Obj): Promise<Obj> {
     signerId?db.from('Users').select('SignatureDataUrl').eq('TenantId',auth.tenantId).eq('Id',signerId).maybeSingle():Promise.resolve({data:null,error:null}),
   ]); [recipients, attachments, workflow, template, sender, signer].forEach((x) => check(x.error))
   const rs = (recipients.data ?? []).map((r) => ({ ...(camelize(r) as Obj), recipientType: enumOut(r.RecipientType, recipientTypes) }))
-  const content=auth.isAdmin||auth.permissions.includes('letters.content.view');const files=auth.isAdmin||auth.permissions.includes('letters.attachments.view');const history=auth.isAdmin||auth.permissions.includes('letters.workflow.view')
+  const content=auth.isAdmin||auth.permissions.includes('letters.content.view');const files=auth.isAdmin||auth.permissions.includes('letters.attachments.view')||letter.FromUserId===auth.userId;const history=auth.isAdmin||auth.permissions.includes('letters.workflow.view')
   return {
     ...(camelize(letter) as Obj),body:content?letter.Body:null,type: enumOut(letter.Type, types), status: enumOut(letter.Status, statuses), priority: enumOut(letter.Priority, priorities),
     trackingCode: letter.LetterCounter,
@@ -46,11 +48,46 @@ async function addWorkflow(request:Request, auth: AuthContext, letterId: string,
 
 export async function handleLetters(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
   if (!path.startsWith('/letters')) return null
-  const refer = path.match(/^\/letters\/([0-9a-f-]+)\/refer$/i); const archive = path.match(/^\/letters\/([0-9a-f-]+)\/archive$/i); const sign = path.match(/^\/letters\/([0-9a-f-]+)\/sign$/i); const revokeSign = path.match(/^\/letters\/([0-9a-f-]+)\/revoke-signature$/i); const cancel = path.match(/^\/letters\/([0-9a-f-]+)\/cancel$/i); const match = path.match(/^\/letters\/([0-9a-f-]+)$/i)
+  const refer = path.match(/^\/letters\/([0-9a-f-]+)\/refer$/i); const archive = path.match(/^\/letters\/([0-9a-f-]+)\/archive$/i); const sign = path.match(/^\/letters\/([0-9a-f-]+)\/sign$/i); const revokeSign = path.match(/^\/letters\/([0-9a-f-]+)\/revoke-signature$/i); const cancel = path.match(/^\/letters\/([0-9a-f-]+)\/cancel$/i); const attachmentUpload = path.match(/^\/letters\/([0-9a-f-]+)\/attachments$/i); const attachmentDownload = path.match(/^\/letters\/([0-9a-f-]+)\/attachments\/([0-9a-f-]+)$/i); const match = path.match(/^\/letters\/([0-9a-f-]+)$/i)
   const registryPermission=(type:number)=>type===0?'letters.registry.internal.view':type===1?'letters.registry.incoming.view':'letters.registry.outgoing.view'
   const canRegistryType=(type:number)=>auth.isAdmin||auth.permissions.includes(registryPermission(type))
   const canRegistry=[0,1,2].some(canRegistryType); const canInbox = auth.isAdmin || auth.permissions.includes('letters.inbox.view')
   const requireSignature=(type:number)=>{if(type===1)throw new HttpError(400,'نامه وارده امضا نمی‌شود');requirePermission(auth,'letters.sign');requirePermission(auth,type===0?'letters.sign.internal':'letters.sign.outgoing')}
+  const accessibleLetter=async(letterId:string)=>{
+    const letter=await db.from('Letters').select('Id,Type,FromUserId').eq('TenantId',auth.tenantId).eq('Id',letterId).eq('IsDeleted',false).maybeSingle();check(letter.error)
+    if(!letter.data)throw new HttpError(404,'نامه یافت نشد')
+    if(letter.data.FromUserId!==auth.userId&&!canRegistryType(Number(letter.data.Type))){const recipient=await db.from('LetterRecipients').select('Id').eq('TenantId',auth.tenantId).eq('LetterId',letterId).eq('UserId',auth.userId).eq('IsDeleted',false).limit(1);check(recipient.error);if(!recipient.data?.length)throw new HttpError(403,'دسترسی غیرمجاز')}
+    return letter.data
+  }
+  if(request.method==='POST'&&attachmentUpload){
+    if(!auth.isAdmin&&!auth.permissions.includes('letters.create')&&!auth.permissions.includes('letters.edit'))throw new HttpError(403,'دسترسی ثبت پیوست نامه را ندارید')
+    const letter=await accessibleLetter(attachmentUpload[1]);if(letter.FromUserId!==auth.userId&&!canRegistryType(Number(letter.Type)))throw new HttpError(403,'فقط سازنده نامه یا دبیرخانه می‌تواند پیوست اضافه کند')
+    const form=await request.formData();const value=form.get('file');if(!(value instanceof File))throw new HttpError(400,'فایل پیوست ارسال نشده است')
+    if(value.size<1||value.size>20*1024*1024)throw new HttpError(413,'حجم هر پیوست باید حداکثر ۲۰ مگابایت باشد')
+    const originalName=value.name.replace(/[\\/\u0000-\u001f\u007f]/g,'_').trim().slice(0,260)||'attachment'
+    const extension=originalName.includes('.')?originalName.slice(originalName.lastIndexOf('.')).toLowerCase():''
+    if(!allowedAttachmentExtensions.has(extension))throw new HttpError(400,'فرمت فایل پیوست مجاز نیست')
+    const duplicate=await db.from('LetterAttachments').select('Id,FileName,FileSize,ContentType,StoragePath').eq('TenantId',auth.tenantId).eq('LetterId',letter.Id).eq('FileName',originalName).eq('FileSize',value.size).eq('IsDeleted',false).limit(1).maybeSingle();check(duplicate.error)
+    if(duplicate.data)return json(request,{...(camelize(duplicate.data) as Obj),duplicate:true})
+    const storagePath=`${auth.tenantId}/${letter.Id}/${crypto.randomUUID()}${extension}`
+    const uploaded=await db.storage.from(letterAttachmentBucket).upload(storagePath,value,{contentType:value.type||'application/octet-stream',upsert:false})
+    if(uploaded.error){console.error(uploaded.error.message);throw new HttpError(500,'ذخیره فایل پیوست انجام نشد')}
+    const row={...base(auth),LetterId:letter.Id,FileName:originalName,StoragePath:storagePath,FileSize:value.size,ContentType:(value.type||'application/octet-stream').slice(0,120)}
+    const inserted=await db.from('LetterAttachments').insert(row).select('Id,FileName,FileSize,ContentType,StoragePath').single()
+    if(inserted.error){await db.storage.from(letterAttachmentBucket).remove([storagePath]);check(inserted.error)}
+    const updated=await db.from('Letters').update({HasAttachment:true,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',letter.Id);check(updated.error)
+    await addWorkflow(request,auth,letter.Id,7,`پیوست «${originalName}» اضافه شد`)
+    return json(request,camelize(inserted.data),201)
+  }
+  if(request.method==='GET'&&attachmentDownload){
+    const letter=await accessibleLetter(attachmentDownload[1])
+    if(!auth.isAdmin&&!auth.permissions.includes('letters.attachments.view')&&letter.FromUserId!==auth.userId)throw new HttpError(403,'دسترسی مشاهده پیوست‌های نامه را ندارید')
+    const item=await db.from('LetterAttachments').select('FileName,ContentType,StoragePath').eq('TenantId',auth.tenantId).eq('LetterId',attachmentDownload[1]).eq('Id',attachmentDownload[2]).eq('IsDeleted',false).maybeSingle();check(item.error)
+    if(!item.data)throw new HttpError(404,'پیوست یافت نشد')
+    const downloaded=await db.storage.from(letterAttachmentBucket).download(item.data.StoragePath)
+    if(downloaded.error||!downloaded.data)throw new HttpError(404,'فایل پیوست یافت نشد')
+    return new Response(downloaded.data,{headers:{...corsHeaders(request),'Content-Type':item.data.ContentType||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(item.data.FileName||'attachment')}`}})
+  }
   if (request.method === 'GET' && path === '/letters') {
     const scope=url.searchParams.get('scope')||'mailbox';const registry=scope==='registry';const referrals=scope==='referrals';if(registry?!canRegistry:!canInbox)throw new HttpError(403,'دسترسی غیرمجاز')
     let query = db.from('Letters').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)

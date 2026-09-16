@@ -15,8 +15,9 @@ namespace OrgSystem.API.Controllers;
 [Authorize]
 public class LettersController : ControllerBase
 {
-    private readonly AppDbContext _db; private readonly ISmsGateway _sms;
-    public LettersController(AppDbContext db, ISmsGateway sms) { _db = db; _sms = sms; }
+    private static readonly HashSet<string> AllowedAttachmentExtensions = new(StringComparer.OrdinalIgnoreCase) { ".doc", ".docx", ".pdf", ".zip", ".rar", ".jpg", ".jpeg", ".png" };
+    private readonly AppDbContext _db; private readonly ISmsGateway _sms; private readonly IWebHostEnvironment _environment;
+    public LettersController(AppDbContext db, ISmsGateway sms, IWebHostEnvironment environment) { _db = db; _sms = sms; _environment = environment; }
     private Guid TenantId => Guid.Parse(User.FindFirst("tenant_id")!.Value);
     private static string PersianDate(DateTime value) { var p = new PersianCalendar(); return $"{p.GetYear(value):0000}/{p.GetMonth(value):00}/{p.GetDayOfMonth(value):00}"; }
 
@@ -386,6 +387,56 @@ public class LettersController : ControllerBase
 
         await _db.SaveChangesAsync();
         return Ok(new { message = request.Status==LetterStatus.Signed?"نامه امضا شد":request.Status==LetterStatus.Sent?"نامه ارسال شد":"پیش‌نویس ذخیره شد", letterNumber=letter.LetterNumber, status=letter.Status.ToString() });
+    }
+
+    [HttpPost("{id:guid}/attachments")]
+    [RequestSizeLimit(21 * 1024 * 1024)]
+    public async Task<IActionResult> UploadAttachment(Guid id, [FromForm] IFormFile file, CancellationToken ct)
+    {
+        var userId = Guid.Parse(User.FindFirst("user_id")!.Value);
+        var permissions = User.FindAll("permission").Select(x => x.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!User.IsInRole("Admin") && !permissions.Contains("letters.create") && !permissions.Contains("letters.edit")) return Forbid();
+        var letter = await _db.Letters.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (letter == null) return NotFound(new { message = "نامه یافت نشد" });
+        if (letter.FromUserId != userId && !User.IsInRole("Admin") && !permissions.Contains("letters.registry.view")) return Forbid();
+        if (file == null || file.Length < 1) return BadRequest(new { message = "فایل پیوست ارسال نشده است" });
+        if (file.Length > 20 * 1024 * 1024) return StatusCode(StatusCodes.Status413PayloadTooLarge, new { message = "حجم هر پیوست باید حداکثر ۲۰ مگابایت باشد" });
+        var originalName = Path.GetFileName(file.FileName).Trim();
+        var extension = Path.GetExtension(originalName);
+        if (string.IsNullOrWhiteSpace(originalName) || !AllowedAttachmentExtensions.Contains(extension)) return BadRequest(new { message = "فرمت فایل پیوست مجاز نیست" });
+        if (originalName.Length > 260) originalName = originalName[..(260 - extension.Length)] + extension;
+        var duplicate = await _db.LetterAttachments.AsNoTracking().FirstOrDefaultAsync(x => x.LetterId == id && x.FileName == originalName && x.FileSize == file.Length, ct);
+        if (duplicate != null) return Ok(new { duplicate.Id, duplicate.FileName, duplicate.FileSize, duplicate.ContentType, duplicate = true });
+
+        var relativePath = Path.Combine(TenantId.ToString("N"), id.ToString("N"), $"{Guid.NewGuid():N}{extension.ToLowerInvariant()}");
+        var storageRoot = Path.Combine(_environment.ContentRootPath, "App_Data", "letter-attachments");
+        var fullPath = Path.Combine(storageRoot, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using (var stream = System.IO.File.Create(fullPath)) await file.CopyToAsync(stream, ct);
+        var attachment = new LetterAttachment { LetterId=id, FileName=originalName, StoragePath=relativePath, FileSize=file.Length, ContentType=string.IsNullOrWhiteSpace(file.ContentType)?"application/octet-stream":file.ContentType, TenantId=TenantId, CreatedByUserId=userId };
+        _db.LetterAttachments.Add(attachment); letter.HasAttachment = true;
+        var stepOrder = await _db.LetterWorkflowSteps.CountAsync(x => x.LetterId == id, ct) + 1;
+        _db.LetterWorkflowSteps.Add(new LetterWorkflowStep { LetterId=id, UserId=userId, UserName=User.FindFirst("full_name")?.Value??"کاربر", Action=WorkflowAction.Edited, Comment=$"پیوست «{originalName}» اضافه شد", StepOrder=stepOrder, TenantId=TenantId, CreatedByUserId=userId });
+        try { await _db.SaveChangesAsync(ct); }
+        catch { System.IO.File.Delete(fullPath); throw; }
+        return StatusCode(StatusCodes.Status201Created, new { attachment.Id, attachment.FileName, attachment.FileSize, attachment.ContentType });
+    }
+
+    [HttpGet("{letterId:guid}/attachments/{attachmentId:guid}")]
+    public async Task<IActionResult> DownloadAttachment(Guid letterId, Guid attachmentId, CancellationToken ct)
+    {
+        var userId = Guid.Parse(User.FindFirst("user_id")!.Value);
+        var permissions = User.FindAll("permission").Select(x => x.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var letter = await _db.Letters.AsNoTracking().FirstOrDefaultAsync(x => x.Id == letterId, ct);
+        if (letter == null) return NotFound(new { message = "نامه یافت نشد" });
+        if (!User.IsInRole("Admin") && !permissions.Contains("letters.attachments.view") && letter.FromUserId != userId) return Forbid();
+        var canAccess = User.IsInRole("Admin") || letter.FromUserId == userId || permissions.Contains("letters.registry.view") || await _db.LetterRecipients.AnyAsync(x => x.LetterId == letterId && x.UserId == userId, ct);
+        if (!canAccess) return Forbid();
+        var attachment = await _db.LetterAttachments.AsNoTracking().FirstOrDefaultAsync(x => x.Id == attachmentId && x.LetterId == letterId, ct);
+        if (attachment == null) return NotFound(new { message = "پیوست یافت نشد" });
+        var fullPath = Path.Combine(_environment.ContentRootPath, "App_Data", "letter-attachments", attachment.StoragePath);
+        if (!System.IO.File.Exists(fullPath)) return NotFound(new { message = "فایل پیوست یافت نشد" });
+        return PhysicalFile(fullPath, attachment.ContentType ?? "application/octet-stream", attachment.FileName, enableRangeProcessing: true);
     }
 
     [HttpPost("{id}/refer")]

@@ -7,7 +7,7 @@ import {
   BoldOutlined, ItalicOutlined, UnderlineOutlined, OrderedListOutlined,
   UnorderedListOutlined as ULOutlined, AlignRightOutlined, AlignCenterOutlined,
   AlignLeftOutlined, FontColorsOutlined, PlusOutlined, UserOutlined,
-  EyeOutlined, HistoryOutlined, TeamOutlined, LinkOutlined, SwapLeftOutlined
+  EyeOutlined, HistoryOutlined, TeamOutlined, LinkOutlined, SwapLeftOutlined, DownloadOutlined
 } from '@ant-design/icons'
 import type { UploadFile } from 'antd'
 import { apiFetch } from '../utils/api'
@@ -199,6 +199,7 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
     setLetterType(type); setRegistry(REGISTRIES.find(r=>r.type===type) || REGISTRIES[0])
     setBodyHtml(initialData.body || ''); setClassification(initialData.classification || 'normal')
     const recipient = initialData.recipients?.find((r:any)=>r.userId)
+    setAttachments((initialData.attachments||[]).map((item:any)=>({uid:`saved-${item.id}`,name:item.fileName,size:item.fileSize,type:item.contentType,status:'done',response:{persisted:true,id:item.id}})))
     setHasSignature(type!=='incoming'&&Boolean(initialData.signedByName||initialData.senderSignatureDataUrl))
     form.setFieldsValue({ subject:initialData.subject, fromUser:initialData.fromUserName, letterDate:initialData.letterDate ? new Intl.DateTimeFormat('fa-IR-u-nu-latn').format(new Date(initialData.letterDate)).replace(/-/g,'/') : undefined, toUser:recipient?.userId, toExternal:initialData.toExternalName, toExternalOrg:initialData.toExternalOrg, fromOrg:initialData.incomingFromOrg, incomingNumber:initialData.incomingNumber, incomingDate:initialData.incomingDate })
   }, [initialData, form])
@@ -250,6 +251,14 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
     if (name.match(/\.(zip|rar)$/)) return '🗜️'
     if (name.match(/\.(jpg|jpeg|png|gif)$/)) return '🖼️'
     return '📎'
+  }
+
+  const downloadSavedAttachment = async (file: UploadFile) => {
+    const attachmentId=(file.response as {id?:string}|undefined)?.id
+    if(!initialData?.id||!attachmentId)return
+    const response=await apiFetch(`${API}/letters/${initialData.id}/attachments/${attachmentId}`)
+    if(!response.ok){Modal.error({title:'دریافت پیوست انجام نشد'});return}
+    const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=file.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
   }
 
   const openRecipientModal = (r?: Recipient) => {
@@ -562,18 +571,22 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
             children: (
               <div style={{ padding: '12px 0' }}>
                 <Space style={{ marginBottom: 12 }}>
-                  <Upload multiple accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" beforeUpload={f => { setAttachments(p => [...p, f as unknown as UploadFile]); return false }} showUploadList={false}>
+                  <Upload multiple accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" beforeUpload={f => {
+                    if (f.size > 20 * 1024 * 1024) { Modal.warning({title:'حجم پیوست بیش از حد مجاز است',content:`فایل «${f.name}» باید حداکثر ۲۰ مگابایت باشد.`}); return Upload.LIST_IGNORE }
+                    setAttachments(p => p.some(item => item.name === f.name && item.size === f.size) ? p : [...p, f as unknown as UploadFile]); return false
+                  }} showUploadList={false}>
                     <Button icon={<UploadOutlined />} type="dashed">انتخاب فایل</Button>
                   </Upload>
                 </Space>
                 {attachments.length === 0 ? (
                   <Empty description="پیوستی اضافه نشده" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
-                  <List size="small" bordered dataSource={attachments} renderItem={(f, i) => (
-                    <List.Item actions={[<Button size="small" danger icon={<DeleteOutlined />} onClick={() => setAttachments(p => p.filter((_, idx) => idx !== i))} />]}>
-                      <Space>{getFileIcon(f.name)}<span>{f.name}</span><Tag>{((f.size || 0) / 1024).toFixed(0)} KB</Tag></Space>
+                  <List size="small" bordered dataSource={attachments} renderItem={(f, i) => {
+                    const saved=Boolean((f.response as {persisted?:boolean}|undefined)?.persisted)
+                    return <List.Item actions={saved?[<Button size="small" icon={<DownloadOutlined/>} onClick={()=>void downloadSavedAttachment(f)}>دانلود</Button>]:[<Button size="small" danger icon={<DeleteOutlined />} onClick={() => setAttachments(p => p.filter((_, idx) => idx !== i))} />]}>
+                      <Space>{getFileIcon(f.name)}<span>{f.name}</span><Tag>{((f.size || 0) / 1024).toFixed(0)} KB</Tag>{saved&&<Tag color="green">ثبت‌شده</Tag>}</Space>
                     </List.Item>
-                  )} />
+                  }} />
                 )}
               </div>
             )

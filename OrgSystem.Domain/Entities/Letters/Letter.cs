@@ -104,4 +104,4 @@ public enum LetterType { Internal, Incoming, Outgoing }
 public enum LetterStatus { Draft, Sent, Received, InReview, Signed, Referred, Archived, Cancelled }
 public enum LetterPriority { Low, Normal, High, Urgent }
 public enum RecipientType { To, CC, Referral }
-public enum WorkflowAction { Created, Sent, Received, Signed, Referred, Archived, Cancelled }
+public enum WorkflowAction { Created, Sent, Received, Signed, Referred, Archived, Cancelled, Edited }
