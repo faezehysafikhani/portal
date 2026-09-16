@@ -261,6 +261,15 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
     const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=file.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)
   }
 
+  const deleteSavedAttachment = (file:UploadFile) => {
+    const attachmentId=(file.response as {id?:string}|undefined)?.id;if(!initialData?.id||!attachmentId)return
+    Modal.confirm({title:`حذف پیوست «${file.name}»؟`,content:'فایل از نامه حذف می‌شود.',okText:'حذف',cancelText:'انصراف',okButtonProps:{danger:true},onOk:async()=>{
+      const response=await apiFetch(`${API}/letters/${initialData.id}/attachments/${attachmentId}`,{method:'DELETE'})
+      if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.message||'حذف پیوست انجام نشد')}
+      setAttachments(current=>current.filter(item=>item.uid!==file.uid))
+    }})
+  }
+
   const openRecipientModal = (r?: Recipient) => {
     if (r) { setEditingRecipient(r); recipientForm.setFieldsValue(r) }
     else { setEditingRecipient(null); recipientForm.resetFields(); recipientForm.setFieldValue('referralType', 'اصل') }
@@ -571,19 +580,19 @@ export default function LetterComposePage({ onSave, onCancel, initialData, defau
             children: (
               <div style={{ padding: '12px 0' }}>
                 <Space style={{ marginBottom: 12 }}>
-                  <Upload multiple accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" beforeUpload={f => {
+                  {allowed('letters.attachments.add')?<Upload multiple accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" beforeUpload={f => {
                     if (f.size > 20 * 1024 * 1024) { Modal.warning({title:'حجم پیوست بیش از حد مجاز است',content:`فایل «${f.name}» باید حداکثر ۲۰ مگابایت باشد.`}); return Upload.LIST_IGNORE }
                     setAttachments(p => p.some(item => item.name === f.name && item.size === f.size) ? p : [...p, f as unknown as UploadFile]); return false
                   }} showUploadList={false}>
                     <Button icon={<UploadOutlined />} type="dashed">انتخاب فایل</Button>
-                  </Upload>
+                  </Upload>:<Tag>مجوز افزودن پیوست ندارید</Tag>}
                 </Space>
                 {attachments.length === 0 ? (
                   <Empty description="پیوستی اضافه نشده" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 ) : (
                   <List size="small" bordered dataSource={attachments} renderItem={(f, i) => {
                     const saved=Boolean((f.response as {persisted?:boolean}|undefined)?.persisted)
-                    return <List.Item actions={saved?[<Button size="small" icon={<DownloadOutlined/>} onClick={()=>void downloadSavedAttachment(f)}>دانلود</Button>]:[<Button size="small" danger icon={<DeleteOutlined />} onClick={() => setAttachments(p => p.filter((_, idx) => idx !== i))} />]}>
+                    return <List.Item actions={saved?[<Button size="small" icon={<DownloadOutlined/>} onClick={()=>void downloadSavedAttachment(f)}>دانلود</Button>,...(allowed('letters.attachments.delete')?[<Button size="small" danger icon={<DeleteOutlined/>} onClick={()=>deleteSavedAttachment(f)}>حذف</Button>]:[])]:[<Button size="small" danger icon={<DeleteOutlined />} onClick={() => setAttachments(p => p.filter((_, idx) => idx !== i))} />]}>
                       <Space>{getFileIcon(f.name)}<span>{f.name}</span><Tag>{((f.size || 0) / 1024).toFixed(0)} KB</Tag>{saved&&<Tag color="green">ثبت‌شده</Tag>}</Space>
                     </List.Item>
                   }} />

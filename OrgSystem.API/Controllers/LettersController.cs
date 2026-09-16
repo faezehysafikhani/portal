@@ -324,7 +324,7 @@ public class LettersController : ControllerBase
 
         await _db.SaveChangesAsync();
         var smsSetting = await _db.SmsProviderSettings.FirstOrDefaultAsync(x => x.IsActive);
-        foreach (var recipient in request.Recipients?.Where(x => x.SendSms && !string.IsNullOrWhiteSpace(x.PhoneNumber)) ?? [])
+        foreach (var recipient in request.Status==LetterStatus.Draft?[]:request.Recipients?.Where(x => x.SendSms && !string.IsNullOrWhiteSpace(x.PhoneNumber)) ?? [])
         {
             var smsText = (smsSetting?.LetterTemplate ?? "نامه شماره {number} مورخ {date} با موضوع «{subject}»")
                 .Replace("{subject}", letter.Subject).Replace("{number}", letter.LetterNumber ?? "بدون شماره")
@@ -386,16 +386,26 @@ public class LettersController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        if(previousStatus==LetterStatus.Draft&&request.Status is LetterStatus.Sent or LetterStatus.Signed)
+        {
+            var smsSetting=await _db.SmsProviderSettings.FirstOrDefaultAsync(x=>x.IsActive);
+            foreach(var recipient in letter.Recipients.Where(x=>x.SmsRequested&&!string.IsNullOrWhiteSpace(x.PhoneNumber)))
+            {
+                var smsText=(smsSetting?.LetterTemplate??"نامه شماره {number} مورخ {date} با موضوع «{subject}»").Replace("{subject}",letter.Subject).Replace("{number}",letter.LetterNumber??"بدون شماره").Replace("{date}",PersianDate(letter.LetterDate??DateTime.Now));
+                recipient.SmsStatus=await _sms.SendAsync(recipient.PhoneNumber!,smsText,userId)?"sent":"failed";
+            }
+            await _db.SaveChangesAsync();
+        }
         return Ok(new { message = request.Status==LetterStatus.Signed?"نامه امضا شد":request.Status==LetterStatus.Sent?"نامه ارسال شد":"پیش‌نویس ذخیره شد", letterNumber=letter.LetterNumber, status=letter.Status.ToString() });
     }
 
     [HttpPost("{id:guid}/attachments")]
+    [RequirePermission("letters.attachments.add")]
     [RequestSizeLimit(21 * 1024 * 1024)]
     public async Task<IActionResult> UploadAttachment(Guid id, [FromForm] IFormFile file, CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirst("user_id")!.Value);
         var permissions = User.FindAll("permission").Select(x => x.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (!User.IsInRole("Admin") && !permissions.Contains("letters.create") && !permissions.Contains("letters.edit")) return Forbid();
         var letter = await _db.Letters.FirstOrDefaultAsync(x => x.Id == id, ct);
         if (letter == null) return NotFound(new { message = "نامه یافت نشد" });
         if (letter.FromUserId != userId && !User.IsInRole("Admin") && !permissions.Contains("letters.registry.view")) return Forbid();
@@ -439,6 +449,25 @@ public class LettersController : ControllerBase
         return PhysicalFile(fullPath, attachment.ContentType ?? "application/octet-stream", attachment.FileName, enableRangeProcessing: true);
     }
 
+    [HttpDelete("{letterId:guid}/attachments/{attachmentId:guid}")]
+    [RequirePermission("letters.attachments.delete")]
+    public async Task<IActionResult> DeleteAttachment(Guid letterId, Guid attachmentId, CancellationToken ct)
+    {
+        var userId=Guid.Parse(User.FindFirst("user_id")!.Value);
+        var permissions=User.FindAll("permission").Select(x=>x.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var letter=await _db.Letters.Include(x=>x.WorkflowSteps).FirstOrDefaultAsync(x=>x.Id==letterId,ct);
+        if(letter==null)return NotFound(new{message="نامه یافت نشد"});
+        if(letter.FromUserId!=userId&&!User.IsInRole("Admin")&&!permissions.Contains("letters.registry.view"))return Forbid();
+        var attachment=await _db.LetterAttachments.FirstOrDefaultAsync(x=>x.Id==attachmentId&&x.LetterId==letterId,ct);
+        if(attachment==null)return NotFound(new{message="پیوست یافت نشد"});
+        var fullPath=Path.Combine(_environment.ContentRootPath,"App_Data","letter-attachments",attachment.StoragePath);
+        attachment.IsDeleted=true;attachment.DeletedAt=DateTime.UtcNow;
+        letter.HasAttachment=await _db.LetterAttachments.AnyAsync(x=>x.LetterId==letterId&&x.Id!=attachmentId,ct);
+        _db.LetterWorkflowSteps.Add(new LetterWorkflowStep{LetterId=letterId,UserId=userId,UserName=User.FindFirst("full_name")?.Value??"کاربر",Action=WorkflowAction.Edited,Comment=$"پیوست «{attachment.FileName}» حذف شد",StepOrder=letter.WorkflowSteps.Count+1,TenantId=TenantId,CreatedByUserId=userId});
+        await _db.SaveChangesAsync(ct);if(System.IO.File.Exists(fullPath))System.IO.File.Delete(fullPath);
+        return NoContent();
+    }
+
     [HttpPost("{id}/refer")]
     [RequirePermission("letters.refer")]
     public async Task<IActionResult> Refer(Guid id, [FromBody] ReferLetterRequest request)
@@ -472,7 +501,7 @@ public class LettersController : ControllerBase
         if (string.IsNullOrWhiteSpace(recipientName))
             return BadRequest(new { message = "گیرنده ارجاع یافت نشد" });
 
-        _db.LetterRecipients.Add(new LetterRecipient
+        var referralRecipient=new LetterRecipient
         {
             Id = Guid.NewGuid(),
             LetterId = letter.Id,
@@ -493,7 +522,8 @@ public class LettersController : ControllerBase
             ReferredByPosition = referringUser?.Position,
             RecipientPosition = targetUser?.Position ?? targetContact?.JobTitle,
             TenantId = tenantId
-        });
+        };
+        _db.LetterRecipients.Add(referralRecipient);
         if (request.ToUserId.HasValue && request.ToUserId.Value != userId)
             _db.Notifications.Add(new Notification { Id=Guid.NewGuid(), UserId=request.ToUserId.Value, Title="نامه به شما ارجاع شد", Body=$"{letter.LetterNumber} — {letter.Subject} — {request.ReferralType ?? "جهت اقدام"}", Type=NotificationType.Letter, ActionUrl="/letters", RelatedEntityId=letter.Id.ToString(), RelatedEntityType="Letter", TenantId=tenantId });
 
@@ -517,7 +547,8 @@ public class LettersController : ControllerBase
             var smsText = (smsSetting?.ReferralTemplate ?? "نامه با موضوع «{subject}» مورخ {date} با ارجاع «{referralType}»")
                 .Replace("{subject}", letter.Subject).Replace("{date}", PersianDate(letter.LetterDate ?? DateTime.Now))
                 .Replace("{referralType}", request.ReferralType ?? "جهت اقدام");
-            await _sms.SendAsync(request.PhoneNumber, smsText, userId);
+            referralRecipient.SmsStatus=await _sms.SendAsync(request.PhoneNumber, smsText, userId)?"sent":"failed";
+            await _db.SaveChangesAsync();
         }
 
         return Ok(new

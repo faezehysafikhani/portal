@@ -32,15 +32,24 @@ public class SmsGateway(AppDbContext db, IHttpClientFactory clients, IDataProtec
         try
         {
             var client = clients.CreateClient("sms");
-            var password = Unprotect(setting.EncryptedPassword);
-            if (!string.IsNullOrWhiteSpace(setting.Username) && !string.IsNullOrWhiteSpace(password))
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{setting.Username}:{password}")));
-            else
+            HttpResponseMessage response;
+            var isKavenegar=string.Equals(setting.ProviderName,"Kavenegar",StringComparison.OrdinalIgnoreCase)||uri.Host.Equals("api.kavenegar.com",StringComparison.OrdinalIgnoreCase);
+            if(isKavenegar)
             {
                 var apiKey = Unprotect(setting.EncryptedApiKey);
-                if (!string.IsNullOrWhiteSpace(apiKey)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                if(string.IsNullOrWhiteSpace(apiKey))throw new InvalidOperationException("API Key کاوه‌نگار ذخیره نشده است");
+                var endpoint=new Uri($"https://api.kavenegar.com/v1/{Uri.EscapeDataString(apiKey)}/sms/send.json");
+                var fields=new Dictionary<string,string>{{"receptor",phone},{"message",message}};if(!string.IsNullOrWhiteSpace(setting.SenderNumber))fields["sender"]=setting.SenderNumber;
+                response=await client.PostAsync(endpoint,new FormUrlEncodedContent(fields),ct);
             }
-            var response = await client.PostAsJsonAsync(uri, new { receptor = phone, message, sender = setting.SenderNumber }, ct);
+            else
+            {
+                var password = Unprotect(setting.EncryptedPassword);
+                if (!string.IsNullOrWhiteSpace(setting.Username) && !string.IsNullOrWhiteSpace(password))
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{setting.Username}:{password}")));
+                else { var apiKey=Unprotect(setting.EncryptedApiKey);if(!string.IsNullOrWhiteSpace(apiKey))client.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",apiKey); }
+                response=await client.PostAsJsonAsync(uri,new{to=phone,message,sender=setting.SenderNumber,username=setting.Username},ct);
+            }
             log.Status = response.IsSuccessStatusCode ? SmsStatus.Sent : SmsStatus.Failed;
             log.ErrorMessage = response.IsSuccessStatusCode ? null : $"HTTP {(int)response.StatusCode}";
             log.SentAt = response.IsSuccessStatusCode ? DateTime.UtcNow : null;

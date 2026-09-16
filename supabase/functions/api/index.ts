@@ -29,7 +29,7 @@ function requireAdmin(auth: AuthContext): void {
 
 const permissionDependencies: Record<string, string[]> = {
   'users.view': ['users.create', 'users.edit', 'users.delete', 'users.password.reset'],
-  'letters.inbox.view': ['letters.create', 'letters.edit', 'letters.sign', 'letters.send', 'letters.refer', 'letters.archive', 'letters.delete', 'letters.print'],
+  'letters.inbox.view': ['letters.create', 'letters.edit', 'letters.sign', 'letters.send', 'letters.refer', 'letters.archive', 'letters.delete', 'letters.print', 'letters.attachments.add', 'letters.attachments.delete'],
   'letters.create': ['letters.type.internal', 'letters.type.incoming', 'letters.type.outgoing'],
   'letters.sign': ['letters.sign.internal', 'letters.sign.outgoing'],
   'tickets.view': ['tickets.create', 'tickets.edit', 'tickets.comment', 'tickets.delete'],
@@ -1007,6 +1007,8 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
       { Code: 'letters.registry.outgoing.view', Name: 'مشاهده دبیرخانه نامه‌های صادره', Module: 'letters' },
       { Code: 'letters.sign.internal', Name: 'امضای نامه داخلی', Module: 'letters' },
       { Code: 'letters.sign.outgoing', Name: 'امضای نامه صادره', Module: 'letters' },
+      { Code: 'letters.attachments.add', Name: 'افزودن پیوست نامه', Module: 'letters' },
+      { Code: 'letters.attachments.delete', Name: 'حذف پیوست نامه', Module: 'letters' },
     ]
     const existingDetailedPermissions = await db.from('Permissions').select('Code').eq('TenantId', auth.tenantId).in('Code', detailedPermissions.map(item => item.Code))
     failOnDb(existingDetailedPermissions.error)

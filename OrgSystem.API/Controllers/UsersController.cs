@@ -194,7 +194,7 @@ public class UsersController : ControllerBase
         var viewDependencies = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
             ["users.view"] = ["users.create", "users.edit", "users.delete", "users.permissions.assign", "users.password.reset"],
-            ["letters.inbox.view"] = ["letters.create", "letters.edit", "letters.sign", "letters.send", "letters.refer", "letters.archive", "letters.delete", "letters.print"],
+            ["letters.inbox.view"] = ["letters.create", "letters.edit", "letters.sign", "letters.send", "letters.refer", "letters.archive", "letters.delete", "letters.print", "letters.attachments.add", "letters.attachments.delete"],
             ["tickets.view"] = ["tickets.create", "tickets.edit", "tickets.comment", "tickets.delete"],
             ["contacts.view"] = ["contacts.create", "contacts.edit", "contacts.delete"],
             ["calendar.view"] = ["calendar.create", "calendar.edit", "calendar.delete", "calendar.respond"],

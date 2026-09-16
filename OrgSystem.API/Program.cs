@@ -156,7 +156,7 @@ using (var scope = app.Services.CreateScope())
     var permissionSeeds = new (string Code, string Name, string Module)[]
     {
         ("users.view","مشاهده کاربران","users"),("users.create","ایجاد کاربر","users"),("users.edit","ویرایش کاربر","users"),("users.delete","حذف کاربر","users"),("users.permissions.assign","تنظیم دسترسی مستقیم کاربر","users"),("users.password.reset","بازنشانی رمز عبور","users"),
-        ("letters.inbox.view","مشاهده کارتابل نامه","letters"),("letters.registry.view","مشاهده دبیرخانه","letters"),("letters.create","ایجاد نامه و پیش‌نویس","letters"),("letters.edit","ویرایش نامه","letters"),("letters.sign","امضای نامه","letters"),("letters.send","ذخیره و ارسال نامه","letters"),("letters.refer","ارجاع نامه","letters"),("letters.archive","بایگانی نامه","letters"),("letters.delete","حذف نامه","letters"),("letters.print","چاپ نامه","letters"),
+        ("letters.inbox.view","مشاهده کارتابل نامه","letters"),("letters.registry.view","مشاهده دبیرخانه","letters"),("letters.create","ایجاد نامه و پیش‌نویس","letters"),("letters.edit","ویرایش نامه","letters"),("letters.sign","امضای نامه","letters"),("letters.send","ذخیره و ارسال نامه","letters"),("letters.refer","ارجاع نامه","letters"),("letters.archive","بایگانی نامه","letters"),("letters.delete","حذف نامه","letters"),("letters.print","چاپ نامه","letters"),("letters.attachments.view","مشاهده پیوست‌های نامه","letters"),("letters.attachments.add","افزودن پیوست نامه","letters"),("letters.attachments.delete","حذف پیوست نامه","letters"),
         ("tickets.view","مشاهده تیکت‌ها","tickets"),("tickets.create","ایجاد تیکت","tickets"),("tickets.edit","ویرایش و تخصیص تیکت","tickets"),("tickets.comment","ثبت پاسخ تیکت","tickets"),("tickets.delete","حذف تیکت","tickets"),
         ("contacts.view","مشاهده مخاطبین","contacts"),("contacts.create","ایجاد مخاطب","contacts"),("contacts.edit","ویرایش مخاطب","contacts"),("contacts.delete","حذف مخاطب","contacts"),
         ("calendar.view","مشاهده تقویم","calendar"),("calendar.create","افزودن جلسه و رویداد","calendar"),("calendar.edit","ویرایش رویداد","calendar"),("calendar.delete","حذف رویداد","calendar"),("calendar.respond","پاسخ به دعوت جلسه","calendar"),
@@ -198,7 +198,7 @@ using (var scope = app.Services.CreateScope())
     var startupDependencies = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
     {
         ["users.view"] = ["users.create", "users.edit", "users.delete", "users.permissions.assign", "users.password.reset"],
-        ["letters.inbox.view"] = ["letters.create", "letters.edit", "letters.sign", "letters.send", "letters.refer", "letters.archive", "letters.delete", "letters.print"],
+        ["letters.inbox.view"] = ["letters.create", "letters.edit", "letters.sign", "letters.send", "letters.refer", "letters.archive", "letters.delete", "letters.print", "letters.attachments.add", "letters.attachments.delete"],
         ["tickets.view"] = ["tickets.create", "tickets.edit", "tickets.comment", "tickets.delete"],
         ["contacts.view"] = ["contacts.create", "contacts.edit", "contacts.delete"],
         ["calendar.view"] = ["calendar.create", "calendar.edit", "calendar.delete", "calendar.respond"],

@@ -42,7 +42,7 @@ interface Letter {
   createdAt: string
 }
 
-interface ApiUser { id: string; fullName: string; position?: string }
+interface ApiUser { id: string; fullName: string; position?: string; phoneNumber?: string }
 interface ApiContact { id: string; fullName: string; companyName?: string; mobile?: string; phone?: string }
 
 const TYPE_LABELS: Record<string, { label: string; color: string }> = {
@@ -291,6 +291,7 @@ export default function LettersPage() {
   const registryTypeKey=registryType?.toLowerCase() as 'internal'|'incoming'|'outgoing'|undefined
   const requestedType=(new URLSearchParams(location.search).get('type')||registryTypeKey||'internal') as 'internal'|'incoming'|'outgoing'
   const isReferrals=location.pathname==='/letters/referrals'
+  const isSent=location.pathname==='/letters/sent'
   const isDrafts=location.pathname==='/letters/drafts'
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
@@ -305,7 +306,7 @@ export default function LettersPage() {
   const fetchLetters = async (silent=false) => {
     try {
       if(!silent)setLoading(true)
-      const scope=isRegistry?'registry':isReferrals?'referrals':'mailbox'
+      const scope=isRegistry?'registry':isReferrals?'referrals':isSent?'sent':'mailbox'
       const status=isDrafts?'&status=Draft':''
       const type=registryType?`&type=${registryType}`:''
       const res = await apiFetch(`${API}/letters?scope=${scope}${status}${type}`, { headers: authHeaders(),cache:'no-store' })
@@ -336,7 +337,7 @@ export default function LettersPage() {
     const timer=window.setInterval(refreshVisible,30000)
     window.addEventListener('focus',refreshVisible);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',refreshVisible)
     return()=>{window.clearInterval(timer);window.removeEventListener('focus',refreshVisible);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',refreshVisible)}
-  }, [isRegistry,isReferrals,isDrafts,registryType])
+  }, [isRegistry,isReferrals,isSent,isDrafts,registryType])
 
   const handleViewLetter = async (letter: Letter) => {
     setSelectedLetter(letter)
@@ -390,6 +391,7 @@ export default function LettersPage() {
           toUserName: user?.fullName || contact?.fullName,
           toContactId: contact?.id || null,
           phoneNumber: contact?.mobile || contact?.phone || null,
+          ...(user?.phoneNumber?{phoneNumber:user.phoneNumber}:{}),
           sendSms: !!values.sendSms,
           referralType: values.referralType,
           referralText: values.referralText,
@@ -398,7 +400,8 @@ export default function LettersPage() {
       })
       const result=await res.json().catch(()=>({}))
       if (!res.ok) throw new Error(result.message||`خطای ${res.status}`)
-      notification.success({ message: 'نامه با موفقیت ارجاع داده شد' })
+      if(result.sms?.failed)notification.warning({message:'ارجاع ثبت شد اما پیامک ارسال نشد',description:(result.sms.errors||[]).join('، ')||'لاگ پیامک را بررسی کنید'})
+      else notification.success({ message: result.sms?.sent?'نامه ارجاع و پیامک ارسال شد':'نامه با موفقیت ارجاع داده شد' })
       setReferModal(false)
       setViewModal(false)
       referForm.resetFields()
@@ -495,6 +498,7 @@ export default function LettersPage() {
       const res = await apiFetch(editingDraft ? `${API}/letters/${editingDraft.id}` : `${API}/letters`, { method: editingDraft ? 'PUT' : 'POST', headers: authHeaders(), body: JSON.stringify(body) })
       const result = await res.json()
       if (!res.ok) { notification.error({ message: result.message || 'خطا در ذخیره نامه' }); return false }
+      if(result.sms?.failed)notification.warning({message:'نامه ثبت شد اما یک یا چند پیامک ارسال نشد',description:(result.sms.errors||[]).join('، ')||'لاگ پیامک را بررسی کنید'})
 
       const letterId = result.id || editingDraft?.id
       const files = (data.attachments || [])
@@ -547,6 +551,15 @@ export default function LettersPage() {
     finally{setAttachmentUploading(false)}
   }
 
+  const deleteLetterAttachment = (attachment:any) => {
+    if(!letterDetail?.id)return
+    Modal.confirm({title:`حذف پیوست «${attachment.fileName}»؟`,content:'این فایل از نامه حذف می‌شود.',okText:'حذف',cancelText:'انصراف',okButtonProps:{danger:true},onOk:async()=>{
+      const response=await apiFetch(`${API}/letters/${letterDetail.id}/attachments/${attachment.id}`,{method:'DELETE'})
+      if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.message||'حذف پیوست انجام نشد')}
+      notification.success({message:'پیوست حذف شد'});await refreshLetterDetail(letterDetail.id)
+    }})
+  }
+
   const applyFilters = (ls: Letter[], f: SearchFilters) => {
     return ls.filter(l => {
       const kw = f.keyword.toLowerCase()
@@ -560,7 +573,7 @@ export default function LettersPage() {
     })
   }
 
-  const tabFilteredLetters = letters.filter(l => isRegistry ? (
+  const tabFilteredLetters = letters.filter(l => isSent ? (l.isSender && l.status!=='Draft') : isRegistry ? (
     (registryType ? l.type===registryType : activeTab === 'all') ||
     (activeTab === 'incoming' && l.type === 'Incoming') ||
     (activeTab === 'outgoing' && l.type === 'Outgoing') ||
@@ -653,13 +666,13 @@ export default function LettersPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?'📚 دبیرخانه':isReferrals?'↩️ ارجاعات من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>{isRegistry?'📚 دبیرخانه':isReferrals?'↩️ ارجاعات من':isSent?'📤 نامه‌های ارسالی من':isDrafts?'📝 پیش‌نویس‌های من':'📬 کارتابل نامه'}</span>
         <Space><Button icon={<SyncOutlined/>} onClick={()=>fetchLetters()} loading={loading}>به‌روزرسانی</Button>{allowed('letters.create')&&<Button type="primary" icon={<PlusOutlined/>} onClick={()=>{setComposing(true);navigate('/letters/new')}} style={{background:'#8B1A6B',borderColor:'#8B1A6B'}}>نامه جدید</Button>}</Space>
       </div>
 
       <AdvancedSearch onSearch={f => setSearchFilters(f)} onReset={() => setSearchFilters(EMPTY_FILTERS)} />
 
-      {!isReferrals&&!isRegistry && <Tabs activeKey={activeTab} onChange={setActiveTab} items={(isRegistry?[
+      {!isReferrals&&!isRegistry&&!isSent && <Tabs activeKey={activeTab} onChange={setActiveTab} items={(isRegistry?[
         { key: 'all', label: <span><MailOutlined /> همه نامه‌ها <Badge count={letters.length} style={{ background: '#8B1A6B' }} /></span> },
         { key: 'incoming', label: <span>📥 وارده</span> },
         { key: 'outgoing', label: <span><SendOutlined /> صادره</span> },
@@ -727,7 +740,7 @@ export default function LettersPage() {
         ) : letterDetail && (
           <Tabs items={[
             allowed('letters.content.view')&&{key:'letter',label:<span><FileTextOutlined/> نامه و ارجاعات</span>,children:<div><div style={{display:'grid',gridTemplateColumns:'360px minmax(0,1fr)',gap:16,alignItems:'start',direction:'ltr'}}><aside style={{direction:'rtl',padding:14,background:'#fafafa',border:'1px solid #eee',borderRadius:10,minWidth:0}}><ReferralMessages detail={letterDetail}/></aside><main style={{direction:'rtl',overflowX:'auto',padding:8,background:'#f5f5f5',borderRadius:10}}><SavedLetterPage detail={letterDetail} compact/></main></div><div style={{background:'#f8f9fa',borderRadius:8,padding:'10px 14px',marginTop:12,border:'1px solid #e8e8e8',display:'flex',gap:14,flexWrap:'wrap',fontSize:12}}><span><strong>کد رهگیری:</strong> {letterDetail.trackingCode}</span><span><strong>نوع:</strong> {TYPE_LABELS[letterDetail.type]?.label}</span><span><strong>وضعیت:</strong> {STATUS_LABELS[letterDetail.status]?.label}</span>{letterDetail.signedByName&&<span><strong>امضاکننده:</strong> {letterDetail.signedByName}</span>}</div></div>},
-            (allowed('letters.attachments.view')||letterDetail.fromUserId===currentUser.id)&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:<div>{(isAdmin||letterDetail.fromUserId===currentUser.id)&&letterDetail.status!=='Cancelled'&&<Space style={{marginBottom:12}}><Upload accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" showUploadList={false} beforeUpload={file=>{void uploadLetterAttachment(file);return false}}><Button type="primary" loading={attachmentUploading} icon={<PaperClipOutlined/>}>افزودن پیوست به نامه</Button></Upload><span style={{fontSize:12,color:'#888'}}>پس از صدور شماره و ارسال نامه نیز قابل استفاده است</span></Space>}{letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item actions={[<Button size="small" icon={<DownloadOutlined/>} onClick={()=>downloadLetterAttachment(letterDetail.id,item)}>دانلود</Button>]}><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>}</div>},
+            (allowed('letters.attachments.view')||letterDetail.fromUserId===currentUser.id)&&{key:'attachments',label:<span><PaperClipOutlined/> پیوست‌ها ({letterDetail.attachments?.length||0})</span>,children:<div>{allowed('letters.attachments.add')&&(isAdmin||letterDetail.fromUserId===currentUser.id)&&letterDetail.status!=='Cancelled'&&<Space style={{marginBottom:12}}><Upload accept=".doc,.docx,.pdf,.zip,.rar,.jpg,.jpeg,.png" showUploadList={false} beforeUpload={file=>{void uploadLetterAttachment(file);return false}}><Button type="primary" loading={attachmentUploading} icon={<PaperClipOutlined/>}>افزودن پیوست به نامه</Button></Upload><span style={{fontSize:12,color:'#888'}}>پس از صدور شماره و ارسال نامه نیز قابل استفاده است</span></Space>}{letterDetail.attachments?.length?<List bordered dataSource={letterDetail.attachments} renderItem={(item:any)=><List.Item actions={[<Button size="small" icon={<DownloadOutlined/>} onClick={()=>downloadLetterAttachment(letterDetail.id,item)}>دانلود</Button>,...(allowed('letters.attachments.delete')&&(isAdmin||letterDetail.fromUserId===currentUser.id)?[<Button size="small" danger icon={<DeleteOutlined/>} onClick={()=>deleteLetterAttachment(item)}>حذف</Button>]:[])]}><Space><PaperClipOutlined/><strong>{item.fileName}</strong><Tag>{Math.ceil((item.fileSize||0)/1024)} KB</Tag><Tag>{item.contentType}</Tag></Space></List.Item>}/>:<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="پیوستی برای نامه ثبت نشده است"/>}</div>},
             allowed('letters.workflow.view')&&{key:'workflow',label:<span><HistoryOutlined/> گردش نامه</span>,children:<div>{letterDetail.workflowSteps?.length?letterDetail.workflowSteps.map((w:any)=><div key={w.id} style={{display:'flex',gap:10,padding:'9px 0',borderBottom:'1px solid #f0f0f0'}}><Avatar size={26} style={{background:'#8B1A6B'}}>{w.userName?.charAt(0)||'?'}</Avatar><div><div><strong>{w.userName||'کاربر'}</strong> <span style={{color:'#666'}}>{w.comment}</span></div><Space size={12} wrap style={{fontSize:10,color:'#999',marginTop:3}}><span>{w.createdAt?new Intl.DateTimeFormat('fa-IR',{dateStyle:'short',timeStyle:'short'}).format(new Date(w.createdAt)):''}</span><Tag color="blue" style={{fontSize:10,margin:0}} dir="ltr">IP: {w.ipAddress&&w.ipAddress!=='unknown'?w.ipAddress:'ثبت نشده'}</Tag></Space></div></div>):<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="رویدادی ثبت نشده است"/>}</div>}
           ].filter(Boolean) as any}/>
         )}

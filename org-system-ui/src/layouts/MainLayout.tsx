@@ -38,6 +38,7 @@ export default function MainLayout() {
       label: 'نامه‌نگاری',
       children: [
         ...(allowed('letters.inbox.view') ? [{ key: '/letters', icon: <InboxOutlined />, label: 'کارتابل نامه' }] : []),
+        ...(allowed('letters.inbox.view') ? [{ key: '/letters/sent', icon: <SendOutlined />, label: 'ارسالی‌ها' }] : []),
         ...(allowed('letters.inbox.view') ? [{ key: '/letters/referrals', icon: <SwapOutlined />, label: 'ارجاعات من' }] : []),
         ...((allowed('letters.type.internal') || allowed('letters.type.outgoing')) ? [{ key: '/letters/drafts', icon: <FileTextOutlined />, label: 'پیش‌نویس‌های من' }] : []),
         ...((allowed('letters.type.internal') || allowed('letters.type.outgoing')) ? [{ key: '/letters/new', icon: <EditOutlined />, label: 'نامه جدید' }] : []),
@@ -98,6 +99,7 @@ export default function MainLayout() {
       '/letters/new': 'نامه جدید',
       '/letters/registry': 'دبیرخانه',
       '/letters/referrals': 'ارجاعات من',
+      '/letters/sent': 'نامه‌های ارسالی من',
       '/letters/drafts': 'پیش‌نویس‌های من',
       '/tickets': 'تیکت‌ها',
       '/contacts': 'مخاطبین',
