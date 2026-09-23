@@ -279,7 +279,11 @@ async function workflow(auth: AuthContext) {
 
 export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
   const ym=jalaliYearMonth(),[found,user,personnel,pending,approved]=await Promise.all([
-    db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).eq('IsDeleted',false).maybeSingle(),
+    // The original schema has a full unique index on UserId, so a soft-deleted
+    // account cannot be replaced with a new row. Read it as well and revive it
+    // below. Otherwise balance requests fail with a duplicate-key error and the
+    // UI incorrectly looks like the employee has no leave balance.
+    db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).maybeSingle(),
     db.from('Users').select('CreatedAt,EmploymentStartDate').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
     db.from('OrganizationalForms').select('DataJson,CreatedAt').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).eq('FormType','personnel').in('Status',['hr_pending','approved','completed']).order('CreatedAt',{ascending:false}).limit(10),
     db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']),
@@ -301,7 +305,7 @@ export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
     // Never carry a manually-corrupted/over-accrued cached value forward.
     const monthly=Number(account.MonthlyAccrualHours??20)
     const accrued=entitledMonths*monthly
-    const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,UsedHours:actualUsed,ReservedHours:actualReserved,AccruedThroughYearMonth:ym,MonthlyAccrualHours:monthly,HoursPerDay:Number(account.HoursPerDay??8),UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data
+    const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,UsedHours:actualUsed,ReservedHours:actualReserved,AccruedThroughYearMonth:ym,MonthlyAccrualHours:monthly,HoursPerDay:Number(account.HoursPerDay??8),IsDeleted:false,DeletedAt:null,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data
   }
   const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
   return {...account,availableHours:Math.max(0,accrued-used-reserved),days:Math.max(0,(accrued-used-reserved)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}

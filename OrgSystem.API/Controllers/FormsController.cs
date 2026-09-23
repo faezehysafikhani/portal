@@ -38,8 +38,12 @@ public class FormsController(AppDbContext db) : ControllerBase
         var approvedUsedHours = await db.OrganizationalForms.AsNoTracking().Where(x => x.SubmitterUserId == userId &&
             (x.FormType == "leave_daily" || x.FormType == "leave_hourly") && (x.Status == "approved" || x.Status == "completed"))
             .SumAsync(x => (decimal?)x.RequestedHours) ?? 0;
-        var account = await db.LeaveAccounts.FirstOrDefaultAsync(x => x.UserId == userId);
+        // A soft-deleted leave account still occupies the unique UserId index.
+        // Revive that row instead of trying to insert a duplicate account.
+        var account = await db.LeaveAccounts.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(x => x.TenantId == TenantId && x.UserId == userId);
         if (account == null) { account = new LeaveAccount { UserId = userId, TenantId = TenantId }; db.LeaveAccounts.Add(account); }
+        else if (account.IsDeleted) { account.IsDeleted = false; account.DeletedAt = null; }
         account.AccruedThroughYearMonth = CurrentYm;
         account.AccruedHours = expectedAccruedHours;
         account.UsedHours = approvedUsedHours;

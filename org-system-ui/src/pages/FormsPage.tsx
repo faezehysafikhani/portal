@@ -150,6 +150,7 @@ export default function FormsPage() {
   const [users, setUsers] = useState<InternalUser[]>([])
   const [workflow,setWorkflow]=useState<WorkflowConfig>({isConfigured:false,users:[]})
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance>({accruedHours:0,usedHours:0,availableHours:0,days:0,remainingHours:0,monthlyAccrualHours:20,reservedHours:0})
+  const [leaveBalanceLoaded,setLeaveBalanceLoaded]=useState<boolean|null>(null)
   const [newFormModal, setNewFormModal] = useState(false)
   const [newFormType, setNewFormType] = useState<string>('leave_daily')
   const [editingFormId, setEditingFormId] = useState<string | null>(null)
@@ -162,7 +163,7 @@ export default function FormsPage() {
   const [form] = Form.useForm()
 
   const mapApiForm=(x:any):FormSubmission=>({id:x.id,formType:x.formType,title:x.title,submitter:x.submitterName,submitDate:formatJalaliDate(new Date(x.createdAt)),status:({manager_pending:'در بررسی مدیر',hr_pending:'در بررسی منابع انسانی',approved:'تأیید نهایی',completed:'خاتمه یافته',rejected:'رد شده',returned:'برگشت برای اصلاح'} as any)[x.status]||x.status,manager:x.managerName||'—',hrManager:x.hrName,data:JSON.parse(x.dataJson||'{}'),canAct:x.canAct,isHrCopy:x.isHrCopy,history:(x.history||[]).map((h:any)=>({date:formatJalaliDate(new Date(h.createdAt)),action:({submitted:'ارسال فرم',approve:'تأیید',complete:'خاتمه فرم',reject:'رد فرم',return:'برگشت برای اصلاح'} as any)[h.action]||h.action,by:h.actorName,note:h.note}))})
-  const load=async()=>{const [s,i,a,u,b]=await Promise.all([apiFetch(`${API}/forms?scope=sent`),apiFetch(`${API}/forms?scope=inbox`),apiFetch(`${API}/forms?scope=approvals`),apiFetch(`${API}/forms/approvers`),apiFetch(`${API}/forms/balance`)]);if(s.ok)setForms((await s.json()).map(mapApiForm));if(i.ok)setInboxForms((await i.json()).map(mapApiForm));if(a.ok)setApprovalForms((await a.json()).map(mapApiForm));if(u.ok){const w=await u.json();setWorkflow(w);setUsers(w.users||[])}if(b.ok)setLeaveBalance(await b.json())}
+  const load=async()=>{const [s,i,a,u,b]=await Promise.all([apiFetch(`${API}/forms?scope=sent`),apiFetch(`${API}/forms?scope=inbox`),apiFetch(`${API}/forms?scope=approvals`),apiFetch(`${API}/forms/approvers`),apiFetch(`${API}/forms/balance`)]);if(s.ok)setForms((await s.json()).map(mapApiForm));if(i.ok)setInboxForms((await i.json()).map(mapApiForm));if(a.ok)setApprovalForms((await a.json()).map(mapApiForm));if(u.ok){const w=await u.json();setWorkflow(w);setUsers(w.users||[])}if(b.ok){setLeaveBalance(await b.json());setLeaveBalanceLoaded(true)}else{setLeaveBalanceLoaded(false);const error=await b.json().catch(()=>({}));notification.error({message:error.message||'دریافت مانده مرخصی انجام نشد؛ لطفاً دوباره تلاش کنید'})}}
   useEffect(()=>{load()},[])
   const managerOptions=workflow.manager?[{value:workflow.manager.id,label:`${workflow.manager.fullName}${workflow.manager.position?' — '+workflow.manager.position:''}`}]:[]
   const hrOptions=workflow.hrManager?[{value:workflow.hrManager.id,label:`${workflow.hrManager.fullName}${workflow.hrManager.position?' — '+workflow.hrManager.position:''}`}]:[]
@@ -196,6 +197,9 @@ export default function FormsPage() {
   }
 
   const checkLeaveBalance = (type: string, days?: number, hours?: number) => {
+    // The server performs the authoritative balance check. A temporary balance
+    // fetch error must not be treated as a real zero balance by the browser.
+    if(leaveBalanceLoaded!==true)return true
     if (type === 'leave_daily' && days && days * 8 > leaveBalance.availableHours) {
       notification.warning({
         message: '⚠️ مانده مرخصی کافی نیست',
@@ -289,7 +293,7 @@ export default function FormsPage() {
   // ── فرم مرخصی روزانه ────────────────────────────────
   const LeaveDailyForm = () => (
     <div>
-      <Alert message={`مانده مرخصی استحقاقی: ${formatDaysDuration(leaveBalance.availableHours)}`} description="برای مرخصی بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست. برای مرخصی استعلاجی از فرم جداگانه «مرخصی استعلاجی» استفاده کنید." type={leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={leaveBalanceLoaded===true?`مانده مرخصی استحقاقی: ${formatDaysDuration(leaveBalance.availableHours)}`:leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'مانده مرخصی در دسترس نیست؛ برای دریافت مجدد صفحه را تازه‌سازی کنید'} description="برای مرخصی بدون حقوق، صفر بودن مانده استحقاقی مانع ثبت فرم نیست. برای مرخصی استعلاجی از فرم جداگانه «مرخصی استعلاجی» استفاده کنید." type={leaveBalanceLoaded!==true||leaveBalance.availableHours<20?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="fromDate" label="از تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={12}><Form.Item name="toDate" label="تا تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
@@ -304,7 +308,7 @@ export default function FormsPage() {
   // ── فرم مرخصی ساعتی ─────────────────────────────────
   const LeaveHourlyForm = () => (
     <div>
-      <Alert message={`مانده مرخصی ساعتی شما: ${formatDuration(leaveBalance.availableHours)}`} type={leaveBalance.availableHours<8?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={leaveBalanceLoaded===true?`مانده مرخصی ساعتی شما: ${formatDuration(leaveBalance.availableHours)}`:leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'مانده مرخصی در دسترس نیست؛ برای دریافت مجدد صفحه را تازه‌سازی کنید'} type={leaveBalanceLoaded!==true||leaveBalance.availableHours<8?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="date" label="تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={6}><Form.Item name="fromTime" label="از ساعت" rules={[{ required: true }]}><TimePicker format="HH:mm" minuteStep={5} style={{width:'100%'}} placeholder="انتخاب ساعت" /></Form.Item></Col>
@@ -524,7 +528,7 @@ export default function FormsPage() {
     <div>
       <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
         <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
-        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}><Tag color="orange">مانده مرخصی: {formatDaysDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDaysDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDaysDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDaysDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></Space>}
+        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}>{leaveBalanceLoaded===true?<><Tag color="orange">مانده مرخصی: {formatDaysDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDaysDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDaysDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDaysDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></>:<Tag color={leaveBalanceLoaded===null?'blue':'red'}>{leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'خطا در دریافت مانده مرخصی — صفحه را تازه‌سازی کنید'}</Tag>}</Space>}
         <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
       </Card>
 
