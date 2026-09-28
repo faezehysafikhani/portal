@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, Tabs, Row, Col, Steps, Divider, Timeline, Avatar, Alert, InputNumber, Upload, Badge, notification, TimePicker, Descriptions } from 'antd'
-import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined, DownloadOutlined } from '@ant-design/icons'
+import { EyeOutlined, SendOutlined, CheckOutlined, CloseOutlined, RollbackOutlined, UserOutlined, InboxOutlined, UploadOutlined, WarningOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import { useLocation } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { apiFetch } from '../utils/api'
@@ -508,6 +508,8 @@ export default function FormsPage() {
   const pageTitle=isApprovals?'تأییدات من':isInbox?'کارتابل فرم':'فرم‌های ارسالی من'
   const pageDescription=isApprovals?'فرم‌های در انتظار تصمیم و پرونده‌های خاتمه‌یافته منابع انسانی':isInbox?'نتیجه فرم‌های تأییدشده، خاتمه‌یافته، ردشده یا برگشتی شما':'تمام فرم‌هایی که برای مدیر یا منابع انسانی ارسال کرده‌اید'
   const pageForms=isApprovals?approvalForms:isInbox?inboxForms:forms
+  const availableFormTypes=Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key))
+  const showFormLauncher=isInbox&&canCreate&&availableFormTypes.length>0
   const tableColumns=isApprovals?[
     ...columns.slice(0,4),
     {
@@ -526,9 +528,31 @@ export default function FormsPage() {
 
   return (
     <div>
-      <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>} extra={!isApprovals&&!isInbox&&canCreate?<Select placeholder="➕ فرم جدید" style={{width:200}} onChange={v=>{if(v)openForm(v)}} value={undefined}>{Object.entries(FORM_TYPES).filter(([key])=>canUseFormType(key)).map(([key,val])=><Select.Option key={key} value={key}>{val.icon} {val.label}</Select.Option>)}</Select>:null}>
+      <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>}>
+        {showFormLauncher&&<div style={{marginBottom:18}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+            <span style={{width:34,height:34,borderRadius:10,display:'inline-flex',alignItems:'center',justifyContent:'center',background:'#f6e8f2',color:'#8B1A6B'}}><PlusOutlined/></span>
+            <div>
+              <div style={{fontWeight:700,color:'#262626'}}>ثبت فرم جدید</div>
+              <div style={{fontSize:12,color:'#8c8c8c',marginTop:2}}>نوع فرم موردنظر را انتخاب کنید</div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(138px, 1fr))',gap:10}}>
+            {availableFormTypes.map(([key,item])=><button
+              key={key}
+              type="button"
+              onClick={()=>openForm(key)}
+              style={{minHeight:76,padding:'10px 12px',border:`1px solid ${item.color}2f`,borderTop:`3px solid ${item.color}`,borderRadius:12,background:`linear-gradient(145deg, #fff 30%, ${item.color}0d)`,color:'#262626',cursor:'pointer',display:'flex',alignItems:'center',gap:10,textAlign:'right',fontFamily:'inherit',boxShadow:'0 3px 10px rgba(0,0,0,.035)',transition:'transform .15s ease, box-shadow .15s ease'}}
+              onMouseEnter={event=>{event.currentTarget.style.transform='translateY(-2px)';event.currentTarget.style.boxShadow=`0 7px 18px ${item.color}1f`}}
+              onMouseLeave={event=>{event.currentTarget.style.transform='translateY(0)';event.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.035)'}}
+            >
+              <span style={{width:38,height:38,borderRadius:11,display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',background:`${item.color}16`,fontSize:21}}>{item.icon}</span>
+              <span style={{fontSize:13,fontWeight:700,lineHeight:1.6}}>{item.label}</span>
+            </button>)}
+          </div>
+        </div>}
         <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
-        {!isApprovals&&!isInbox&&<Space wrap style={{marginBottom:16}}>{leaveBalanceLoaded===true?<><Tag color="orange">مانده مرخصی: {formatDaysDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDaysDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDaysDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDaysDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></>:<Tag color={leaveBalanceLoaded===null?'blue':'red'}>{leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'خطا در دریافت مانده مرخصی — صفحه را تازه‌سازی کنید'}</Tag>}</Space>}
+        {isInbox&&<Space wrap style={{marginBottom:16}}>{leaveBalanceLoaded===true?<><Tag color="orange">مانده مرخصی: {formatDaysDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDaysDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDaysDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDaysDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></>:<Tag color={leaveBalanceLoaded===null?'blue':'red'}>{leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'خطا در دریافت مانده مرخصی — صفحه را تازه‌سازی کنید'}</Tag>}</Space>}
         <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
       </Card>
 
