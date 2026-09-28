@@ -3,12 +3,12 @@ import { Button, Modal } from 'antd'
 import { BellOutlined, CheckCircleOutlined, FormOutlined, MessageOutlined, RocketOutlined } from '@ant-design/icons'
 
 const CURRENT_RELEASE = {
-  id: '1405-07-06-forms-layout',
+  id: '1405-07-06-user-status-fix',
   title: 'تازه‌های پرتال',
   date: '۶ مهر ۱۴۰۵',
-  description: 'کارتابل فرم‌ها برای انتخاب سریع‌تر و مشاهده بهتر اطلاعات، مرتب‌تر و خواناتر شده است.',
+  description: 'مدیریت وضعیت کاربران دقیق‌تر شده و چیدمان جدید فرم‌ها نیز در دسترس است.',
   items: [
-    { icon: <FormOutlined />, color: '#8B1A6B', title: 'دسته‌بندی فرم‌ها', text: 'فرم‌های مرخصی و حضور از خدمات اداری و پرسنلی جدا شده‌اند تا فرم موردنظر سریع‌تر پیدا شود.' },
+    { icon: <FormOutlined />, color: '#8B1A6B', title: 'فعال و غیرفعال‌کردن کاربران', text: 'وضعیت انتخاب‌شده اکنون مستقیماً در پایگاه داده ذخیره می‌شود و نشست کاربر غیرفعال‌شده نیز بسته خواهد شد.' },
     { icon: <RocketOutlined />, color: '#1677ff', title: 'کارت‌های خواناتر', text: 'هر فرم اکنون توضیح کوتاه، نشانه مشخص و چیدمان شیشه‌ای هماهنگ با محیط پرتال دارد.' },
     { icon: <BellOutlined />, color: '#fa8c16', title: 'خلاصه مانده مرخصی', text: 'مانده، میزان مصرف، تخصیص ماهانه و درخواست‌های در انتظار به‌صورت کارت‌های خلاصه نمایش داده می‌شوند.' },
     { icon: <MessageOutlined />, color: '#13a8a8', title: 'نمایش بهتر در موبایل', text: 'چیدمان فرم‌ها در صفحه‌های کوچک به‌صورت تک‌ستونه و بدون فشردگی نمایش داده می‌شود.' },

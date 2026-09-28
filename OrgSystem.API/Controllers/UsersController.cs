@@ -125,11 +125,14 @@ public class UsersController : ControllerBase
 
     [HttpPatch("{id}/toggle-active")]
     [RequirePermission("users.edit")]
-    public async Task<IActionResult> ToggleActive(Guid id)
+    public async Task<IActionResult> ToggleActive(Guid id, [FromBody] SetUserActiveRequest? request)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id);
         if (user == null) return NotFound(new { message = "کاربر یافت نشد" });
-        user.IsActive = !user.IsActive;
+        var currentUserId = User.FindFirst("user_id")?.Value;
+        if (currentUserId == id.ToString()) return BadRequest(new { message = "غیرفعال‌کردن حساب کاربری خودتان مجاز نیست" });
+        if (string.Equals(user.Username, "admin", StringComparison.OrdinalIgnoreCase)) return BadRequest(new { message = "تغییر وضعیت حساب مدیر سیستمی مجاز نیست" });
+        user.IsActive = request?.IsActive ?? !user.IsActive;
         await _db.SaveChangesAsync();
         return Ok(new { message = user.IsActive ? "کاربر فعال شد" : "کاربر غیرفعال شد", isActive = user.IsActive });
     }
@@ -225,6 +228,8 @@ public class UsersController : ControllerBase
         await _db.SaveChangesAsync(); return Ok(new { message = "دسترسی‌های کاربر ذخیره شد؛ کاربر باید دوباره وارد سامانه شود" });
     }
 }
+
+public record SetUserActiveRequest(bool IsActive);
 
 public record CreateUserRequest(string Username, string? Email, string Password, string FirstName, string LastName, string? PhoneNumber, string? Department, string? Position, string? DirectManager, string? HrManager, string? SignatureDataUrl, string? SignatureText);
 public record UpdateUserRequest(string FirstName, string LastName, string? Email, string? PhoneNumber, string? Department, string? Position, string? DirectManager, string? HrManager, string? SignatureDataUrl, string? SignatureText);

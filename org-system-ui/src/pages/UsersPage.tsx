@@ -50,6 +50,7 @@ export default function UsersPage() {
   const [permType, setPermType] = useState<'role' | 'custom'>('role')
   const [selectedRoleId, setSelectedRoleId] = useState('')
   const [saveLoading, setSaveLoading] = useState(false)
+  const [statusChangingUserId,setStatusChangingUserId]=useState<string|null>(null)
   const [form] = Form.useForm()
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const isAdmin=Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin')
@@ -201,20 +202,26 @@ export default function UsersPage() {
     }
   }
 
-  const handleToggleActive = async (user: User) => {
+  const handleToggleActive = async (user: User, isActive: boolean) => {
     if (user.username === 'admin') return
+    if(statusChangingUserId)return
+    setStatusChangingUserId(user.id)
     try {
       const response = await fetch(`${API}/users/${user.id}/toggle-active`, {
         method: 'PATCH',
-        headers: authHeaders()
+        headers: authHeaders(),
+        body: JSON.stringify({isActive})
       })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || `خطای ${response.status}`)
-      setUsers(current => current.map(item => item.id === user.id ? { ...item, isActive: Boolean(result.isActive) } : item))
-      notification.success({ message: result.isActive ? 'کاربر فعال شد' : 'کاربر غیرفعال شد' })
+      const savedStatus=Boolean(result.isActive)
+      setUsers(current => current.map(item => item.id === user.id ? { ...item, isActive:savedStatus } : item))
+      notification.success({ message: savedStatus ? 'کاربر فعال شد' : 'کاربر غیرفعال شد',description:savedStatus?'امکان ورود کاربر دوباره فعال است.':'ورود کاربر مسدود و نشست‌های فعال او بسته شد.' })
       await fetchUsers()
     } catch (error) {
       notification.error({ message: error instanceof Error ? error.message : 'خطا در تغییر وضعیت' })
+    } finally {
+      setStatusChangingUserId(null)
     }
   }
 
@@ -281,7 +288,7 @@ export default function UsersPage() {
       render: (active: boolean, record: User) => (
         <Space size={6}>
           <Badge color={active ? '#52c41a' : '#bfbfbf'} />
-          <Switch checked={active} size="small" checkedChildren="فعال" unCheckedChildren="غیرفعال" disabled={record.username === 'admin' || !allowed('users.edit')} onChange={() => handleToggleActive(record)} />
+          <Switch checked={active} loading={statusChangingUserId===record.id} size="small" checkedChildren="فعال" unCheckedChildren="غیرفعال" disabled={record.username === 'admin' || !allowed('users.edit') || statusChangingUserId!==null} onChange={checked => handleToggleActive(record,checked)} />
         </Space>
       )
     },

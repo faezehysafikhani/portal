@@ -1075,12 +1075,19 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
   const toggleMatch = path.match(/^\/users\/([0-9a-f-]+)\/toggle-active$/i)
   if (toggleMatch && request.method === 'PATCH') {
     requirePermission(auth, 'users.edit')
-    const current = await db.from('Users').select('IsActive').eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).single()
+    if (toggleMatch[1] === auth.userId) throw new HttpError(400, 'غیرفعال‌کردن حساب کاربری خودتان مجاز نیست')
+    const input = await body<{ isActive?: boolean }>(request)
+    const current = await db.from('Users').select('Username,IsActive').eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).eq('IsDeleted', false).maybeSingle()
     failOnDb(current.error)
-    const result = await db.from('Users').update({ IsActive: !current.data.IsActive, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).select().single()
+    if (!current.data) throw new HttpError(404, 'کاربر یافت نشد')
+    if (String(current.data.Username).toLowerCase() === 'admin') throw new HttpError(400, 'تغییر وضعیت حساب مدیر سیستمی مجاز نیست')
+    const desiredStatus = typeof input.isActive === 'boolean' ? input.isActive : !Boolean(current.data.IsActive)
+    const result = await db.from('Users').update({ IsActive: desiredStatus, UpdatedAt: now() })
+      .eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).eq('IsDeleted', false).select('Id,IsActive').maybeSingle()
     failOnDb(result.error)
+    if (!result.data) throw new HttpError(404, 'کاربر یافت نشد')
     if (!result.data.IsActive) await revokeUserSessions(auth.tenantId, toggleMatch[1])
-    return json(request, asCamel(result.data))
+    return json(request, { message: result.data.IsActive ? 'کاربر فعال شد' : 'کاربر غیرفعال شد', isActive: Boolean(result.data.IsActive) })
   }
   const userMatch = path.match(/^\/users\/([0-9a-f-]+)$/i)
   if (request.method === 'GET' && !userMatch) {
