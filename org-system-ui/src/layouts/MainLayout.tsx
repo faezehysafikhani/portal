@@ -12,6 +12,7 @@ import {
   FieldTimeOutlined, AuditOutlined,
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
+import ReleaseNotesModal from '../components/ReleaseNotesModal'
 
 const { Header, Sider, Content } = Layout
 
@@ -19,7 +20,7 @@ export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
-  const [user,setUser]=useState<{ roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
+  const [user,setUser]=useState<{ id?: string; username?: string; roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
   useEffect(()=>{const sync=()=>setUser(JSON.parse(localStorage.getItem('user')||'{}'));window.addEventListener('profile-updated',sync);return()=>window.removeEventListener('profile-updated',sync)},[])
   useEffect(()=>{const name=sessionStorage.getItem('welcome-user');if(name){sessionStorage.removeItem('welcome-user');notification.success({message:`کاربر ${name}، خوش آمدید`,description:'ورود شما به سامانه با موفقیت انجام شد.',placement:'topLeft'})}},[])
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
@@ -139,12 +140,17 @@ export default function MainLayout() {
   }
 
   const logout = () => {
+    const releaseAcknowledgements=Object.keys(localStorage)
+      .filter(key=>key.startsWith('portal-release-seen:'))
+      .map(key=>[key,localStorage.getItem(key)] as const)
     localStorage.clear()
+    releaseAcknowledgements.forEach(([key,value])=>{if(value!==null)localStorage.setItem(key,value)})
     navigate('/login')
   }
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
+      <ReleaseNotesModal user={user} />
       <Sider
         collapsible
         collapsed={collapsed}

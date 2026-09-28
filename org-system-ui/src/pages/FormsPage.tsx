@@ -529,7 +529,7 @@ export default function FormsPage() {
   return (
     <div>
       <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>}>
-        {showFormLauncher&&<div style={{marginBottom:18}}>
+        {showFormLauncher&&<div className="form-launcher-panel" style={{marginBottom:18}}>
           <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
             <span style={{width:34,height:34,borderRadius:10,display:'inline-flex',alignItems:'center',justifyContent:'center',background:'#f6e8f2',color:'#8B1A6B'}}><PlusOutlined/></span>
             <div>
@@ -537,14 +537,13 @@ export default function FormsPage() {
               <div style={{fontSize:12,color:'#8c8c8c',marginTop:2}}>نوع فرم موردنظر را انتخاب کنید</div>
             </div>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(138px, 1fr))',gap:10}}>
+          <div className="form-launcher-grid">
             {availableFormTypes.map(([key,item])=><button
               key={key}
               type="button"
+              className="form-type-card"
               onClick={()=>openForm(key)}
-              style={{minHeight:76,padding:'10px 12px',border:`1px solid ${item.color}2f`,borderTop:`3px solid ${item.color}`,borderRadius:12,background:`linear-gradient(145deg, #fff 30%, ${item.color}0d)`,color:'#262626',cursor:'pointer',display:'flex',alignItems:'center',gap:10,textAlign:'right',fontFamily:'inherit',boxShadow:'0 3px 10px rgba(0,0,0,.035)',transition:'transform .15s ease, box-shadow .15s ease'}}
-              onMouseEnter={event=>{event.currentTarget.style.transform='translateY(-2px)';event.currentTarget.style.boxShadow=`0 7px 18px ${item.color}1f`}}
-              onMouseLeave={event=>{event.currentTarget.style.transform='translateY(0)';event.currentTarget.style.boxShadow='0 3px 10px rgba(0,0,0,.035)'}}
+              style={{borderColor:`${item.color}35`,borderTopColor:item.color,background:`linear-gradient(145deg,rgba(255,255,255,.92),${item.color}12)`}}
             >
               <span style={{width:38,height:38,borderRadius:11,display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',background:`${item.color}16`,fontSize:21}}>{item.icon}</span>
               <span style={{fontSize:13,fontWeight:700,lineHeight:1.6}}>{item.label}</span>
@@ -561,10 +560,11 @@ export default function FormsPage() {
         title={<Space><span style={{ fontSize: 20 }}>{FORM_TYPES[newFormType]?.icon}</span><span>{editingFormId?'اصلاح و ارسال مجدد — ':''}{FORM_TYPES[newFormType]?.label}</span></Space>}
         open={newFormModal} onOk={handleSubmitForm} confirmLoading={submittingForm} onCancel={() => { if(submittingForm)return;setNewFormModal(false);setEditingFormId(null);form.resetFields() }}
         maskClosable={false} centered
+        rootClassName="glass-form-modal"
         okText={editingFormId?'ارسال مجدد':'ارسال فرم'} cancelText="انصراف" width={860}
         okButtonProps={{ disabled:submittingForm,style: { background: '#8B1A6B', borderColor: '#8B1A6B' }, icon: <SendOutlined /> }}
       >
-        <Card bordered={false} style={{background:`linear-gradient(145deg,#fff,${FORM_TYPES[newFormType]?.color}0d)`,borderRadius:16,borderTop:`4px solid ${FORM_TYPES[newFormType]?.color}`}}>
+        <Card className="glass-form-shell" bordered={false} style={{background:`linear-gradient(145deg,rgba(255,255,255,.94),${FORM_TYPES[newFormType]?.color}12)`,borderTop:`4px solid ${FORM_TYPES[newFormType]?.color}`}}>
         <Form form={form} layout="vertical" requiredMark="optional">
           <Alert
             type={(newFormType==='personnel'?!!workflow.hrManager:workflow.isConfigured)?'success':'warning'}
