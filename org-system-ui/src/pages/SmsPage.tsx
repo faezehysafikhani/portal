@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Table, Button, Tag, Form, Input, Select, Space, Card, Statistic, Row, Col, Alert, Tooltip, message, Tabs, Popconfirm } from 'antd'
+import { Table, Button, Tag, Form, Input, Select, Space, Card, Statistic, Row, Col, Alert, Tooltip, message, Tabs, Modal } from 'antd'
 import { SendOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, TeamOutlined, ContactsOutlined, ReloadOutlined, MessageOutlined, DeleteOutlined, SettingOutlined, SearchOutlined, RedoOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
@@ -38,6 +38,7 @@ export default function SmsPage() {
   const [activeTab, setActiveTab] = useState('send')
   const [search, setSearch] = useState('')
   const [resendingId, setResendingId] = useState<string | null>(null)
+  const [resendDraft, setResendDraft] = useState<{id:string;phone:string;message:string}|null>(null)
 
   const loadMessages = async () => {
     setLoading(true)
@@ -98,12 +99,16 @@ export default function SmsPage() {
     } finally { setSending(false) }
   }
 
-  const resend = async (m: SmsMessage) => {
-    setResendingId(m.id)
+  const resend = async () => {
+    if(!resendDraft)return
+    const phone=normalizePhone(resendDraft.phone),messageText=resendDraft.message.trim()
+    if(!isValidPhone(phone)){toast.error('شماره موبایل معتبر نیست');return}
+    if(!messageText){toast.warning('متن پیامک را بنویسید');return}
+    setResendingId(resendDraft.id)
     try {
-      const r = await fetch(`${api}/sms/send`, { method: 'POST', headers: headers(), body: JSON.stringify({ recipients: [m.to], message: m.body }) })
+      const r = await fetch(`${api}/sms/send`, { method: 'POST', headers: headers(), body: JSON.stringify({ recipients: [phone], message: messageText }) })
       const result = await r.json().catch(() => ({}))
-      if (r.ok) { toast.success(result.message || 'پیامک دوباره ارسال شد'); await loadMessages() }
+      if (r.ok) { toast.success(result.message || 'پیامک دوباره ارسال شد');setResendDraft(null);await loadMessages() }
       else toast.error(result.message || 'ارسال مجدد ناموفق بود')
     } finally { setResendingId(null) }
   }
@@ -135,11 +140,9 @@ export default function SmsPage() {
     { title: 'هزینه (ریال)', dataIndex: 'cost', key: 'cost', width: 110, render: (c: number) => c ? Number(c).toLocaleString('fa-IR') : '-' },
     { title: 'ارسال مجدد', key: 'resend', width: 130,
       render: (_: unknown, r: SmsMessage) => (
-        <Popconfirm title="این پیامک دوباره به همین شماره ارسال شود؟" okText="ارسال" cancelText="انصراف"
-          onConfirm={() => void resend(r)} disabled={serviceActive === false || !r.body}>
-          <Button size="small" icon={<RedoOutlined />} loading={resendingId === r.id}
-            disabled={serviceActive === false || !r.body || (resendingId !== null && resendingId !== r.id)}>ارسال مجدد</Button>
-        </Popconfirm>
+        <Button size="small" icon={<RedoOutlined />} loading={resendingId === r.id}
+          onClick={()=>setResendDraft({id:r.id,phone:r.to,message:r.body})}
+          disabled={serviceActive === false || !r.body || resendingId !== null}>ارسال مجدد</Button>
       ) },
   ]
 
@@ -240,6 +243,26 @@ export default function SmsPage() {
           ) },
         ]} />
       </Card>
+      <Modal
+        title="ویرایش و ارسال مجدد پیامک"
+        open={!!resendDraft}
+        onCancel={()=>{if(!resendingId)setResendDraft(null)}}
+        onOk={()=>void resend()}
+        okText="ارسال پیامک"
+        cancelText="انصراف"
+        confirmLoading={!!resendingId}
+        maskClosable={!resendingId}
+      >
+        <Form layout="vertical">
+          <Form.Item label="شماره موبایل" validateStatus={resendDraft&&!isValidPhone(normalizePhone(resendDraft.phone))?'error':undefined} help={resendDraft&&!isValidPhone(normalizePhone(resendDraft.phone))?'شماره باید به شکل 09123456789 باشد':undefined}>
+            <Input dir="ltr" inputMode="tel" maxLength={11} value={resendDraft?.phone||''} onChange={e=>setResendDraft(current=>current?{...current,phone:normalizePhone(e.target.value)}:current)}/>
+          </Form.Item>
+          <Form.Item label="متن پیامک">
+            <Input.TextArea rows={5} showCount maxLength={500} value={resendDraft?.message||''} onChange={e=>setResendDraft(current=>current?{...current,message:e.target.value}:current)}/>
+          </Form.Item>
+          {resendDraft?.message.trim()&&<Tag color={smsParts(resendDraft.message.trim())>1?'orange':'green'}>{smsParts(resendDraft.message.trim()).toLocaleString('fa-IR')} بخش پیامکی</Tag>}
+        </Form>
+      </Modal>
     </div>
   )
 }

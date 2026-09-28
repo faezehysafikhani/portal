@@ -937,7 +937,7 @@ async function notifications(request: Request, auth: AuthContext, path: string):
   const one = path.match(/^\/notifications\/([0-9a-f-]+)$/i)
   if (request.method === 'GET') {
     const result = await db.from('Notifications').select('*').eq('TenantId', auth.tenantId)
-      .eq('UserId', auth.userId).eq('IsDeleted', false).order('CreatedAt', { ascending: false }).limit(100)
+      .eq('UserId', auth.userId).eq('IsDeleted', false).eq('IsRead', false).order('CreatedAt', { ascending: false }).limit(100)
     failOnDb(result.error); return json(request,(result.data??[]).map(item=>({...asCamel(item) as Record<string,unknown>,type:typeof item.Type==='number'?notificationTypes[item.Type]??'System':item.Type})))
   }
   if (request.method === 'PATCH' && read) {
@@ -1186,7 +1186,7 @@ async function dashboard(request: Request, auth: AuthContext): Promise<Response>
     count('Contacts'),
     count('CalendarEvents',(q)=>q.gte('StartAt',tehranStart.toISOString()).lt('StartAt',tehranEnd.toISOString())),
     db.from('Letters').select('Id,Subject,FromUserName,Status,CreatedAt').eq('TenantId',auth.tenantId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(5),
-    db.from('Notifications').select('Id,Title,Body,Type,ActionUrl,CreatedAt,IsRead,ActorUserId,ActorName,RelatedEntityType').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).order('CreatedAt',{ascending:false}).limit(20),
+    db.from('Notifications').select('Id,Title,Body,Type,ActionUrl,CreatedAt,IsRead,ActorUserId,ActorName,RelatedEntityType').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).eq('IsRead',false).order('CreatedAt',{ascending:false}).limit(100),
   ])
   failOnDb(recentLettersResult.error);failOnDb(recentNotifications.error)
   const recentTasksResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)

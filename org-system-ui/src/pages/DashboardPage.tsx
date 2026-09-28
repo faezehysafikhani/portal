@@ -392,32 +392,20 @@ export default function DashboardPage() {
   }[type]||{color:'#8B1A6B',icon:<BellOutlined/>})
   const rawNotifications:any[] = storedNotifications.length?storedNotifications:(summary.notifications||[]).map((n:any)=>({id:n.id,type:String(n.type).toLowerCase(),title:n.title,description:n.body,time:new Date(n.createdAt).toLocaleTimeString('fa-IR',{hour:'2-digit',minute:'2-digit'}),link:n.actionUrl,isRead:n.isRead,actorUserId:n.actorUserId,actorName:n.actorName,entityType:n.relatedEntityType}))
   const notificationGroups = new Map<string,any>()
-  rawNotifications.filter(n=>String(n.type||'').toLowerCase()!=='chat'||!n.isRead).forEach(n=>{
-    const actor=n.actorName||String(n.title||'').match(/(?:از|توسط)\s+(.+)$/)?.[1]?.trim()||'سامانه'
+  rawNotifications.filter(n=>!n.isRead).forEach(n=>{
     const category=n.entityType==='LetterReferral'?'referral':String(n.type||'warning').toLowerCase()
-    // Chat alerts are intentionally combined so the dashboard never exposes
-    // the sender or message preview. Other alerts still remain grouped by actor.
-    const key=category==='chat'?'chat':`${category}|${n.actorUserId||actor}`
+    const key=category
     const current=notificationGroups.get(key)
-    if(current){current.ids.push(n.id);current.count+=1;current.unreadCount+=n.isRead?0:1;current.isRead=current.isRead&&Boolean(n.isRead)}
-    else notificationGroups.set(key,{...n,actor,category,ids:[n.id],count:1,unreadCount:n.isRead?0:1})
+    if(current){current.ids.push(n.id);current.count+=1}
+    else notificationGroups.set(key,{...n,category,ids:[n.id],count:1})
   })
   const notifications: {id:string;ids:string[];text:string;time:string;color:string;icon:React.ReactNode;link?:string;isRead:boolean}[] = Array.from(notificationGroups.values()).slice(0,8).map((n:any)=>{
     const visual=notificationVisual(n.category==='referral'?'letter':String(n.type).toLowerCase())
-    const labels:Record<string,string>={chat:'پیام جدید',letter:'نامه جدید',referral:'ارجاع جدید',task:'وظیفه جدید',ticket:'تیکت جدید',form:'فرم جدید',calendar:'رویداد جدید',project:'پروژه جدید'}
-    const text=n.category==='chat'
-      ? `شما ${Number(n.unreadCount||n.count).toLocaleString('fa-IR')} پیام دارید`
-      : `${labels[n.category]||'اعلان جدید'} از ${n.actor}${n.count>1?` (${n.count} مورد)`:''}`
-    return{id:n.id,ids:n.ids,text,time:n.time||'',color:visual.color,icon:visual.icon,link:n.category==='chat'?'/chat':n.link,isRead:Boolean(n.isRead)}
+    const labels:Record<string,string>={chat:'پیام جدید',letter:'نامه جدید',referral:'ارجاع جدید',task:'وظیفه جدید',ticket:'تیکت جدید',form:'فرم جدید',calendar:'رویداد جدید',project:'پروژه جدید',sms:'اعلان پیامک جدید',performance:'اعلان ارزیابی جدید',warning:'هشدار جدید'}
+    const text=`شما ${Number(n.count).toLocaleString('fa-IR')} ${labels[n.category]||'اعلان جدید'} دارید`
+    return{id:n.id,ids:n.ids,text,time:n.time||'',color:visual.color,icon:visual.icon,link:n.category==='chat'?'/chat':n.link,isRead:false}
   })
   const openNotification=(item:{id:string;ids:string[];link?:string})=>{item.ids.forEach(id=>{markAsRead(id);void fetch(`${API}/notifications/${id}/read`,{method:'PATCH',headers:authHeaders()})});if(item.link)navigate(item.link)}
-  const todayMeetingCount=events.filter(event=>event.type==='meeting'&&event.date===`${today.year}/${today.month}/${today.day}`).length
-  const quickLinks=[
-    {key:'meetings',text:`شما امروز ${todayMeetingCount.toLocaleString('fa-IR')} جلسه دارید`,path:'/calendar',icon:<CalendarOutlined/>,color:'#722ed1'},
-    {key:'letters',text:`شما ${Number(summary.newLetters||0).toLocaleString('fa-IR')} نامه جدید دارید`,path:'/letters',icon:<MailOutlined/>,color:'#8B1A6B'},
-    {key:'tasks',text:`شما ${Number(summary.activeTasks||0).toLocaleString('fa-IR')} وظیفه جاری دارید`,path:'/ptms/tasks/mine',icon:<CheckSquareOutlined/>,color:'#1677ff'},
-    {key:'online',text:`اکنون ${Number(summary.onlineUsers||0).toLocaleString('fa-IR')} نفر در پرتال آنلاین هستند`,icon:<TeamOutlined/>,color:'#13a86b'},
-  ]
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -497,11 +485,7 @@ export default function DashboardPage() {
                 <span style={{fontSize:12,fontWeight:700,lineHeight:1.7}}>{n.text}</span>
                 {n.link&&<LeftOutlined style={{marginRight:'auto',fontSize:10,color:'#aaa'}}/>}
               </button>)}
-              {quickLinks.map(item=><button key={item.key} type="button" onClick={()=>item.path&&navigate(item.path)} style={{width:'100%',border:'1px solid rgba(139,26,107,0.10)',background:'rgba(255,255,255,0.72)',backdropFilter:'blur(4px)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:item.path?'pointer':'default',textAlign:'right',color:'#333',fontFamily:'inherit',boxShadow:'0 2px 8px rgba(94,20,68,0.04)'}}>
-                <span style={{width:34,height:34,borderRadius:9,display:'grid',placeItems:'center',background:`${item.color}14`,color:item.color,fontSize:17,flexShrink:0}}>{item.icon}</span>
-                <span style={{fontSize:12,fontWeight:700,lineHeight:1.7}}>{item.text}</span>
-                {item.path&&<LeftOutlined style={{marginRight:'auto',fontSize:10,color:'#aaa'}}/>}
-              </button>)}
+              {notifications.length===0&&<div style={{padding:'32px 12px',textAlign:'center',color:'#8c8c8c',fontSize:12,background:'rgba(255,255,255,0.64)',borderRadius:10}}>اعلان خوانده‌نشده‌ای ندارید</div>}
             </div>
           </Card>
         </Col>

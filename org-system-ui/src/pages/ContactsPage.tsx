@@ -3,7 +3,7 @@ import { Card, Table, Button, Modal, Form, Input, Space, Avatar, Tag, Popconfirm
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, BankOutlined,
   UserOutlined, PhoneOutlined, MailOutlined, SearchOutlined, EyeOutlined,
-  LockOutlined, CopyOutlined, KeyOutlined
+  LockOutlined, CopyOutlined, KeyOutlined, MessageOutlined, SendOutlined
 } from '@ant-design/icons'
 import { apiFetch } from '../utils/api'
 
@@ -73,6 +73,7 @@ const INITIAL_COMPANIES: Company[] = [
 
 const normalizeDigits=(value:string)=>value.replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
 const numbersOnly=(value:string,max=15)=>normalizeDigits(value).replace(/\D/g,'').slice(0,max)
+const normalizeMobile=(value:string)=>{const digits=numbersOnly(value,14);return digits.startsWith('98')?`0${digits.slice(2)}`:digits}
 const lettersOnly=(value:string,max=150)=>value.replace(/[^\p{L}\p{M}\s\u200C\-\.\(\)&،]/gu,'').slice(0,max)
 const suspiciousCode=/<[^>]+>|javascript\s*:|--|\/\*|\*\/|;\s*(select|insert|update|delete|drop|alter|exec)|\b(union\s+select|drop\s+table|exec\s*\()/i
 const noCodeRule={validator:(_:unknown,value?:string)=>!value||!suspiciousCode.test(value)?Promise.resolve():Promise.reject(new Error('ورود کد HTML، JavaScript یا SQL مجاز نیست'))}
@@ -90,7 +91,10 @@ export default function ContactsPage() {
   const [contactPortalForm] = Form.useForm()
   const [companyForm] = Form.useForm()
   const [contactForm] = Form.useForm()
+  const [contactSmsForm] = Form.useForm()
   const [contactPortalModal, setContactPortalModal] = useState(false)
+  const [smsContact,setSmsContact]=useState<Contact|null>(null)
+  const [smsSending,setSmsSending]=useState(false)
   const [portalTarget, setPortalTarget] = useState<PortalTarget | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -160,6 +164,8 @@ export default function ContactsPage() {
     const r=await fetch(`${api}/contacts/${contactId}`,{method:'DELETE',headers:headers()});if(r.ok){message.success('حذف شد');await loadContacts()}
   }
   const deleteCompany=async(company:Company)=>{const ids=[...(company.id.startsWith('group-')?[]:[company.id]),...company.contacts.map(x=>x.id)];const results=await Promise.all(ids.map(id=>fetch(`${api}/contacts/${id}`,{method:'DELETE',headers:headers()})));if(results.some(x=>!x.ok)){message.error('حذف کامل شرکت انجام نشد');return}message.success('شرکت و افراد مرتبط حذف شدند');await loadContacts()}
+  const openContactSms=(contact:Contact)=>{setSmsContact(contact);contactSmsForm.setFieldsValue({phone:normalizeMobile(contact.mobile||''),message:''})}
+  const sendContactSms=async()=>{const values=await contactSmsForm.validateFields();const phone=normalizeMobile(values.phone),text=String(values.message||'').trim();setSmsSending(true);try{const response=await apiFetch(`${api}/sms/send`,{method:'POST',headers:headers(),body:JSON.stringify({recipients:[phone],message:text})});const result=await response.json().catch(()=>({}));if(!response.ok){message.error(result.message||'ارسال پیامک انجام نشد');return}message.success(result.message||'پیامک ارسال شد');setSmsContact(null);contactSmsForm.resetFields()}finally{setSmsSending(false)}}
 
   const openDetail = (company: Company) => {
     setSelectedCompany(company)
@@ -308,7 +314,7 @@ export default function ContactsPage() {
         </Space>
       )
     },
-    { title: 'موبایل', dataIndex: 'mobile', key: 'mobile', render: (m: string) => m || '-' },
+    { title: 'موبایل', dataIndex: 'mobile', key: 'mobile', render: (m: string,record:Contact) => m?<Space><span dir="ltr">{m}</span><Tooltip title="ارسال پیامک"><Button size="small" type="text" icon={<MessageOutlined/>} onClick={()=>openContactSms(record)}/></Tooltip></Space>:'-' },
     {
       title: 'تلفن مستقیم', key: 'phone',
       render: (_: unknown, r: Contact) => r.directPhone ? `${r.directPhone}${r.extension ? ` داخلی ${r.extension}` : ''}` : '-'
@@ -551,6 +557,27 @@ export default function ContactsPage() {
           </Form.Item>
           <Form.Item name="isActive" label="وضعیت دسترسی" valuePropName="checked" initialValue={true}>
             <Switch checkedChildren="فعال" unCheckedChildren="غیرفعال" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={<Space><MessageOutlined/><span>ارسال پیامک به {smsContact?`${smsContact.firstName} ${smsContact.lastName}`:''}</span></Space>}
+        open={!!smsContact}
+        onOk={()=>void sendContactSms()}
+        onCancel={()=>{if(!smsSending){setSmsContact(null);contactSmsForm.resetFields()}}}
+        okText="ارسال پیامک"
+        cancelText="انصراف"
+        confirmLoading={smsSending}
+        okButtonProps={{icon:<SendOutlined/>}}
+        maskClosable={!smsSending}
+      >
+        <Form form={contactSmsForm} layout="vertical">
+          <Form.Item name="phone" label="شماره موبایل" normalize={normalizeMobile} rules={[{required:true,message:'شماره موبایل الزامی است'},{pattern:/^09\d{9}$/,message:'شماره باید به شکل 09123456789 باشد'}]}>
+            <Input dir="ltr" inputMode="tel" maxLength={11}/>
+          </Form.Item>
+          <Form.Item name="message" label="متن پیامک" rules={[{required:true,message:'متن پیامک را وارد کنید'},{max:500,message:'حداکثر ۵۰۰ کاراکتر مجاز است'}]}>
+            <Input.TextArea rows={5} showCount maxLength={500} placeholder="متن پیامک را بنویسید…"/>
           </Form.Item>
         </Form>
       </Modal>

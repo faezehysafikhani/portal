@@ -58,7 +58,6 @@ function NotificationItem({ notification, onRead, onDelete }: {
   const navigate = useNavigate()
   const config = TYPE_CONFIG[notification.type]
   const notificationIds = notification.groupedIds || [notification.id]
-  const isChatGroup = notification.type === 'chat'
 
   return (
     <div
@@ -78,10 +77,10 @@ function NotificationItem({ notification, onRead, onDelete }: {
       />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ fontWeight: notification.isRead ? 400 : 600, fontSize: 13, lineHeight: 1.4 }}>{isChatGroup ? `شما ${Number(notification.groupedCount || 1).toLocaleString('fa-IR')} پیام دارید` : notification.title}</div>
+          <div style={{ fontWeight: 600, fontSize: 13, lineHeight: 1.4 }}>{notification.title}</div>
           {!notification.isRead && <div style={{ width: 8, height: 8, borderRadius: '50%', background: config.color, flexShrink: 0, marginTop: 4 }} />}
         </div>
-        {!isChatGroup && <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notification.description}</div>}
+        {notification.description && <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notification.description}</div>}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
           <Tag color={config.color} style={{ fontSize: 9, margin: 0 }}>{config.label}</Tag>
           <span style={{ fontSize: 10, color: '#bbb' }}>{notification.date} {notification.time}</span>
@@ -103,8 +102,8 @@ export default function NotificationDropdown() {
     Object.fromEntries(NOTIFICATION_SETTINGS.map(s => [s.key, true]))
   )
 
-  const visibleNotifications = notifications.filter(n => n.type !== 'chat' || !n.isRead)
-  const unreadCount = visibleNotifications.filter(n => !n.isRead).length
+  const unreadNotifications = notifications.filter(n => !n.isRead)
+  const unreadCount = unreadNotifications.length
   const notificationRequestInFlight = useRef(false)
   const loadNotifications = useCallback(async () => {
     if(notificationRequestInFlight.current || !localStorage.getItem('token')) return
@@ -113,27 +112,29 @@ export default function NotificationDropdown() {
     finally { notificationRequestInFlight.current=false }
   },[setNotifications])
   useEffect(()=>{const refresh=()=>void loadNotifications();const refreshVisible=()=>{if(document.visibilityState==='visible')refresh()};refresh();const timer=setInterval(refreshVisible,60000);let channel:BroadcastChannel|undefined;try{channel=new BroadcastChannel('portal-data-updates');channel.onmessage=refresh}catch{channel=undefined}window.addEventListener('focus',refreshVisible);window.addEventListener('portal:data-changed',refresh);document.addEventListener('visibilitychange',refreshVisible);return()=>{clearInterval(timer);channel?.close();window.removeEventListener('focus',refreshVisible);window.removeEventListener('portal:data-changed',refresh);document.removeEventListener('visibilitychange',refreshVisible)}},[loadNotifications])
-  const readOne=(id:string)=>{markAsRead(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers:notificationHeaders()})}
-  const readAll=()=>{markAllAsRead();void apiFetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers:notificationHeaders()})}
+  const readOne=(id:string)=>{markAsRead(id);void fetch(`http://localhost:5043/api/v1/notifications/${id}/read`,{method:'PATCH',headers:notificationHeaders()})}
+  const readAll=()=>{markAllAsRead();void fetch('http://localhost:5043/api/v1/notifications/read-all',{method:'PATCH',headers:notificationHeaders()})}
   const removeOne=(id:string)=>{deleteNotification(id);void apiFetch(`http://localhost:5043/api/v1/notifications/${id}`,{method:'DELETE',headers:notificationHeaders()})}
   const removeAll=()=>{clearAll();void apiFetch('http://localhost:5043/api/v1/notifications',{method:'DELETE',headers:notificationHeaders()})}
-  const unreadNotifications = visibleNotifications.filter(n => !n.isRead)
-  const groupChatNotifications = (rows: Notification[]): DisplayNotification[] => {
-    const chats = rows.filter(n => n.type === 'chat')
-    const otherNotifications: DisplayNotification[] = rows.filter(n => n.type !== 'chat')
-    if (!chats.length) return otherNotifications
-    return [{
-      ...chats[0],
-      title: '',
-      description: '',
-      link: '/chat',
-      groupedIds: chats.map(n => n.id),
-      groupedCount: chats.length,
-      isRead: chats.every(n => n.isRead),
-    }, ...otherNotifications]
+  const groupUnreadNotifications = (rows: Notification[]): DisplayNotification[] => {
+    const labels:Record<string,string>={chat:'پیام جدید',letter:'نامه جدید',referral:'ارجاع جدید',task:'وظیفه جدید',ticket:'تیکت جدید',form:'فرم جدید',calendar:'رویداد جدید',project:'پروژه جدید',sms:'اعلان پیامک جدید',risk:'هشدار ریسک جدید',warning:'هشدار جدید'}
+    const grouped=new Map<string,Notification[]>()
+    rows.forEach(item=>{
+      const category=item.entityType==='LetterReferral'?'referral':item.type
+      grouped.set(category,[...(grouped.get(category)||[]),item])
+    })
+    return Array.from(grouped.entries()).map(([category,items])=>({
+      ...items[0],
+      type:category==='referral'?'letter':items[0].type,
+      title:`شما ${items.length.toLocaleString('fa-IR')} ${labels[category]||'اعلان جدید'} دارید`,
+      description:'',
+      link:category==='chat'?'/chat':items[0].link,
+      groupedIds:items.map(item=>item.id),
+      groupedCount:items.length,
+      isRead:false,
+    }))
   }
-  const displayNotifications = groupChatNotifications(visibleNotifications)
-  const displayUnreadNotifications = groupChatNotifications(unreadNotifications)
+  const displayUnreadNotifications = groupUnreadNotifications(unreadNotifications)
 
   const content = (
     <div style={{ width: 380, maxHeight: 520, display: 'flex', flexDirection: 'column' }}>
@@ -149,7 +150,7 @@ export default function NotificationDropdown() {
               همه خوانده شد
             </Button>
           )}
-          {visibleNotifications.length > 0 && (
+          {unreadCount > 0 && (
             <Button size="small" danger icon={<DeleteOutlined />} onClick={removeAll}>
               پاک کردن
             </Button>
@@ -165,26 +166,11 @@ export default function NotificationDropdown() {
           items={[
             {
               key: '1',
-              label: <span>همه <Badge count={visibleNotifications.length} size="small" /></span>,
-              children: (
-                <div>
-                  {displayNotifications.length === 0 ? (
-                    <Empty description="اعلانی وجود ندارد" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 30 }} />
-                  ) : (
-                    displayNotifications.map(n => (
-                      <NotificationItem key={n.id} notification={n} onRead={readOne} onDelete={removeOne} />
-                    ))
-                  )}
-                </div>
-              )
-            },
-            {
-              key: '2',
-              label: <span>خوانده نشده <Badge count={unreadCount} size="small" style={{ background: '#8B1A6B' }} /></span>,
+              label: <span>اعلان‌های جدید <Badge count={unreadCount} size="small" /></span>,
               children: (
                 <div>
                   {displayUnreadNotifications.length === 0 ? (
-                    <Empty description="همه اعلان‌ها خوانده شده‌اند" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 30 }} />
+                    <Empty description="اعلان خوانده‌نشده‌ای ندارید" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: 30 }} />
                   ) : (
                     displayUnreadNotifications.map(n => (
                       <NotificationItem key={n.id} notification={n} onRead={readOne} onDelete={removeOne} />
@@ -194,7 +180,7 @@ export default function NotificationDropdown() {
               )
             },
             {
-              key: '3',
+              key: '2',
               label: '⚙️ تنظیمات',
               children: (
                 <div style={{ padding: '8px 4px' }}>
