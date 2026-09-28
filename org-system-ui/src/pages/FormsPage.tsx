@@ -47,17 +47,22 @@ const STATUS_CONFIG: Record<FormStatus, { color: string; step: number }> = {
   'خاتمه یافته': { color: 'green', step: 2 },
 }
 
-export const FORM_TYPES: Record<string, { label: string; icon: string; color: string }> = {
-  leave_daily: { label: 'مرخصی روزانه', icon: '🗓️', color: '#1677ff' },
-  leave_hourly: { label: 'مرخصی ساعتی', icon: '⏰', color: '#13c2c2' },
-  leave_sick: { label: 'مرخصی استعلاجی', icon: '🏥', color: '#eb2f96' },
-  mission: { label: 'ماموریت', icon: '🚀', color: '#722ed1' },
-  loan: { label: 'وام', icon: '💰', color: '#52c41a' },
-  payslip: { label: 'فیش حقوقی', icon: '📄', color: '#fa8c16' },
-  resignation: { label: 'استعفا', icon: '📝', color: '#f5222d' },
-  equipment: { label: 'تحویل تجهیزات', icon: '🖥️', color: '#8B1A6B' },
-  personnel: { label: 'مشخصات پرسنلی', icon: '👤', color: '#8B1A6B' },
+export const FORM_TYPES: Record<string, { label: string; description: string; icon: string; color: string }> = {
+  leave_daily: { label: 'مرخصی روزانه', description: 'درخواست یک یا چند روز مرخصی', icon: '🗓️', color: '#1677ff' },
+  leave_hourly: { label: 'مرخصی ساعتی', description: 'ثبت خروج ساعتی در روز کاری', icon: '⏰', color: '#13c2c2' },
+  leave_sick: { label: 'مرخصی استعلاجی', description: 'ثبت مرخصی با مدرک پزشکی', icon: '🏥', color: '#eb2f96' },
+  mission: { label: 'ماموریت', description: 'درخواست ماموریت اداری', icon: '🚀', color: '#722ed1' },
+  loan: { label: 'وام', description: 'ثبت و پیگیری درخواست وام', icon: '💰', color: '#52c41a' },
+  payslip: { label: 'فیش حقوقی', description: 'درخواست دریافت فیش حقوقی', icon: '📄', color: '#fa8c16' },
+  resignation: { label: 'استعفا', description: 'ثبت درخواست خاتمه همکاری', icon: '📝', color: '#f5222d' },
+  equipment: { label: 'تحویل تجهیزات', description: 'ثبت تحویل یا عودت تجهیزات', icon: '🖥️', color: '#8B1A6B' },
+  personnel: { label: 'مشخصات پرسنلی', description: 'تکمیل پرونده اطلاعات پرسنلی', icon: '👤', color: '#8B1A6B' },
 }
+
+const FORM_GROUPS=[
+  {key:'attendance',title:'مرخصی و حضور',description:'درخواست‌های مرتبط با زمان حضور و ماموریت',icon:'🕘',types:['leave_daily','leave_hourly','leave_sick','mission']},
+  {key:'hr',title:'خدمات اداری و پرسنلی',description:'فرم‌های مالی، منابع انسانی و تجهیزات',icon:'🗂️',types:['loan','payslip','equipment','personnel','resignation']},
+]
 
 const FORM_FIELD_LABELS:Record<string,string>={
   firstName:'نام',lastName:'نام خانوادگی',nationalCode:'کد ملی',birthDate:'تاریخ تولد',gender:'جنسیت',maritalStatus:'وضعیت تأهل',mobile:'شماره موبایل',email:'ایمیل',address:'نشانی',
@@ -528,30 +533,42 @@ export default function FormsPage() {
 
   return (
     <div>
-      <Card style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>}>
+      <Card className="forms-page-card" style={{borderRadius:14}} title={<Space>{isApprovals?<CheckOutlined/>:isInbox?<InboxOutlined/>:<SendOutlined/>}<span>{pageTitle}</span>{isApprovals&&<Badge count={approvalForms.filter(item=>['در بررسی مدیر','در بررسی منابع انسانی'].includes(item.status)).length} style={{background:'#fa8c16'}}/>}</Space>}>
         {showFormLauncher&&<div className="form-launcher-panel" style={{marginBottom:18}}>
-          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+          <div className="form-launcher-heading">
             <span style={{width:34,height:34,borderRadius:10,display:'inline-flex',alignItems:'center',justifyContent:'center',background:'#f6e8f2',color:'#8B1A6B'}}><PlusOutlined/></span>
             <div>
               <div style={{fontWeight:700,color:'#262626'}}>ثبت فرم جدید</div>
-              <div style={{fontSize:12,color:'#8c8c8c',marginTop:2}}>نوع فرم موردنظر را انتخاب کنید</div>
+              <div style={{fontSize:12,color:'#8c8c8c',marginTop:2}}>فرم موردنظر را از دسته مناسب انتخاب کنید</div>
             </div>
           </div>
-          <div className="form-launcher-grid">
-            {availableFormTypes.map(([key,item])=><button
-              key={key}
-              type="button"
-              className="form-type-card"
-              onClick={()=>openForm(key)}
-              style={{borderColor:`${item.color}35`,borderTopColor:item.color,background:`linear-gradient(145deg,rgba(255,255,255,.92),${item.color}12)`}}
-            >
-              <span style={{width:38,height:38,borderRadius:11,display:'inline-flex',alignItems:'center',justifyContent:'center',flex:'0 0 auto',background:`${item.color}16`,fontSize:21}}>{item.icon}</span>
-              <span style={{fontSize:13,fontWeight:700,lineHeight:1.6}}>{item.label}</span>
-            </button>)}
-          </div>
+          <div className="form-groups-layout">{FORM_GROUPS.map(group=>{
+            const groupForms=availableFormTypes.filter(([key])=>group.types.includes(key))
+            if(!groupForms.length)return null
+            return <section className="form-group-section" key={group.key}>
+              <div className="form-group-title"><span>{group.icon}</span><div><b>{group.title}</b><small>{group.description}</small></div></div>
+              <div className="form-launcher-grid">{groupForms.map(([key,item])=><button
+                key={key}
+                type="button"
+                className="form-type-card"
+                onClick={()=>openForm(key)}
+                style={{borderColor:`${item.color}35`,borderTopColor:item.color,background:`linear-gradient(145deg,rgba(255,255,255,.92),${item.color}12)`}}
+              >
+                <span className="form-type-icon" style={{background:`${item.color}16`}}>{item.icon}</span>
+                <span className="form-type-copy"><b>{item.label}</b><small>{item.description}</small></span>
+                <span className="form-type-action" style={{color:item.color}}>‹</span>
+              </button>)}</div>
+            </section>
+          })}</div>
         </div>}
         <Alert message={pageDescription} type={isApprovals?'warning':isInbox?'info':'success'} showIcon style={{marginBottom:16}}/>
-        {isInbox&&<Space wrap style={{marginBottom:16}}>{leaveBalanceLoaded===true?<><Tag color="orange">مانده مرخصی: {formatDaysDuration(leaveBalance.availableHours)}</Tag><Tag color="green">تخصیص‌یافته: {formatDaysDuration(leaveBalance.accruedHours)}</Tag><Tag color="red">مصرف‌شده: {formatDaysDuration(leaveBalance.usedHours)}</Tag>{leaveBalance.reservedHours>0&&<Tag color="gold">در انتظار تأیید: {formatDaysDuration(leaveBalance.reservedHours)}</Tag>}<Tag color="blue">افزایش ماهانه: {formatDuration(leaveBalance.monthlyAccrualHours)}</Tag></>:<Tag color={leaveBalanceLoaded===null?'blue':'red'}>{leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'خطا در دریافت مانده مرخصی — صفحه را تازه‌سازی کنید'}</Tag>}</Space>}
+        {isInbox&&(leaveBalanceLoaded===true?<div className="leave-balance-strip">
+          <div><span>مانده مرخصی</span><b>{formatDaysDuration(leaveBalance.availableHours)}</b></div>
+          <div><span>تخصیص‌یافته</span><b>{formatDaysDuration(leaveBalance.accruedHours)}</b></div>
+          <div><span>مصرف‌شده</span><b>{formatDaysDuration(leaveBalance.usedHours)}</b></div>
+          {leaveBalance.reservedHours>0&&<div><span>در انتظار تأیید</span><b>{formatDaysDuration(leaveBalance.reservedHours)}</b></div>}
+          <div><span>افزایش ماهانه</span><b>{formatDuration(leaveBalance.monthlyAccrualHours)}</b></div>
+        </div>:<Tag color={leaveBalanceLoaded===null?'blue':'red'} style={{marginBottom:16}}>{leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'خطا در دریافت مانده مرخصی — صفحه را تازه‌سازی کنید'}</Tag>)}
         <Table columns={tableColumns} dataSource={pageForms} rowKey="id" locale={{emptyText:isApprovals?'فرمی در انتظار تأیید شما نیست':isInbox?'نتیجه جدیدی در کارتابل شما نیست':'هنوز فرمی ارسال نکرده‌اید'}}/>
       </Card>
 
