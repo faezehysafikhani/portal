@@ -20,6 +20,7 @@ interface Contact {
   mobile?: string
   email?: string
   notes?: string
+  portalAccess?: PortalAccess
 }
 
 interface PortalAccess {
@@ -29,10 +30,12 @@ interface PortalAccess {
 }
 
 interface PortalTarget {
+  contactId?: string
   fullName: string
   email?: string
   phone?: string
   companyName?: string
+  portalAccess?: PortalAccess
 }
 
 interface Company {
@@ -111,10 +114,12 @@ export default function ContactsPage() {
     ])
     const customerAccessByCompany=new Map<string,PortalAccess>()
     const customerAccessByEmail=new Map<string,PortalAccess>()
+    const customerAccessByContactId=new Map<string,PortalAccess>()
     for(const customer of Array.isArray(customers)?customers:[]){
-      const access={username:String(customer.email||''),password:'',isActive:customer.isActive!==false}
+      const access={username:String(customer.username||customer.email||''),password:'',isActive:customer.isActive!==false}
       const companyKey=String(customer.companyName||customer.fullName||'').trim()
-      if(companyKey)customerAccessByCompany.set(companyKey,access)
+      if(customer.contactId)customerAccessByContactId.set(String(customer.contactId),access)
+      else if(companyKey)customerAccessByCompany.set(companyKey,access)
       if(customer.email)customerAccessByEmail.set(String(customer.email).trim().toLowerCase(),access)
     }
     const groups=new Map<string,Company>()
@@ -124,7 +129,7 @@ export default function ContactsPage() {
       const group=groups.get(companyName)!
       const isCompanyRecord=x.fullName.trim()===companyName
       if(isCompanyRecord){Object.assign(group,{id:x.id,name:companyName,industry:x.industry||x.jobTitle,phone:x.phone,fax:x.fax,email:x.email,website:x.website,address:x.address,postalCode:x.postalCode,nationalId:x.nationalId,economicCode:x.economicCode,notes:x.notes})}
-      else {const parts=x.fullName.trim().split(/\s+/);group.contacts.push({id:x.id,firstName:parts[0]||x.fullName,lastName:parts.slice(1).join(' '),position:x.jobTitle,department:x.department,directPhone:x.phone,extension:x.extension,mobile:x.mobile,email:x.email,notes:x.notes})}
+      else {const parts=x.fullName.trim().split(/\s+/);group.contacts.push({id:x.id,firstName:parts[0]||x.fullName,lastName:parts.slice(1).join(' '),position:x.jobTitle,department:x.department,directPhone:x.phone,extension:x.extension,mobile:x.mobile,email:x.email,notes:x.notes,portalAccess:customerAccessByContactId.get(x.id)||(x.email?customerAccessByEmail.get(String(x.email).trim().toLowerCase()):undefined)})}
     }
     const next=[...groups.values()].map(group=>({
       ...group,
@@ -185,7 +190,9 @@ export default function ContactsPage() {
         headers: headers(),
         body: JSON.stringify({
           fullName: target.fullName,
-          email: values.username,
+          username: values.username,
+          email: target.email || null,
+          contactId: target.contactId || null,
           phone: target.phone || null,
           companyName: target.companyName || null,
           password: values.password || undefined,
@@ -225,10 +232,10 @@ export default function ContactsPage() {
 
   const openContactPortal = (contact: Contact) => {
     const fullName = `${contact.firstName} ${contact.lastName}`.trim()
-    const target = { fullName, email: contact.email, phone: contact.mobile || contact.directPhone, companyName: selectedCompany?.name }
+    const target = { contactId:contact.id,fullName,email:contact.email,phone:contact.mobile||contact.directPhone,companyName:selectedCompany?.name,portalAccess:contact.portalAccess }
     setPortalTarget(target)
     contactPortalForm.resetFields()
-    contactPortalForm.setFieldsValue({ username: contact.email, password: '', isActive: true })
+    contactPortalForm.setFieldsValue({username:contact.portalAccess?.username||contact.email||contact.mobile||'',password:'',isActive:contact.portalAccess?.isActive??true})
     setContactPortalModal(true)
   }
 
@@ -324,7 +331,7 @@ export default function ContactsPage() {
       title: 'عملیات', key: 'actions',
       render: (_: unknown, record: Contact) => (
         <Space>
-          <Button size="small" icon={<LockOutlined />} disabled={!record.email} onClick={() => openContactPortal(record)}>دسترسی</Button>
+          <Button size="small" icon={<LockOutlined />} onClick={() => openContactPortal(record)}>{record.portalAccess?'ویرایش دسترسی':'دسترسی'}</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => openContactModal(record)} />
           <Popconfirm title="حذف شود؟" onConfirm={() => deleteContact(record.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -465,8 +472,8 @@ export default function ContactsPage() {
                   <Form form={portalForm} layout="vertical">
                     <Row gutter={16}>
                       <Col xs={24} md={12}>
-                        <Form.Item name="username" label="ایمیل مشتری" rules={[{ required: true }, { type: 'email', message: 'ایمیل معتبر وارد کنید' }]}>
-                            <Input prefix={<MailOutlined />} placeholder="example@email.com" />
+                        <Form.Item name="username" label="نام کاربری" rules={[{required:true,message:'نام کاربری الزامی است'},{min:3,max:64},{pattern:/^[\p{L}\p{N}._@+\-]{3,64}$/u,message:'فقط حروف، عدد و . _ - + @ مجاز است'}]}>
+                            <Input prefix={<UserOutlined />} placeholder="مثلاً company-support" dir="ltr" autoComplete="username" />
                         </Form.Item>
                       </Col>
                       <Col xs={24} md={12}>
@@ -545,10 +552,11 @@ export default function ContactsPage() {
           </Tooltip>
         </div>
         <Form form={contactPortalForm} layout="vertical">
-          <Form.Item name="username" label="نام کاربری / ایمیل" rules={[{ required: true, message: 'ایمیل الزامی است' }, { type: 'email', message: 'ایمیل معتبر وارد کنید' }]}>
-            <Input prefix={<MailOutlined />} placeholder="example@email.com" dir="ltr" />
+          <Form.Item name="username" label="نام کاربری" rules={[{required:true,message:'نام کاربری الزامی است'},{min:3,max:64},{pattern:/^[\p{L}\p{N}._@+\-]{3,64}$/u,message:'فقط حروف، عدد و . _ - + @ مجاز است'}]}>
+            <Input prefix={<UserOutlined />} placeholder="مثلاً customer-101" dir="ltr" autoComplete="username" />
           </Form.Item>
-          <Form.Item name="password" label="رمز عبور" rules={[{ required: true, message: 'رمز عبور الزامی است' }, { min: 8, message: 'رمز عبور حداقل باید ۸ کاراکتر باشد' }]}>
+          {portalTarget?.email&&<div style={{marginBottom:12,color:'#666'}}>ایمیل مخاطب: <span dir="ltr">{portalTarget.email}</span></div>}
+          <Form.Item name="password" label={portalTarget?.portalAccess?'رمز عبور جدید (اختیاری)':'رمز عبور'} rules={[{validator:(_,value)=>portalTarget?.portalAccess||value?(value&&value.length<8?Promise.reject(new Error('رمز عبور حداقل باید ۸ کاراکتر باشد')):Promise.resolve()):Promise.reject(new Error('رمز عبور الزامی است'))}]}>
             <Input.Password
               prefix={<LockOutlined />}
               placeholder="رمز عبور"

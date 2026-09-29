@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Layout, Card, Button, Table, Tag, Space, Modal, Form, Input, Select, Badge, Avatar, Upload, Empty } from 'antd'
+import { Layout, Card, Button, Table, Tag, Space, Modal, Form, Input, Select, Badge, Avatar, Upload, Empty, message } from 'antd'
 import { PlusOutlined, LogoutOutlined, CustomerServiceOutlined, UserOutlined, UploadOutlined, EyeOutlined, SendOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import { backendBaseUrl } from '../lib/backend'
+
+const API=`${backendBaseUrl}/api/v1`
 
 type TicketStatus = 'باز' | 'در بررسی' | 'پاسخ داده شده' | 'بسته'
 type TicketPriority = 'کم' | 'متوسط' | 'بالا' | 'بحرانی'
@@ -25,6 +28,15 @@ const STATUS_COLOR: Record<TicketStatus, string> = {
 const PRIORITY_COLOR: Record<TicketPriority, string> = {
   'کم': 'green', 'متوسط': 'blue', 'بالا': 'orange', 'بحرانی': 'red'
 }
+
+const statusLabel=(value:string):TicketStatus=>({open:'باز',inprogress:'در بررسی',answered:'پاسخ داده شده',resolved:'بسته',closed:'بسته','باز':'باز','در بررسی':'در بررسی','پاسخ داده شده':'پاسخ داده شده','بسته':'بسته'}[value]||'باز') as TicketStatus
+const priorityLabel=(value:string):TicketPriority=>({low:'کم',normal:'متوسط',high:'بالا',critical:'بحرانی','کم':'کم','متوسط':'متوسط','بالا':'بالا','بحرانی':'بحرانی'}[value]||'متوسط') as TicketPriority
+const faDate=(value?:string)=>value?new Date(value).toLocaleString('fa-IR',{dateStyle:'short',timeStyle:'short'}):'—'
+const mapTicket=(raw:any):Ticket=>({
+  id:raw.id,code:raw.code,title:raw.title,category:raw.category||'سایر',priority:priorityLabel(raw.priority),status:statusLabel(raw.status),
+  date:faDate(raw.createdAt),lastUpdate:faDate(raw.updatedAt||raw.createdAt),
+  messages:(raw.comments||raw.messages||[]).map((item:any)=>({id:item.id,text:item.text,by:item.authorName||'',date:faDate(item.createdAt),isCustomer:item.isCustomer===true})),
+})
 
 const INITIAL_TICKETS: Ticket[] = [
   {
@@ -59,12 +71,18 @@ export default function CustomerPortalPage() {
   const [tickets, setTickets] = useState<Ticket[]>([])
 const [ticketsLoading, setTicketsLoading] = useState(true)
 
-useEffect(() => {
-  fetch(`http://localhost:5043/api/v1/customers/${customer.id}/tickets`, { headers: { Authorization: `Bearer ${customer.accessToken}` } })
-    .then(r => r.json())
-    .then(data => { setTickets(data); setTicketsLoading(false) })
-    .catch(() => setTicketsLoading(false))
-}, [customer.id])
+const customerHeaders=()=>({'Content-Type':'application/json',Authorization:`Bearer ${customer.accessToken}`})
+const loadTickets=async()=>{
+  setTicketsLoading(true)
+  try{
+    const response=await fetch(`${API}/customers/${customer.id}/tickets`,{headers:customerHeaders()})
+    const result=await response.json().catch(()=>[])
+    if(response.status===401){localStorage.removeItem('customer');navigate('/customer-login');return}
+    if(!response.ok){message.error(result.message||'دریافت تیکت‌ها انجام نشد');return}
+    setTickets((Array.isArray(result)?result:[]).map(mapTicket))
+  }catch{message.error('ارتباط با سامانه تیکت برقرار نشد')}finally{setTicketsLoading(false)}
+}
+useEffect(()=>{void loadTickets()},[customer.id,customer.accessToken])
   const [newTicketModal, setNewTicketModal] = useState(false)
   const [viewModal, setViewModal] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
@@ -79,9 +97,9 @@ useEffect(() => {
  const handleNewTicket = () => {
   form.validateFields().then(async values => {
     try {
-      const res = await fetch(`http://localhost:5043/api/v1/customers/${customer.id}/tickets`, {
+      const res = await fetch(`${API}/customers/${customer.id}/tickets`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${customer.accessToken}` },
+        headers: customerHeaders(),
         body: JSON.stringify({
           title: values.title,
           category: values.category,
@@ -90,36 +108,42 @@ useEffect(() => {
         })
       })
       const data = await res.json()
-      if (!res.ok) { alert(data.message); return }
-      // reload tickets
-      const res2 = await fetch(`http://localhost:5043/api/v1/customers/${customer.id}/tickets`, { headers: { Authorization: `Bearer ${customer.accessToken}` } })
-      setTickets(await res2.json())
+      if (!res.ok) { message.error(data.message||'ثبت تیکت انجام نشد'); return }
+      await loadTickets()
       setNewTicketModal(false)
       form.resetFields()
+      message.success(`تیکت ${data.code||''} با موفقیت ثبت شد`)
     } catch {
-      alert('خطا در اتصال به سرور')
+      message.error('خطا در اتصال به سرور')
     }
   })
 }
 
   const handleReply = async () => {
     if (!selectedTicket || !replyText.trim()) return
-    const response = await fetch(`http://localhost:5043/api/v1/customers/tickets/${selectedTicket.id}/messages`, {
+    const response = await fetch(`${API}/customers/tickets/${selectedTicket.id}/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${customer.accessToken}` },
-      body: JSON.stringify({ text: replyText, authorName: customer.fullName, isCustomer: true })
+      headers: customerHeaders(),
+      body: JSON.stringify({ text: replyText, authorName: customer.fullName })
     })
-    if (!response.ok) return
-    const updated = {
-      ...selectedTicket,
-      messages: [...selectedTicket.messages, {
-        id: Date.now().toString(), text: replyText,
-        by: customer.fullName, date: '۱۴۰۳/۰۴/۱۵ ۱۱:۰۰', isCustomer: true
-      }]
-    }
+    const result=await response.json().catch(()=>({}))
+    if (!response.ok){message.error(result.message||'ارسال پاسخ انجام نشد');return}
+    const messagesResponse=await fetch(`${API}/customers/tickets/${selectedTicket.id}/messages`,{headers:customerHeaders()})
+    const rawMessages=messagesResponse.ok?await messagesResponse.json():[]
+    const updated={...selectedTicket,messages:(Array.isArray(rawMessages)?rawMessages:[]).map((item:any)=>({id:item.id,text:item.text,by:item.authorName||'',date:faDate(item.createdAt),isCustomer:item.isCustomer===true}))}
     setTickets(prev => prev.map(t => t.id === selectedTicket.id ? updated : t))
     setSelectedTicket(updated)
     setReplyText('')
+    message.success('پاسخ ارسال شد')
+  }
+
+  const openTicket=async(ticket:Ticket)=>{
+    setSelectedTicket(ticket);setViewModal(true)
+    const response=await fetch(`${API}/customers/tickets/${ticket.id}/messages`,{headers:customerHeaders()})
+    if(!response.ok)return
+    const raw=await response.json().catch(()=>[])
+    const updated={...ticket,messages:(Array.isArray(raw)?raw:[]).map((item:any)=>({id:item.id,text:item.text,by:item.authorName||'',date:faDate(item.createdAt),isCustomer:item.isCustomer===true}))}
+    setSelectedTicket(updated);setTickets(previous=>previous.map(item=>item.id===ticket.id?updated:item))
   }
 
   const columns = [
@@ -144,7 +168,7 @@ useEffect(() => {
     {
       title: 'عملیات', key: 'actions', width: 90,
       render: (_: unknown, r: Ticket) => (
-        <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedTicket(r); setViewModal(true) }}>
+        <Button size="small" icon={<EyeOutlined />} onClick={() => void openTicket(r)}>
           مشاهده
         </Button>
       )

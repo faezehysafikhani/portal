@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Form, Input, Button, Card, Alert, Tabs } from 'antd'
 import { LockOutlined, MailOutlined, PhoneOutlined, CustomerServiceOutlined, UserOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import { publicBackendFetch } from '../lib/backend'
 
 function PersianClock() {
   const [time, setTime] = useState(new Date())
@@ -33,10 +34,10 @@ export default function CustomerLoginPage() {
       setLoading(true)
       setError('')
       try {
-        const res = await fetch('http://localhost:5043/api/v1/customers/login', {
+        const res = await publicBackendFetch('/customers/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: values.email, password: values.password })
+          body: JSON.stringify({ username: values.username, password: values.password })
         })
         const data = await res.json()
         if (!res.ok) { setError(data.message || 'خطا در ورود'); return }
@@ -55,11 +56,12 @@ export default function CustomerLoginPage() {
       setLoading(true)
       setError('')
       try {
-        const res = await fetch('http://localhost:5043/api/v1/customers/register', {
+        const res = await publicBackendFetch('/customers/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             fullName: values.fullName,
+            username: values.email,
             email: values.email,
             phone: values.mobile,
             companyName: values.company || null,
@@ -114,11 +116,13 @@ export default function CustomerLoginPage() {
 
           {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16 }} />}
 <Form form={loginForm} layout="vertical" style={{ marginTop: 8 }}>
-  <Form.Item name="email" label="ایمیل" rules={[{ required: true, message: 'ایمیل الزامی است' }, { type: 'email', message: 'ایمیل معتبر وارد کنید' }]}>
+  <Form.Item name="username" label="نام کاربری یا ایمیل" rules={[{required:true,message:'نام کاربری الزامی است'},{min:3,max:64}]}>
     <Input
-      prefix={<MailOutlined style={{ color: '#8B1A6B' }} />}
-      placeholder="example@email.com"
+      prefix={<UserOutlined style={{ color: '#8B1A6B' }} />}
+      placeholder="نام کاربری"
       size="large"
+      dir="ltr"
+      autoComplete="username"
       style={{ height: 50, fontSize: 14 }}
     />
   </Form.Item>
@@ -126,6 +130,7 @@ export default function CustomerLoginPage() {
     <Input.Password
       prefix={<LockOutlined style={{ color: '#8B1A6B' }} />}
       placeholder="رمز عبور"
+      autoComplete="current-password"
       size="large"
       style={{ height: 50, fontSize: 14 }}
       onPressEnter={handleLogin}

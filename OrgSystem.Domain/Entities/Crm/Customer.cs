@@ -5,6 +5,8 @@ namespace OrgSystem.Domain.Entities.Crm;
 public class Customer : BaseEntity
 {
     public string FullName { get; set; } = string.Empty;
+    public string? Username { get; set; }
+    public Guid? ContactId { get; set; }
     public string? CompanyName { get; set; }
     public string? Phone { get; set; }
     public string? Email { get; set; }

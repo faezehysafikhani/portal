@@ -87,6 +87,8 @@ public class AppDbContext : DbContext
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
         modelBuilder.Entity<EventAttendee>().HasIndex(x => new { x.EventId, x.UserId }).IsUnique();
         modelBuilder.Entity<Contract>().Property(x => x.Amount).HasPrecision(18, 2);
+        modelBuilder.Entity<Customer>().HasIndex(x => x.Username).IsUnique().HasFilter("\"IsDeleted\" = false AND \"Username\" IS NOT NULL");
+        modelBuilder.Entity<Customer>().HasIndex(x => new { x.TenantId, x.ContactId }).IsUnique().HasFilter("\"IsDeleted\" = false AND \"ContactId\" IS NOT NULL");
         modelBuilder.Entity<SmsMessage>().Property(x => x.Cost).HasPrecision(18, 2);
         modelBuilder.Entity<CalendarEvent>()
             .HasMany(x => x.Attendees).WithOne(x => x.Event).HasForeignKey(x => x.EventId)

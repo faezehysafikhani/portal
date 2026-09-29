@@ -9,6 +9,20 @@ const db = adminClient()
 const tenantDefault = '00000000-0000-0000-0000-000000000001'
 const now = () => new Date().toISOString()
 const id = () => crypto.randomUUID()
+const usernamePattern = /^[\p{L}\p{N}._@+-]{3,64}$/u
+
+function normalizedUsername(value: unknown): string {
+  const username = String(value ?? '').trim().toLowerCase()
+  if (!usernamePattern.test(username)) throw new HttpError(400, 'نام کاربری باید ۳ تا ۶۴ کاراکتر و فقط شامل حروف، عدد و . _ - + @ باشد')
+  return username
+}
+
+function normalizedEmail(value: unknown): string | null {
+  const email = String(value ?? '').trim().toLowerCase()
+  if (!email) return null
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'ایمیل واردشده معتبر نیست')
+  return email
+}
 
 function check(error: { message: string } | null): void {
   if (error) { console.error(error.message); throw new HttpError(500, 'خطا در پایگاه داده') }
@@ -38,43 +52,48 @@ async function ticketDto(ticket: Obj): Promise<Obj> {
 
 export async function handlePublicCustomer(request: Request, path: string): Promise<Response | null> {
   if (request.method === 'POST' && path === '/customers/login') {
-    const input = await body<{ email?: string; password?: string }>(request)
-    const email = String(input.email ?? '').trim().toLowerCase()
-    const result = await db.from('Customers').select('*').eq('Email', email).eq('IsDeleted', false).eq('IsActive', true).maybeSingle()
+    const input = await body<{ username?: string; email?: string; password?: string }>(request)
+    const identifier = normalizedUsername(input.username ?? input.email)
+    let result = await db.from('Customers').select('*').ilike('Username', identifier).eq('IsDeleted', false).eq('IsActive', true).maybeSingle()
     check(result.error)
+    if (!result.data && identifier.includes('@')) {
+      result = await db.from('Customers').select('*').ilike('Email', identifier).eq('IsDeleted', false).eq('IsActive', true).maybeSingle()
+      check(result.error)
+    }
     if (!result.data || !result.data.PasswordHash || !await bcrypt.compare(String(input.password ?? ''), result.data.PasswordHash)) {
-      throw new HttpError(401, 'ایمیل یا رمز عبور اشتباه است')
+      throw new HttpError(401, 'نام کاربری یا رمز عبور اشتباه است')
     }
     const customer = result.data
     const accessToken = await issueToken({
-      userId: customer.Id, tenantId: customer.TenantId, username: customer.Email,
+      userId: customer.Id, tenantId: customer.TenantId, username: customer.Username ?? customer.Email,
       permissions: ['customer'], isAdmin: false,
     })
     return json(request, {
-      id: customer.Id, fullName: customer.FullName, email: customer.Email,
+      id: customer.Id, fullName: customer.FullName, username: customer.Username, email: customer.Email,
       phone: customer.Phone, companyName: customer.CompanyName, accessToken,
     })
   }
 
   if (request.method === 'POST' && path === '/customers/register') {
     const input = await body<Obj>(request)
-    const email = String(input.email ?? '').trim().toLowerCase()
+    const email = normalizedEmail(input.email)
+    const username = normalizedUsername(input.username ?? email)
     const password = String(input.password ?? '')
-    if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'ایمیل معتبر الزامی است')
     if (password.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
-    const duplicate = await db.from('Customers').select('Id').eq('Email', email).maybeSingle()
+    const duplicate = await db.from('Customers').select('Id').ilike('Username', username).eq('IsDeleted', false).maybeSingle()
     check(duplicate.error)
-    if (duplicate.data) throw new HttpError(409, 'این ایمیل قبلاً ثبت شده است')
+    if (duplicate.data) throw new HttpError(409, 'این نام کاربری قبلاً ثبت شده است')
     const customer = {
-      ...base(tenantDefault), FullName: String(input.fullName ?? '').trim(), Email: email,
+      ...base(tenantDefault), FullName: String(input.fullName ?? '').trim(), Username: username, Email: email,
+      ContactId: null,
       Phone: input.phone ?? null, CompanyName: input.companyName ?? null,
       PasswordHash: await bcrypt.hash(password, 12), IsActive: true,
     }
     if (!customer.FullName) throw new HttpError(400, 'نام و نام خانوادگی الزامی است')
     const created = await db.from('Customers').insert(customer).select().single()
     check(created.error)
-    const accessToken = await issueToken({ userId: created.data.Id, tenantId: created.data.TenantId, username: email, permissions: ['customer'], isAdmin: false })
-    return json(request, { id: created.data.Id, fullName: created.data.FullName, email, phone: created.data.Phone, companyName: created.data.CompanyName, accessToken }, 201)
+    const accessToken = await issueToken({ userId: created.data.Id, tenantId: created.data.TenantId, username, permissions: ['customer'], isAdmin: false })
+    return json(request, { id: created.data.Id, fullName: created.data.FullName, username, email, phone: created.data.Phone, companyName: created.data.CompanyName, accessToken }, 201)
   }
   return null
 }
@@ -83,21 +102,31 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
   if (path === '/customers/portal-access' && request.method === 'POST') {
     requirePermission(auth, 'contacts.edit')
     const input = await body<Obj>(request)
-    const email = String(input.email ?? '').trim().toLowerCase()
+    const username = normalizedUsername(input.username)
+    const email = normalizedEmail(input.email)
     const password = String(input.password ?? '')
     const fullName = String(input.fullName ?? '').trim()
+    const contactId = String(input.contactId ?? '').trim() || null
     if (!fullName) throw new HttpError(400, 'نام مشتری الزامی است')
-    if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new HttpError(400, 'ایمیل معتبر الزامی است')
 
-    const existing = await db.from('Customers').select('Id,TenantId,IsDeleted').eq('Email', email)
-      .order('CreatedAt', { ascending: false }).limit(1)
-    check(existing.error)
-    const hasExistingCustomer = Boolean(existing.data?.[0]?.Id)
+    let existingCustomer: Obj | null = null
+    if (contactId) {
+      const byContact = await db.from('Customers').select('Id,TenantId,IsDeleted').eq('TenantId', auth.tenantId).eq('ContactId', contactId).order('CreatedAt', { ascending: false }).limit(1)
+      check(byContact.error); existingCustomer = byContact.data?.[0] ?? null
+    }
+    if (!existingCustomer) {
+      const byUsername = await db.from('Customers').select('Id,TenantId,IsDeleted').ilike('Username', username).order('CreatedAt', { ascending: false }).limit(1)
+      check(byUsername.error); existingCustomer = byUsername.data?.[0] ?? null
+    }
+    const hasExistingCustomer = Boolean(existingCustomer?.Id)
     if (!hasExistingCustomer && password.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
     if (hasExistingCustomer && password && password.length < 8) throw new HttpError(400, 'رمز عبور حداقل باید ۸ کاراکتر باشد')
 
     const values = {
       FullName: fullName,
+      Username: username,
+      Email: email,
+      ContactId: contactId,
       Phone: input.phone ?? null,
       CompanyName: input.companyName ?? null,
       TenantId: auth.tenantId,
@@ -109,19 +138,19 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
     const securedValues = password ? { ...values, PasswordHash: await bcrypt.hash(password, 12) } : values
     if (hasExistingCustomer) {
       const updated = await db.from('Customers').update(securedValues)
-        .eq('Id', existing.data[0].Id).select('Id,FullName,CompanyName,Phone,Email,IsActive').single()
+        .eq('Id', existingCustomer!.Id).select('Id,FullName,CompanyName,Phone,Email,Username,ContactId,IsActive').single()
       check(updated.error)
       return json(request, { ...camelize(updated.data) as Obj, updated: true })
     }
 
-    const created = await db.from('Customers').insert({ ...base(auth.tenantId, auth.userId), ...securedValues, Email: email }).select('Id,FullName,CompanyName,Phone,Email,IsActive').single()
+    const created = await db.from('Customers').insert({ ...base(auth.tenantId, auth.userId), ...securedValues }).select('Id,FullName,CompanyName,Phone,Email,Username,ContactId,IsActive').single()
     check(created.error)
     return json(request, { ...camelize(created.data) as Obj, updated: false }, 201)
   }
 
   if (path === '/customers' && request.method === 'GET') {
     if (auth.permissions.includes('customer')) throw new HttpError(403, 'دسترسی غیرمجاز')
-    const result = await db.from('Customers').select('Id,FullName,CompanyName,Phone,Email,IsActive')
+    const result = await db.from('Customers').select('Id,FullName,CompanyName,Phone,Email,Username,ContactId,IsActive')
       .eq('TenantId', auth.tenantId).eq('IsDeleted', false).order('FullName')
     check(result.error); return json(request, camelize(result.data))
   }
@@ -134,10 +163,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
       const result = await db.from('Tickets').select('*').eq('TenantId', auth.tenantId).eq('CustomerId', customerId)
         .eq('IsDeleted', false).order('CreatedAt', { ascending: false })
       check(result.error)
-      const output = await Promise.all((result.data ?? []).map(async (ticket) => {
-        const count = await db.from('TicketComments').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('TicketId', ticket.Id).eq('IsDeleted', false)
-        check(count.error); return { ...(camelize(ticket) as Obj), messageCount: count.count ?? 0 }
-      }))
+      const output = await Promise.all((result.data ?? []).map(ticketDto))
       return json(request, output)
     }
     if (request.method === 'POST') {

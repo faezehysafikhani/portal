@@ -10,6 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Options;
 using OrgSystem.Infrastructure.Auth;
 using OrgSystem.API.Authorization;
+using System.Text.RegularExpressions;
 
 namespace OrgSystem.API.Controllers;
 
@@ -17,6 +18,7 @@ namespace OrgSystem.API.Controllers;
 [Route("api/v1/[controller]")]
 public class CustomersController : ControllerBase
 {
+    private static readonly Regex UsernamePattern = new(@"^[\p{L}\p{N}._@+\-]{3,64}$", RegexOptions.Compiled);
     private readonly AppDbContext _db;
     private readonly JwtSettings _jwt;
     public CustomersController(AppDbContext db, IOptions<JwtSettings> jwt) { _db = db; _jwt = jwt.Value; }
@@ -24,33 +26,38 @@ public class CustomersController : ControllerBase
     [HttpGet]
     [Authorize]
     public async Task<IActionResult> List() => Ok(await _db.Customers.AsNoTracking().OrderBy(x => x.FullName)
-        .Select(x => new { x.Id, x.FullName, x.CompanyName, x.Phone, x.Email, x.IsActive }).ToListAsync());
+        .Select(x => new { x.Id, x.FullName, x.CompanyName, x.Phone, x.Email, x.Username, x.ContactId, x.IsActive }).ToListAsync());
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] CustomerLoginRequest request)
     {
+        var identifier = request.Username.Trim().ToLowerInvariant();
         var customer = await _db.Customers
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(c => c.Email == request.Email && c.IsActive);
+            .FirstOrDefaultAsync(c => c.IsActive && !c.IsDeleted &&
+                (c.Username != null && c.Username.ToLower() == identifier || c.Email != null && c.Email.ToLower() == identifier));
 
         if (customer == null || string.IsNullOrEmpty(customer.PasswordHash) ||
             !BCrypt.Net.BCrypt.Verify(request.Password, customer.PasswordHash))
-            return Unauthorized(new { message = "ایمیل یا رمز عبور اشتباه است" });
+            return Unauthorized(new { message = "نام کاربری یا رمز عبور اشتباه است" });
 
-        return Ok(new { id = customer.Id, fullName = customer.FullName, email = customer.Email, phone = customer.Phone,
+        return Ok(new { id = customer.Id, fullName = customer.FullName, username = customer.Username, email = customer.Email, phone = customer.Phone,
             companyName = customer.CompanyName, accessToken = CreateCustomerToken(customer) });
     }
 
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] CustomerRegisterRequest request)
     {
-        if (await _db.Customers.IgnoreQueryFilters().AnyAsync(c => c.Email == request.Email))
-            return BadRequest(new { message = "این ایمیل قبلاً ثبت شده است" });
+        var username = request.Username.Trim().ToLowerInvariant();
+        if (!UsernamePattern.IsMatch(username)) return BadRequest(new { message = "نام کاربری معتبر نیست" });
+        if (await _db.Customers.IgnoreQueryFilters().AnyAsync(c => c.Username == username && !c.IsDeleted))
+            return BadRequest(new { message = "این نام کاربری قبلاً ثبت شده است" });
 
         var customer = new Customer
         {
             Id = Guid.NewGuid(),
             FullName = request.FullName,
+            Username = username,
             Email = request.Email,
             Phone = request.Phone,
             CompanyName = request.CompanyName,
@@ -61,7 +68,7 @@ public class CustomersController : ControllerBase
 
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync();
-        return Ok(new { id = customer.Id, fullName = customer.FullName, email = customer.Email,
+        return Ok(new { id = customer.Id, fullName = customer.FullName, username = customer.Username, email = customer.Email,
             phone = customer.Phone, companyName = customer.CompanyName, accessToken = CreateCustomerToken(customer) });
     }
 
@@ -70,14 +77,15 @@ public class CustomersController : ControllerBase
     [RequirePermission("contacts.edit")]
     public async Task<IActionResult> SavePortalAccess([FromBody] CustomerPortalAccessRequest request)
     {
-        var email = request.Email.Trim().ToLowerInvariant();
+        var username = request.Username.Trim().ToLowerInvariant();
+        var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(request.FullName))
             return BadRequest(new { message = "نام مشتری الزامی است" });
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
-            return BadRequest(new { message = "ایمیل معتبر الزامی است" });
+        if (!UsernamePattern.IsMatch(username)) return BadRequest(new { message = "نام کاربری معتبر نیست" });
+        if (email != null && !email.Contains('@')) return BadRequest(new { message = "ایمیل واردشده معتبر نیست" });
         var tenantId = Guid.Parse(User.FindFirst("tenant_id")!.Value);
         var customer = await _db.Customers.IgnoreQueryFilters()
-            .Where(c => c.Email == email)
+            .Where(c => c.TenantId == tenantId && ((request.ContactId.HasValue && c.ContactId == request.ContactId) || c.Username == username))
             .OrderByDescending(c => c.CreatedAt)
             .FirstOrDefaultAsync();
         var updated = customer != null;
@@ -88,11 +96,14 @@ public class CustomersController : ControllerBase
             return BadRequest(new { message = "رمز عبور حداقل باید ۸ کاراکتر باشد" });
         if (customer == null)
         {
-            customer = new Customer { Id = Guid.NewGuid(), TenantId = tenantId, Email = email };
+            customer = new Customer { Id = Guid.NewGuid(), TenantId = tenantId };
             _db.Customers.Add(customer);
         }
 
         customer.FullName = request.FullName.Trim();
+        customer.Username = username;
+        customer.Email = email;
+        customer.ContactId = request.ContactId;
         customer.TenantId = tenantId;
         customer.Phone = request.Phone;
         customer.CompanyName = request.CompanyName;
@@ -103,7 +114,7 @@ public class CustomersController : ControllerBase
         customer.DeletedAt = null;
         customer.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return Ok(new { id = customer.Id, fullName = customer.FullName, email = customer.Email,
+        return Ok(new { id = customer.Id, fullName = customer.FullName, username = customer.Username, email = customer.Email, contactId = customer.ContactId,
             phone = customer.Phone, companyName = customer.CompanyName, customer.IsActive, updated });
     }
 
@@ -224,8 +235,8 @@ public class CustomersController : ControllerBase
     }
 }
 
-public record CustomerLoginRequest(string Email, string Password);
-public record CustomerRegisterRequest(string FullName, string Email, string? Phone, string? CompanyName, string Password);
-public record CustomerPortalAccessRequest(string FullName, string Email, string? Phone, string? CompanyName, string? Password, bool IsActive = true);
+public record CustomerLoginRequest(string Username, string Password);
+public record CustomerRegisterRequest(string FullName, string Username, string? Email, string? Phone, string? CompanyName, string Password);
+public record CustomerPortalAccessRequest(string FullName, string Username, string? Email, Guid? ContactId, string? Phone, string? CompanyName, string? Password, bool IsActive = true);
 public record CreateCustomerTicketRequest(string Title, string Category, string Priority, string Description);
 public record AddMessageRequest(string Text, string AuthorName, bool IsCustomer);
