@@ -88,6 +88,7 @@ export async function handlePublicCustomer(request: Request, path: string): Prom
       ContactId: null,
       Phone: input.phone ?? null, CompanyName: input.companyName ?? null,
       PasswordHash: await bcrypt.hash(password, 12), IsActive: true,
+      Type: input.companyName ? 1 : 0,
     }
     if (!customer.FullName) throw new HttpError(400, 'نام و نام خانوادگی الزامی است')
     const created = await db.from('Customers').insert(customer).select().single()
@@ -129,6 +130,7 @@ export async function handleTicketsCustomers(request: Request, auth: AuthContext
       ContactId: contactId,
       Phone: input.phone ?? null,
       CompanyName: input.companyName ?? null,
+      Type: contactId ? 0 : 1,
       TenantId: auth.tenantId,
       IsActive: input.isActive !== false,
       UpdatedAt: now(),
