@@ -16,7 +16,7 @@ function PersianClock() {
   const persianTime = time.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const gregorianDate = time.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   return (
-    <div style={{ textAlign: 'center', marginBottom: 32 }}>
+    <div style={{ textAlign: 'center' }}>
       <div style={{ fontSize: 42, fontWeight: 800, color: '#211522', letterSpacing: 2, fontFamily: 'monospace' }}>{persianTime}</div>
       <div style={{ fontSize: 16, color: '#2f2130', marginTop: 6, fontWeight: 700 }}>{persianDate}</div>
       <div style={{ fontSize: 12, color: '#554656', marginTop: 4 }}>{gregorianDate}</div>
@@ -166,7 +166,7 @@ export default function LoginPage() {
         borderLeft: 'none',
         position: 'relative', zIndex: 1,
       }}>
-        <div className="login-card" style={{
+        <div className="login-card login-content-frame" style={{
           width: '100%', maxWidth: 440,
           background: 'white', borderRadius: 20,
           padding: 36,
@@ -254,33 +254,37 @@ export default function LoginPage() {
         padding: 48, color: '#211522', direction: 'rtl',
         position: 'relative', zIndex: 1,
       }}>
-        <div className="login-company-logo" style={{ width: 116, height: 126, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-          <img className="login-company-logo-image" src={loginLogo} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        </div>
-        <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
-        <div style={{ fontSize: 14, color: '#4a3b4b', marginBottom: 40, fontWeight: 600 }}>سامانه یکپارچه مدیریت سازمانی</div>
+        <div className="login-info-content login-content-frame">
+          <div className="login-company-logo" style={{ width: 92, height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <img className="login-company-logo-image" src={loginLogo} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          </div>
+          <div className="login-company-heading">
+            <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
+            <div style={{ fontSize: 14, color: '#4a3b4b', fontWeight: 600, textAlign: 'center' }}>سامانه یکپارچه مدیریت سازمانی</div>
+          </div>
 
-        <PersianClock />
+          <PersianClock />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%', maxWidth: 340 }}>
-          {[
-            { icon: '📧', title: 'مدیریت نامه‌نگاری', desc: 'ثبت و پیگیری مکاتبات سازمانی' },
-            { icon: '📊', title: 'مدیریت پروژه', desc: 'برنامه‌ریزی و کنترل پروژه‌ها' },
-            { icon: '🎫', title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
-            { icon: '📋', title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
-          ].map((item, i) => (
-            <div key={i} className="login-feature" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', background: 'rgba(255,255,255,0.42)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.68)' }}>
-              <span style={{ fontSize: 22 }}>{item.icon}</span>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{item.title}</div>
-                <div style={{ fontSize: 11, color: '#554656', marginTop: 2, fontWeight: 500 }}>{item.desc}</div>
+          <div className="login-features-grid">
+            {[
+              { icon: '📧', title: 'مدیریت نامه‌نگاری', desc: 'ثبت و پیگیری مکاتبات سازمانی' },
+              { icon: '📊', title: 'مدیریت پروژه', desc: 'برنامه‌ریزی و کنترل پروژه‌ها' },
+              { icon: '🎫', title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
+              { icon: '📋', title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
+            ].map((item, i) => (
+              <div key={i} className="login-feature" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.42)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.68)' }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{item.title}</div>
+                  <div style={{ fontSize: 11, color: '#554656', marginTop: 2, fontWeight: 500 }}>{item.desc}</div>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
 
-        <div style={{ marginTop: 36, fontSize: 12, color: '#625263', textAlign: 'center', fontWeight: 600 }}>
-          مدیریت پروژه پارس © ۱۴۰۳
+          <div style={{ fontSize: 12, color: '#625263', textAlign: 'center', fontWeight: 600 }}>
+            مدیریت پروژه پارس © ۱۴۰۳
+          </div>
         </div>
       </div>
     </div>
