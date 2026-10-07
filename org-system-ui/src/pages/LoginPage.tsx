@@ -267,10 +267,10 @@ export default function LoginPage() {
 
           <div className="login-features-grid">
             {[
-              { icon: <MailOutlined />, title: 'مدیریت نامه‌نگاری', desc: 'ثبت و پیگیری مکاتبات سازمانی' },
-              { icon: <ProjectOutlined />, title: 'مدیریت پروژه', desc: 'برنامه‌ریزی و کنترل پروژه‌ها' },
-              { icon: <CustomerServiceOutlined />, title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
-              { icon: <FormOutlined />, title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
+              { icon: <MailOutlined />, title: 'مدیریت نامه‌نگاری', desc: 'مکاتبات سازمانی' },
+              { icon: <ProjectOutlined />, title: 'مدیریت پروژه', desc: 'برنامه‌ریزی پروژه‌ها' },
+              { icon: <CustomerServiceOutlined />, title: 'سیستم تیکتینگ', desc: 'پشتیبانی درخواست‌ها' },
+              { icon: <FormOutlined />, title: 'فرم‌های سازمانی', desc: 'گردش کار فرم‌ها' },
             ].map((item, i) => (
               <div key={i} className="login-feature">
                 <span className="login-feature-icon" aria-hidden="true">{item.icon}</span>
