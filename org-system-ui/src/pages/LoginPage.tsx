@@ -4,7 +4,7 @@ import { UserOutlined, LockOutlined, MailOutlined, ProjectOutlined, CustomerServ
 import { formatJalaliDate } from '../utils/jalali'
 import { publicBackendFetch } from '../lib/backend'
 import loginBackground from '../assets/login-background.jpg'
-import loginLogo from '../assets/login-logo.png'
+import loginLogo from '../assets/login-logo-glossy-cutout.png'
 
 function PersianClock() {
   const [time, setTime] = useState(new Date())
@@ -255,8 +255,8 @@ export default function LoginPage() {
         position: 'relative', zIndex: 1,
       }}>
         <div className="login-info-content login-content-frame">
-          <div className="login-company-logo" style={{ width: 92, height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img className="login-company-logo-image" src={loginLogo} alt={`لوگوی ${company.name || 'شرکت'}`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          <div className="login-company-logo">
+            <img className="login-company-logo-image" src={loginLogo} alt={`لوگوی ${company.name || 'شرکت'}`} />
           </div>
           <div className="login-company-heading">
             <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 4, textAlign: 'center' }}>{company.name || 'موسسه مدیریت پروژه پارس'}</div>
