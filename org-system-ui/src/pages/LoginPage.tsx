@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Form, Input, Button, Alert } from 'antd'
-import { UserOutlined, LockOutlined } from '@ant-design/icons'
+import { UserOutlined, LockOutlined, MailOutlined, ProjectOutlined, CustomerServiceOutlined, FormOutlined } from '@ant-design/icons'
 import { formatJalaliDate } from '../utils/jalali'
 import { publicBackendFetch } from '../lib/backend'
 import loginBackground from '../assets/login-background.jpg'
@@ -267,23 +267,19 @@ export default function LoginPage() {
 
           <div className="login-features-grid">
             {[
-              { icon: '📧', title: 'مدیریت نامه‌نگاری', desc: 'ثبت و پیگیری مکاتبات سازمانی' },
-              { icon: '📊', title: 'مدیریت پروژه', desc: 'برنامه‌ریزی و کنترل پروژه‌ها' },
-              { icon: '🎫', title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
-              { icon: '📋', title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
+              { icon: <MailOutlined />, title: 'مدیریت نامه‌نگاری', desc: 'ثبت و پیگیری مکاتبات سازمانی' },
+              { icon: <ProjectOutlined />, title: 'مدیریت پروژه', desc: 'برنامه‌ریزی و کنترل پروژه‌ها' },
+              { icon: <CustomerServiceOutlined />, title: 'سیستم تیکتینگ', desc: 'پشتیبانی و رسیدگی به درخواست‌ها' },
+              { icon: <FormOutlined />, title: 'فرم‌های سازمانی', desc: 'گردش کار الکترونیکی فرم‌ها' },
             ].map((item, i) => (
-              <div key={i} className="login-feature" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.42)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.68)' }}>
-                <span style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{item.title}</div>
-                  <div style={{ fontSize: 11, color: '#554656', marginTop: 2, fontWeight: 500 }}>{item.desc}</div>
+              <div key={i} className="login-feature">
+                <span className="login-feature-icon" aria-hidden="true">{item.icon}</span>
+                <div className="login-feature-copy">
+                  <div className="login-feature-title">{item.title}</div>
+                  <div className="login-feature-description">{item.desc}</div>
                 </div>
               </div>
             ))}
-          </div>
-
-          <div style={{ fontSize: 12, color: '#625263', textAlign: 'center', fontWeight: 600 }}>
-            مدیریت پروژه پارس © ۱۴۰۳
           </div>
         </div>
       </div>
