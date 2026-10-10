@@ -12,6 +12,7 @@ public class DashboardController(AppDbContext db) : ControllerBase
     public async Task<IActionResult> Summary(CancellationToken ct)
     {
         var userId = Guid.Parse(User.FindFirst("user_id")!.Value);
+        var isAdmin = User.IsInRole("Admin") || string.Equals(User.FindFirst("username")?.Value, "admin", StringComparison.OrdinalIgnoreCase);
         var now = DateTime.UtcNow;
         var startOfDay = now.Date;
         return Ok(new
@@ -20,7 +21,8 @@ public class DashboardController(AppDbContext db) : ControllerBase
             activeTasks = await db.Tasks.CountAsync(x => x.AssignedToUserId == userId && x.Status != OrgSystem.Domain.Entities.Tasks.TaskItemStatus.Done && x.Status != OrgSystem.Domain.Entities.Tasks.TaskItemStatus.Cancelled, ct),
             openTickets = await db.Tickets.CountAsync(x => x.AssignedToUserId == userId && x.Status != "closed" && x.Status != "resolved", ct),
             todayEvents = await db.CalendarEvents.CountAsync(x => x.StartAt >= startOfDay && x.StartAt < startOfDay.AddDays(1) &&
-                (x.OrganizerUserId == userId || x.Attendees.Any(a => a.UserId == userId)), ct),
+                (isAdmin || x.OrganizerUserId == userId || x.Attendees.Any(a => a.UserId == userId) ||
+                 x.Participants.Any(p => p.PersonType == "contact" && db.Contacts.Any(c => c.Id == p.PersonId && c.LinkedUserId == userId))), ct),
             users = await db.Users.CountAsync(x => x.IsActive, ct),
             onlineUsers = await db.Users.CountAsync(x => x.IsActive && x.LastLoginAt >= now.AddMinutes(-15), ct),
             contacts = await db.Contacts.CountAsync(ct),

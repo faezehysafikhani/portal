@@ -15,6 +15,7 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
 {
     private Guid UserId => Guid.Parse(User.FindFirst("user_id")!.Value);
     private Guid TenantId => Guid.Parse(User.FindFirst("tenant_id")!.Value);
+    private bool IsAdmin => User.IsInRole("Admin") || string.Equals(User.FindFirst("username")?.Value, "admin", StringComparison.OrdinalIgnoreCase);
 
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
@@ -24,7 +25,8 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
         var items = await db.CalendarEvents.AsNoTracking().Include(x => x.Attendees).Include(x => x.Participants)
             .Include(x => x.LetterLinks).Include(x => x.TaskLinks)
             .Where(x => x.StartAt < end && x.EndAt > start &&
-                (x.OrganizerUserId == UserId || x.Attendees.Any(a => a.UserId == UserId)))
+                (IsAdmin || x.OrganizerUserId == UserId || x.Attendees.Any(a => a.UserId == UserId) ||
+                 x.Participants.Any(p => p.PersonType == "contact" && db.Contacts.Any(c => c.Id == p.PersonId && c.LinkedUserId == UserId))))
             .OrderBy(x => x.StartAt).ToListAsync(ct);
         return Ok(items.Select(ToDto));
     }
@@ -34,7 +36,9 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
     {
         var item = await db.CalendarEvents.AsNoTracking().Include(x => x.Attendees).Include(x => x.Participants)
             .Include(x => x.LetterLinks).Include(x => x.TaskLinks).FirstOrDefaultAsync(x => x.Id == id, ct);
-        return item == null ? NotFound(new { message = "رویداد یافت نشد" }) : Ok(ToDto(item));
+        return item == null || !(IsAdmin || item.OrganizerUserId == UserId || item.Attendees.Any(a => a.UserId == UserId) ||
+            item.Participants.Any(p => p.PersonType == "contact" && db.Contacts.Any(c => c.Id == p.PersonId && c.LinkedUserId == UserId)))
+            ? NotFound(new { message = "رویداد یافت نشد" }) : Ok(ToDto(item));
     }
 
     [HttpPost]
@@ -70,19 +74,7 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
         item.LetterLinks = accessibleLetterIds.Select(id => new EventLetterLink { LetterId = id, TenantId = TenantId }).ToList();
         item.TaskLinks = accessibleTaskIds.Select(id => new EventTaskLink { TaskId = id, TenantId = TenantId }).ToList();
         db.CalendarEvents.Add(item); await db.SaveChangesAsync(ct);
-        if (request.SendSms)
-        {
-            var smsSetting = await db.SmsProviderSettings.FirstOrDefaultAsync(x => x.IsActive, ct);
-            var userPhones = await db.Users.Where(x => validUsers.Contains(x.Id) && x.PhoneNumber != null).Select(x => x.PhoneNumber!).ToListAsync(ct);
-            var contactPhones = await db.Contacts.Where(x => validContacts.Contains(x.Id)).Select(x => x.Mobile ?? x.Phone).Where(x => x != null).Select(x => x!).ToListAsync(ct);
-            foreach (var phone in userPhones.Concat(contactPhones).Distinct())
-            {
-                var local = item.StartAt.ToLocalTime();
-                var smsText = (smsSetting?.MeetingTemplate ?? "دعوت جلسه: {title} - {date} {time}")
-                    .Replace("{title}", item.Title).Replace("{date}", local.ToString("yyyy/MM/dd")).Replace("{time}", local.ToString("HH:mm"));
-                await sms.SendAsync(phone, smsText, UserId, ct);
-            }
-        }
+        if (request.SendSms) await SendEventSms(item, validUsers, validContacts, ct);
         return CreatedAtAction(nameof(Get), new { id = item.Id }, ToDto(item));
     }
 
@@ -90,17 +82,31 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
     [RequirePermission("calendar.edit")]
     public async Task<IActionResult> Update(Guid id, CalendarEventRequest request, CancellationToken ct)
     {
-        var item = await db.CalendarEvents.Include(x => x.Attendees).FirstOrDefaultAsync(x => x.Id == id, ct);
+        var item = await db.CalendarEvents.Include(x => x.Attendees).Include(x => x.Participants)
+            .Include(x => x.LetterLinks).Include(x => x.TaskLinks).FirstOrDefaultAsync(x => x.Id == id, ct);
         if (item == null) return NotFound();
-        if (item.OrganizerUserId != UserId) return Forbid();
+        if (item.OrganizerUserId != UserId && !IsAdmin) return Forbid();
         if (request.EndAt <= request.StartAt) return BadRequest(new { message = "زمان پایان باید بعد از شروع باشد" });
+        var userIds = request.Participants.Where(x => x.PersonType == "user").Select(x => x.PersonId).Distinct().ToList();
+        var contactIds = request.Participants.Where(x => x.PersonType == "contact").Select(x => x.PersonId).Distinct().ToList();
+        var validUsers = await db.Users.Where(x => userIds.Contains(x.Id) && x.IsActive).Select(x => x.Id).ToListAsync(ct);
+        var validContacts = await db.Contacts.Where(x => contactIds.Contains(x.Id)).Select(x => x.Id).ToListAsync(ct);
+        if (validUsers.Count != userIds.Count || validContacts.Count != contactIds.Count ||
+            request.Participants.Any(x => x.PersonType is not ("user" or "contact")))
+            return BadRequest(new { message = "یک یا چند فرد مرتبط معتبر نیستند" });
         item.Title = request.Title.Trim(); item.Description = request.Description; item.StartAt = request.StartAt.ToUniversalTime();
         item.EndAt = request.EndAt.ToUniversalTime(); item.IsAllDay = request.IsAllDay; item.TimeZone = request.TimeZone ?? "Asia/Tehran";
         item.EventType = request.EventType ?? "meeting"; item.Location = request.Location; item.OnlineMeetingUrl = request.OnlineMeetingUrl;
         db.EventAttendees.RemoveRange(item.Attendees);
-        item.Attendees = request.Participants.Where(x => x.PersonType == "user").Select(x => x.PersonId).Distinct()
+        item.Attendees = validUsers
             .Select(uid => new EventAttendee { UserId = uid, TenantId = TenantId }).ToList();
-        await db.SaveChangesAsync(ct); return Ok(ToDto(item));
+        db.EventParticipants.RemoveRange(item.Participants);
+        item.Participants = request.Participants.GroupBy(x => new { x.PersonType, x.PersonId }).Select(g => g.First())
+            .Select(x => new EventParticipant { PersonType = x.PersonType, PersonId = x.PersonId,
+                DisplayName = x.DisplayName, Role = x.Role ?? "attendee", TenantId = TenantId }).ToList();
+        await db.SaveChangesAsync(ct);
+        if (request.SendSms) await SendEventSms(item, validUsers, validContacts, ct);
+        return Ok(ToDto(item));
     }
 
     [HttpPatch("{id:guid}/response")]
@@ -117,7 +123,7 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
         var item = await db.CalendarEvents.FirstOrDefaultAsync(x => x.Id == id, ct);
-        if (item == null) return NotFound(); if (item.OrganizerUserId != UserId) return Forbid();
+        if (item == null) return NotFound(); if (item.OrganizerUserId != UserId && !IsAdmin) return Forbid();
         item.IsDeleted = true; item.DeletedAt = DateTime.UtcNow; await db.SaveChangesAsync(ct); return NoContent();
     }
 
@@ -132,6 +138,20 @@ public class CalendarController(AppDbContext db, ISmsGateway sms) : ControllerBa
             Attendees = x.Attendees.Select(a => new { a.UserId, a.ResponseStatus, a.IsRequired }),
             Participants = x.Participants.Select(p => new { p.PersonType, p.PersonId, p.DisplayName, p.Role, p.ResponseStatus }),
             RelatedLetterIds = x.LetterLinks.Select(l => l.LetterId), RelatedTaskIds = x.TaskLinks.Select(t => t.TaskId) };
+    }
+
+    private async Task SendEventSms(CalendarEvent item, List<Guid> userIds, List<Guid> contactIds, CancellationToken ct)
+    {
+        var setting = await db.SmsProviderSettings.FirstOrDefaultAsync(x => x.IsActive, ct);
+        var userPhones = await db.Users.Where(x => userIds.Contains(x.Id) && x.PhoneNumber != null)
+            .Select(x => x.PhoneNumber!).ToListAsync(ct);
+        var contactPhones = await db.Contacts.Where(x => contactIds.Contains(x.Id))
+            .Select(x => x.Mobile ?? x.Phone).Where(x => x != null).Select(x => x!).ToListAsync(ct);
+        var local = TimeZoneInfo.ConvertTimeFromUtc(item.StartAt.ToUniversalTime(), TimeZoneInfo.FindSystemTimeZoneById("Asia/Tehran"));
+        var text = (setting?.MeetingTemplate ?? "دعوت جلسه: {title} - {date} {time}")
+            .Replace("{title}", item.Title).Replace("{date}", local.ToString("yyyy/MM/dd")).Replace("{time}", local.ToString("HH:mm"));
+        foreach (var phone in userPhones.Concat(contactPhones).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct())
+            await sms.SendAsync(phone, text, UserId, ct);
     }
 }
 

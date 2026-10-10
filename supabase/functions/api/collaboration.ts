@@ -3,6 +3,7 @@ import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { jalaliDateString, jalaliDayNumber, jalaliYearMonth } from '../_shared/jalali.ts'
 import { createNotification, createNotifications, notificationType } from '../_shared/notifications.ts'
+import { sendTransactionalSms } from '../_shared/sms.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -14,6 +15,59 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
   requirePermission(auth, 'calendar.view')
   const match = path.match(/^\/calendar\/([0-9a-f-]+)$/i)
   const responseMatch = path.match(/^\/calendar\/([0-9a-f-]+)\/response$/i)
+  const canManage = (event: Obj) => auth.isAdmin || event.OrganizerUserId === auth.userId
+  const isVisible = async (event: Obj): Promise<boolean> => {
+    if (canManage(event)) return true
+    const attendee = await db.from('EventAttendees').select('Id').eq('TenantId', auth.tenantId).eq('EventId', event.Id).eq('UserId', auth.userId).eq('IsDeleted', false).maybeSingle(); check(attendee.error)
+    if (attendee.data) return true
+    const contacts = await db.from('Contacts').select('Id').eq('TenantId', auth.tenantId).eq('LinkedUserId', auth.userId).eq('IsDeleted', false); check(contacts.error)
+    const ids = (contacts.data ?? []).map((c: Obj) => c.Id)
+    if (!ids.length) return false
+    const participant = await db.from('EventParticipants').select('Id').eq('TenantId', auth.tenantId).eq('EventId', event.Id).eq('PersonType', 'contact').in('PersonId', ids).eq('IsDeleted', false).limit(1); check(participant.error)
+    return Boolean(participant.data?.length)
+  }
+  const getEvent = async (id: string): Promise<Obj> => {
+    const found = await db.from('CalendarEvents').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle(); check(found.error)
+    if (!found.data) throw new HttpError(404, 'رویداد یافت نشد')
+    return found.data
+  }
+  const verifiedParticipants = async (input: Obj): Promise<Obj[]> => {
+    const requested = Array.isArray(input.participants) ? input.participants : []
+    const unique = new Map<string, Obj>()
+    for (const p of requested) {
+      if (!['user', 'contact'].includes(p?.personType) || !/^[0-9a-f-]{36}$/i.test(String(p?.personId ?? ''))) throw new HttpError(400, 'فرد مرتبط معتبر نیست')
+      unique.set(`${p.personType}:${p.personId}`, p)
+    }
+    const people = [...unique.values()]
+    for (const type of ['user', 'contact']) {
+      const ids = people.filter(p => p.personType === type).map(p => p.personId)
+      if (!ids.length) continue
+      const table = type === 'user' ? 'Users' : 'Contacts'
+      let query = db.from(table).select('Id').eq('TenantId', auth.tenantId).eq('IsDeleted', false).in('Id', ids)
+      if (type === 'user') query = query.eq('IsActive', true)
+      const found = await query; check(found.error)
+      if ((found.data ?? []).length !== ids.length) throw new HttpError(400, 'یک یا چند فرد مرتبط معتبر نیستند')
+    }
+    return people
+  }
+  const sendEventSms = async (event: Obj, participants: Obj[]): Promise<Obj> => {
+    const setting = await db.from('SmsProviderSettings').select('MeetingTemplate').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle(); check(setting.error)
+    const date = new Date(event.StartAt)
+    const tehranDate = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+    const tehranTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
+    const message = String(setting.data?.MeetingTemplate || 'دعوت جلسه: {title} - {date} {time}').replaceAll('{title}', String(event.Title)).replaceAll('{date}', tehranDate).replaceAll('{time}', tehranTime)
+    const phones: string[] = []
+    for (const type of ['user', 'contact']) {
+      const ids = participants.filter(p => p.personType === type).map(p => p.personId)
+      if (!ids.length) continue
+      const found = await db.from(type === 'user' ? 'Users' : 'Contacts').select(type === 'user' ? 'PhoneNumber' : 'Mobile,Phone').eq('TenantId', auth.tenantId).in('Id', ids); check(found.error)
+      phones.push(...(found.data ?? []).map((p: Obj) => p.PhoneNumber || p.Mobile || p.Phone || ''))
+    }
+    const results = []
+    for (const phone of [...new Set(phones.map(p => String(p).trim()))]) results.push(await sendTransactionalSms(auth, phone, message))
+    const failed = results.filter(r => !r.success)
+    return { requested: results.length, sent: results.length - failed.length, failed: failed.length, errors: [...new Set(failed.map(r => r.error).filter(Boolean))] }
+  }
   const compose = async (event: Obj): Promise<Obj> => {
     const [attendees, participants, letters, tasks] = await Promise.all([
       db.from('EventAttendees').select('*').eq('TenantId', auth.tenantId).eq('EventId', event.Id).eq('IsDeleted', false),
@@ -24,7 +78,7 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     return { ...(camelize(event) as Obj), persianStartDate:jalaliDateString(event.StartAt), gregorianStartDate:new Date(event.StartAt).toISOString().slice(0,10), attendees: camelize(attendees.data), participants: camelize(participants.data), relatedLetterIds: (letters.data ?? []).map((x) => x.LetterId), relatedTaskIds: (tasks.data ?? []).map((x) => x.TaskId) }
   }
   const syncRelations = async (eventId: string, input: Obj, notifyNewAttendees = false): Promise<void> => {
-    const participants = Array.isArray(input.participants) ? input.participants : []
+    const participants = await verifiedParticipants(input)
     const relatedLetterIds = Array.isArray(input.relatedLetterIds) ? [...new Set(input.relatedLetterIds.filter(Boolean))] : []
     const relatedTaskIds = Array.isArray(input.relatedTaskIds) ? [...new Set(input.relatedTaskIds.filter(Boolean))] : []
     const tables = ['EventAttendees', 'EventParticipants', 'EventLetterLinks', 'EventTaskLinks']
@@ -52,8 +106,7 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     const result = await query.order('StartAt'); check(result.error)
     const visible: Obj[] = []
     for (const event of result.data ?? []) {
-      const attendee = await db.from('EventAttendees').select('Id').eq('TenantId', auth.tenantId).eq('EventId', event.Id).eq('UserId', auth.userId).eq('IsDeleted', false).maybeSingle(); check(attendee.error)
-      if (event.OrganizerUserId === auth.userId || attendee.data || auth.isAdmin) visible.push(await compose(event))
+      if (await isVisible(event)) visible.push(await compose(event))
     }
     if (match) { if (!visible[0]) throw new HttpError(404, 'رویداد یافت نشد'); return json(request, visible[0]) }
     return json(request, visible)
@@ -61,27 +114,37 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
   if (request.method === 'POST' && path === '/calendar') {
     requirePermission(auth, 'calendar.create'); const input = await body<Obj>(request)
     if (!input.title || !input.startAt || !input.endAt || new Date(input.endAt) <= new Date(input.startAt)) throw new HttpError(400, 'عنوان و بازه زمانی معتبر الزامی است')
+    const participants = await verifiedParticipants(input)
     const event = { ...base(auth), Title: String(input.title).trim(), Description: input.description ?? null, StartAt: input.startAt, EndAt: input.endAt, IsAllDay: Boolean(input.isAllDay), TimeZone: input.timeZone ?? 'Asia/Tehran', EventType: input.eventType ?? 'meeting', Location: input.location ?? null, OnlineMeetingUrl: input.onlineMeetingUrl ?? null, Status: 'scheduled', OrganizerUserId: auth.userId, OrganizerType: 'user', OrganizerContactId: null, OrganizerDisplayName: input.organizerDisplayName ?? auth.username }
     const created = await db.from('CalendarEvents').insert(event).select().single(); check(created.error)
     await syncRelations(event.Id, input, true)
-    return json(request, await compose(created.data), 201)
+    const sms = input.sendSms ? await sendEventSms(created.data, participants) : undefined
+    return json(request, { ...await compose(created.data), sms }, 201)
   }
   if (request.method === 'PUT' && match) {
     requirePermission(auth, 'calendar.edit'); const input = await body<Obj>(request)
+    const existing = await getEvent(match[1]); if (!canManage(existing)) throw new HttpError(403, 'اجازه ویرایش این رویداد را ندارید')
+    if (input.participants !== undefined) await verifiedParticipants(input)
+    const startAt = input.startAt ?? existing.StartAt, endAt = input.endAt ?? existing.EndAt
+    if (!Number.isFinite(new Date(startAt).getTime()) || !Number.isFinite(new Date(endAt).getTime()) || new Date(endAt) <= new Date(startAt)) throw new HttpError(400, 'بازه زمانی رویداد معتبر نیست')
     const fields: Obj = { UpdatedAt: now() }; const map: Obj = { title: 'Title', description: 'Description', startAt: 'StartAt', endAt: 'EndAt', isAllDay: 'IsAllDay', eventType: 'EventType', location: 'Location', onlineMeetingUrl: 'OnlineMeetingUrl', status: 'Status' }
     for (const [key, column] of Object.entries(map)) if (input[key] !== undefined) fields[column as string] = input[key]
     const result = await db.from('CalendarEvents').update(fields).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).select().maybeSingle(); check(result.error)
     if (!result.data) throw new HttpError(404, 'رویداد یافت نشد')
     if (input.participants !== undefined || input.relatedLetterIds !== undefined || input.relatedTaskIds !== undefined) await syncRelations(match[1], input)
-    return json(request, await compose(result.data))
+    const sms = input.sendSms ? await sendEventSms(result.data, input.participants !== undefined ? await verifiedParticipants(input) : (await compose(result.data)).participants) : undefined
+    return json(request, { ...await compose(result.data), sms })
   }
   if (request.method === 'PATCH' && responseMatch) {
     requirePermission(auth, 'calendar.respond'); const input = await body<Obj>(request)
-    const result = await db.from('EventAttendees').update({ ResponseStatus: input.status, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('EventId', responseMatch[1]).eq('UserId', auth.userId); check(result.error)
+    await getEvent(responseMatch[1]); if (!['accepted', 'declined', 'tentative'].includes(input.status)) throw new HttpError(400, 'پاسخ نامعتبر است')
+    const result = await db.from('EventAttendees').update({ ResponseStatus: input.status, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('EventId', responseMatch[1]).eq('UserId', auth.userId).eq('IsDeleted', false).select('Id'); check(result.error)
+    if (!result.data?.length) throw new HttpError(404, 'دعوتی برای شما یافت نشد')
     return json(request, { message: 'پاسخ ثبت شد' })
   }
   if (request.method === 'DELETE' && match) {
-    requirePermission(auth, 'calendar.delete'); const result = await db.from('CalendarEvents').update({ IsDeleted: true, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).select('Id').maybeSingle(); check(result.error)
+    requirePermission(auth, 'calendar.delete'); const existing = await getEvent(match[1]); if (!canManage(existing)) throw new HttpError(403, 'اجازه حذف این رویداد را ندارید')
+    const result = await db.from('CalendarEvents').update({ IsDeleted: true, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1]).eq('IsDeleted', false).select('Id').maybeSingle(); check(result.error)
     if (!result.data) throw new HttpError(404, 'رویداد یافت نشد')
     return new Response(null, { status: 204, headers: corsHeaders(request) })
   }

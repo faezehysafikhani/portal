@@ -75,11 +75,17 @@ export async function handleReports(request: Request, auth: AuthContext, path: s
 
   if (path === '/reports/meetings') {
     const fromDate=url.searchParams.get('fromDate'), toDate=url.searchParams.get('toDate')
-    let query=db.from('CalendarEvents').select('Id,Title,Description,StartAt,EndAt,IsAllDay,Location,OnlineMeetingUrl,Status,OrganizerDisplayName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('EventType','meeting')
+    let query=db.from('CalendarEvents').select('Id,Title,Description,StartAt,EndAt,IsAllDay,Location,OnlineMeetingUrl,Status,OrganizerDisplayName,OrganizerUserId').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('EventType','meeting')
     if(fromDate) query=query.gte('StartAt',fromDate)
     if(toDate) query=query.lte('StartAt',toDate)
     const eventsR=await query.order('StartAt',{ascending:false}).limit(500);check(eventsR.error)
-    const events=eventsR.data??[], ids=events.map((x:Obj)=>x.Id)
+    const candidates=eventsR.data??[], candidateIds=candidates.map((x:Obj)=>x.Id)
+    const attendeeR=candidateIds.length?await db.from('EventAttendees').select('EventId').eq('TenantId',auth.tenantId).eq('UserId',auth.userId).eq('IsDeleted',false).in('EventId',candidateIds):({data:[],error:null} as any);check(attendeeR.error)
+    const contactsR=await db.from('Contacts').select('Id').eq('TenantId',auth.tenantId).eq('LinkedUserId',auth.userId).eq('IsDeleted',false);check(contactsR.error)
+    const contactIds=(contactsR.data??[]).map((x:Obj)=>x.Id)
+    const contactEventsR=candidateIds.length&&contactIds.length?await db.from('EventParticipants').select('EventId').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('PersonType','contact').in('PersonId',contactIds).in('EventId',candidateIds):({data:[],error:null} as any);check(contactEventsR.error)
+    const visibleIds=new Set([...(attendeeR.data??[]),...(contactEventsR.data??[])].map((x:Obj)=>x.EventId))
+    const events=auth.isAdmin?candidates:candidates.filter((e:Obj)=>e.OrganizerUserId===auth.userId||visibleIds.has(e.Id)), ids=events.map((x:Obj)=>x.Id)
     const participantsR=ids.length?await db.from('EventParticipants').select('EventId,DisplayName').eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('EventId',ids):({data:[],error:null} as any);check(participantsR.error)
     const byEvent=new Map<string,string[]>();for(const p of participantsR.data??[]){const list=byEvent.get(p.EventId)??[];if(p.DisplayName)list.push(p.DisplayName);byEvent.set(p.EventId,list)}
     return json(request,events.map((e:Obj)=>{const names=byEvent.get(e.Id)??[];return{id:e.Id,title:e.Title,description:e.Description,startAt:e.StartAt,endAt:e.EndAt,isAllDay:e.IsAllDay,location:e.Location,onlineMeetingUrl:e.OnlineMeetingUrl,status:e.Status,organizerName:e.OrganizerDisplayName,participantCount:names.length,participantNames:names.join('، ')}}))
