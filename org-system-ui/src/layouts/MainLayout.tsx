@@ -20,6 +20,7 @@ const { Header, Sider, Content } = Layout
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const [canReviewPerformance, setCanReviewPerformance] = useState(false)
+  const [canAssignPerformance, setCanAssignPerformance] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const [user,setUser]=useState<{ id?: string; username?: string; roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
@@ -32,6 +33,9 @@ export default function MainLayout() {
     const controller = new AbortController()
     apiFetch('http://localhost:5043/api/v1/performance/daily/access',{signal:controller.signal})
       .then(async response=>{ if (response.ok && !controller.signal.aborted) setCanReviewPerformance(Boolean((await response.json()).canReview)) })
+      .catch(()=>{})
+    apiFetch('http://localhost:5043/api/v1/performance/assignments/access',{signal:controller.signal})
+      .then(async response=>{ if (response.ok && !controller.signal.aborted) setCanAssignPerformance(Boolean((await response.json()).canManage)) })
       .catch(()=>{})
     return ()=>controller.abort()
   },[user.id,isAdmin])
@@ -70,6 +74,7 @@ export default function MainLayout() {
     {key:'performance-group',icon:<TrophyOutlined/>,label:'ارزیابی عملکرد',children:[
       {key:'/performance/me',icon:<DashboardOutlined/>,label:'عملکرد من'},
       {key:'/performance/tasks',icon:<UnorderedListOutlined/>,label:'وظایف من'},
+      ...(isAdmin || canAssignPerformance ? [{key:'/performance/assignments',icon:<CheckSquareOutlined/>,label:'واگذاری و پیگیری وظایف'}] : []),
       {key:'/performance/reports',icon:<CalendarOutlined/>,label:'گزارش‌های من'},
       ...(isAdmin || canReviewPerformance ? [{key:'/performance/review',icon:<AuditOutlined/>,label:'کارتابل تأیید گزارش‌ها'}] : []),
     ]},
@@ -127,6 +132,7 @@ export default function MainLayout() {
       '/ptms/documents': 'مستندات پروژه',
       '/performance/me': 'عملکرد من',
       '/performance/tasks': 'وظایف من',
+      '/performance/assignments': 'واگذاری و پیگیری وظایف',
       '/performance/reports': 'گزارش‌های من',
       '/performance/review': 'کارتابل تأیید گزارش‌ها',
     }

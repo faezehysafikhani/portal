@@ -7,6 +7,7 @@ import PersianDatePicker from '../../components/PersianDatePicker'
 import { dateToJalali, formatJalaliDate, isLeapJalali, jalaliToDate } from '../../utils/jalali'
 import { getIranHoliday } from '../../utils/iranHolidays'
 import { apiFetch } from '../../utils/api'
+import TaskAssignmentsPanel from './TaskAssignmentsPanel'
 
 const API = 'http://localhost:5043/api/v1/performance/daily'
 const labels = {
@@ -43,7 +44,7 @@ interface Report {
   id:string; work_date:string; status:string; employee_name?:string; submitted_at?:string; can_review?:boolean
   performance_daily_activities?:{id:string;minutes:number}[]; activities?:Activity[]; history?:History[]
 }
-interface Task {Id:string; Title:string; Description?:string; AssignedByUserId?:string; AssignedByName?:string; CreatedAt:string; DueDate?:string; Priority:number; Status:number; Progress:number; ProjectId?:string}
+interface Task {Id:string; Title:string; Description?:string; AssignedByUserId?:string; AssignedByName?:string; CreatedAt:string; DueDate?:string; Priority:number; Status:number; Progress:number; ProjectId?:string; AssignmentState?:string}
 interface Options {tasks:Task[]; projects:{Id:string;Name:string}[]; today:string}
 interface ActivityFields {
   title:string; description:string; kind:string; status:string; timeMode:string; projectId?:string; taskId?:string
@@ -129,6 +130,7 @@ export default function DailyPerformancePage() {
   const activeItems = dateDetail?.id===selectedReport?.id ? dateDetail?.activities ?? [] : []
   const selectedActivities = selectedReport?.performance_daily_activities ?? []
   const assignedTasks = options.tasks.filter(task=>task.AssignedByUserId && task.AssignedByUserId!==employeeId)
+  const legacyTasks = assignedTasks.filter(task=>!task.AssignmentState)
   const ownReports = reports.filter(r=>r.status!=='draft' && (!reportFilter || r.status===reportFilter)
     && (!monthOnly || (r.work_date>=monthStart && r.work_date<=monthEnd)))
 
@@ -285,6 +287,8 @@ export default function DailyPerformancePage() {
   const canLogSelectedDate = selectedDate<=options.today && editable(selectedReport?.status)
 
   return <Space direction="vertical" size="middle" style={{width:'100%'}} dir="rtl">
+    {page==='tasks' && <TaskAssignmentsPanel/>}
+    {(page!=='tasks' || legacyTasks.length>0 || error) &&
     <Card title={<Space><CalendarOutlined/>{labels[page] ?? labels.me}</Space>}>
       {error && <Alert type="error" showIcon message={error} style={{marginBottom:16}} action={<Button size="small" onClick={reload}>تلاش مجدد</Button>}/>}
       {isMine && <Space direction="vertical" size="middle" style={{width:'100%'}}>
@@ -321,7 +325,7 @@ export default function DailyPerformancePage() {
           <span>گزارش‌های نیازمند اصلاح {fa(reports.filter(r=>r.status==='returned').length)}</span>
         </Space>
       </Space>}
-      {page==='tasks' && <Table rowKey="Id" dataSource={assignedTasks} loading={!optionsReady && !error} scroll={{x:1050}} pagination={{pageSize:10}} locale={{emptyText:'وظیفه‌ای به شما واگذار نشده است'}}
+      {page==='tasks' && <Table rowKey="Id" dataSource={legacyTasks} loading={!optionsReady && !error} scroll={{x:1050}} pagination={{pageSize:10}} locale={{emptyText:'وظیفه‌ای به شما واگذار نشده است'}}
         expandable={{expandedRowRender:task=><p style={{whiteSpace:'pre-wrap'}}>{task.Description || 'شرحی ثبت نشده است'}</p>}} columns={[
           {title:'عنوان وظیفه',dataIndex:'Title'},{title:'واگذارکننده',dataIndex:'AssignedByName',render:(v:string)=>v || '—'},
           {title:'تاریخ واگذاری',dataIndex:'CreatedAt',render:(v:string)=>formatJalaliDate(new Date(v))},
@@ -360,7 +364,7 @@ export default function DailyPerformancePage() {
         {reportsTable(ownReports)}
       </Space>}
       {isReview && reportsTable([...reviewQueue].sort((a,b)=>Number(b.status==='submitted')-Number(a.status==='submitted')))}
-    </Card>
+    </Card>}
     <Modal title={editing?.activity?'ویرایش فعالیت':'ثبت فعالیت'} open={!!editing} onCancel={()=>{if(!busy)setEditing(undefined)}}
       onOk={()=>form.submit()} okText="ذخیره فعالیت" cancelText="انصراف" confirmLoading={busy} width={760} forceRender>
       <Form form={form} layout="vertical" onFinish={save}>

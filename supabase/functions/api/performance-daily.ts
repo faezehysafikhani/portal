@@ -51,7 +51,7 @@ async function reviewer(auth: AuthContext): Promise<string | null> {
   return users.some(u => u.Id === id && id !== auth.userId) ? id : null
 }
 async function myTasks(auth: AuthContext, id?: string): Promise<Row[]> {
-  let query = db.from('Tasks').select('Id,Title,Description,AssignedByUserId,AssignedToUserId,AssigneeUserIdsJson,ProjectId,ProjectIdsJson,CreatedAt,DueDate,Priority,Status,Progress')
+  let query = db.from('Tasks').select('Id,Title,Description,AssignedByUserId,AssignedToUserId,AssigneeUserIdsJson,ProjectId,ProjectIdsJson,CreatedAt,DueDate,Priority,Status,Progress,AssignmentState')
     .eq('TenantId',auth.tenantId).eq('IsDeleted',false)
     .or(`AssignedToUserId.eq.${auth.userId},AssigneeUserIdsJson.ilike.%${auth.userId}%`)
   if (id) query = query.eq('Id',id)
@@ -59,7 +59,7 @@ async function myTasks(auth: AuthContext, id?: string): Promise<Row[]> {
   check(result.error)
   return (result.data ?? []).filter(task => task.AssignedToUserId === auth.userId || list(task.AssigneeUserIdsJson).includes(auth.userId))
 }
-function file(input: Row) {
+export function validatePerformanceFile(input: Row) {
   const filename = text(input?.name,180,true).replace(/[\\/\x00-\x1f\x7f]/g,'_')
   const content = String(input?.content ?? '')
   const ext = filename.split('.').pop()?.toLowerCase()
@@ -110,7 +110,7 @@ async function activity(auth: AuthContext, input: Row) {
   if (!Array.isArray(files) || files.length>5 || !Array.isArray(removeFiles) || removeFiles.length>5 || !removeFiles.every(uuid))
     throw new HttpError(400,'تعداد یا شناسه پیوست‌ها معتبر نیست')
   return {id:input.id,title:text(input.title,180,true),description:text(input.description,4000,true),kind:input.kind,
-    status:input.status,timeMode:input.timeMode,minutes,intervals,taskId,projectId,outcome:text(input.outcome,2000),notes:text(input.notes,2000),files:files.map(file),removeFiles}
+    status:input.status,timeMode:input.timeMode,minutes,intervals,taskId,projectId,outcome:text(input.outcome,2000),notes:text(input.notes,2000),files:files.map(validatePerformanceFile),removeFiles}
 }
 const errors: Record<string,[number,string]> = {
   daily_not_found:[404,'گزارش یا فعالیت یافت نشد'], daily_locked:[409,'این گزارش در وضعیت فعلی قابل تغییر نیست'],

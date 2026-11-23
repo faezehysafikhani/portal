@@ -120,10 +120,11 @@ export default function NotificationDropdown() {
     const labels:Record<string,string>={chat:'پیام جدید',letter:'نامه جدید',referral:'ارجاع جدید',task:'وظیفه جدید',ticket:'تیکت جدید',form:'فرم جدید',calendar:'رویداد جدید',project:'پروژه جدید',sms:'اعلان پیامک جدید',risk:'هشدار ریسک جدید',warning:'هشدار جدید'}
     const grouped=new Map<string,Notification[]>()
     rows.forEach(item=>{
-      const category=item.entityType==='LetterReferral'?'referral':item.type
+      const assignment=/^\/performance\/(tasks|assignments)\?task=/.test(item.link || '')
+      const category=assignment?`assignment:${item.id}`:item.entityType==='LetterReferral'?'referral':item.type
       grouped.set(category,[...(grouped.get(category)||[]),item])
     })
-    return Array.from(grouped.entries()).map(([category,items])=>({
+    return Array.from(grouped.entries()).map(([category,items])=>category.startsWith('assignment:')?items[0]:({
       ...items[0],
       type:category==='referral'?'letter':items[0].type,
       title:`شما ${items.length.toLocaleString('fa-IR')} ${labels[category]||'اعلان جدید'} دارید`,

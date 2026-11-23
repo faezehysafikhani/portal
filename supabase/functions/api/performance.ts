@@ -5,6 +5,7 @@ import { createNotification, notificationType } from '../_shared/notifications.t
 import { jalaliMonthRange } from '../_shared/jalali.ts'
 import { adjustmentCatalog, computeScoreCardTotals, matrixOutcome, rubric } from './performance-rubric.ts'
 import { handleDailyPerformance } from './performance-daily.ts'
+import { handleTaskAssignments } from './performance-assignments.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -842,6 +843,8 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
 
 export async function handlePerformance(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
   if (!path.startsWith('/performance')) return null
+  const assignments = await handleTaskAssignments(request,auth,path,url)
+  if (assignments) return assignments
   const daily = await handleDailyPerformance(request,auth,path,url)
   if (daily) return daily
 

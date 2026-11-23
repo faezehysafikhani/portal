@@ -73,6 +73,8 @@ const IssuesPage = lazyWithRecovery('issues', () => import('./pages/ptms/IssuesP
 const ChangesPage = lazyWithRecovery('changes', () => import('./pages/ptms/ChangesPage'))
 const PTMSDocumentsPage = lazyWithRecovery('ptms-documents', () => import('./pages/ptms/PTMSDocumentsPage'))
 const DailyPerformancePage = lazyWithRecovery('performance-daily', () => import('./pages/performance/DailyPerformancePage'))
+const ManagerTaskAssignmentsPage = lazyWithRecovery('performance-assignments', () =>
+  import('./pages/performance/TaskAssignmentsPanel').then(module => ({default:module.ManagerTaskAssignmentsPage})))
 
 function PerformanceRedirect({ to }: { to: string }) {
   const { search, hash, state } = useLocation()
@@ -124,6 +126,7 @@ function App() {
           <Route path="/performance/dashboard" element={<PerformanceRedirect to="/performance/me" />} />
           <Route path="/performance/activity" element={<PerformanceRedirect to="/performance/me" />} />
           <Route path="/performance/tasks" element={<DailyPerformancePage />} />
+          <Route path="/performance/assignments" element={<ManagerTaskAssignmentsPage />} />
           <Route path="/performance/reports" element={<DailyPerformancePage />} />
           <Route path="/performance/history" element={<PerformanceRedirect to="/performance/reports" />} />
           <Route path="/performance/review" element={<DailyPerformancePage />} />

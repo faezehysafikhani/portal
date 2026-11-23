@@ -609,7 +609,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     return new Response(null, { status: 204, headers: corsHeaders(request) })
   }
   if (request.method === 'GET' && logMatch) {
-    const taskResult = await db.from('Tasks').select('*').eq('Id', logMatch[1]).eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
+    const taskResult = await db.from('Tasks').select('*').eq('Id', logMatch[1]).eq('TenantId', auth.tenantId).eq('IsDeleted', false).is('AssignmentState',null).maybeSingle()
     failOnDb(taskResult.error)
     if (!taskResult.data || (!canManageTasks(auth) && !taskIncludesUser(taskResult.data, auth.userId))) throw new HttpError(404, 'وظیفه یافت نشد')
     const result = await db.from('TaskActivityLogs').select('*').eq('TaskId', logMatch[1]).eq('TenantId', auth.tenantId)
@@ -624,7 +624,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
   }
   if (request.method === 'POST' && subtaskMatch) {
     requirePermission(auth, 'tasks.create')
-    const parentResult = await db.from('Tasks').select('*').eq('Id', subtaskMatch[1]).eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle()
+    const parentResult = await db.from('Tasks').select('*').eq('Id', subtaskMatch[1]).eq('TenantId', auth.tenantId).eq('IsDeleted', false).is('AssignmentState',null).maybeSingle()
     failOnDb(parentResult.error)
     const parent = parentResult.data as JsonObject | null
     if (!parent || (!canManageTasks(auth) && !taskIncludesUser(parent, auth.userId))) throw new HttpError(404, 'وظیفه والد یافت نشد')
@@ -658,7 +658,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     return json(request, taskDto(result.data), 201)
   }
   if (request.method === 'GET' && !taskMatch && path === '/tasks') {
-    let query = db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    let query = db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).is('AssignmentState',null)
     // "visibility" powers the Performance Task Sheet's من/تیم/همه tabs, independent of the
     // legacy tasks.assign-based scoping below (kept untouched for existing callers like /ptms/tasks).
     const visibility = url.searchParams.get('visibility')
@@ -787,7 +787,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
   if (request.method === 'PATCH' && taskMatch) {
     requirePermission(auth, 'tasks.edit')
     const input = await body<JsonObject>(request)
-    const currentResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).maybeSingle()
+    const currentResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).is('AssignmentState',null).maybeSingle()
     failOnDb(currentResult.error)
     const current = currentResult.data as JsonObject | null
     if (!current || (!canManageTasks(auth) && !taskIncludesUser(current, auth.userId))) throw new HttpError(404, 'وظیفه یافت نشد')
@@ -885,7 +885,7 @@ async function tasks(request: Request, auth: AuthContext, path: string, url: URL
     return json(request, taskDto(result.data))
   }
   if (request.method === 'DELETE' && taskMatch) {
-    const currentResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).maybeSingle()
+    const currentResult = await db.from('Tasks').select('*').eq('TenantId', auth.tenantId).eq('Id', taskMatch[1]).eq('IsDeleted', false).is('AssignmentState',null).maybeSingle()
     failOnDb(currentResult.error)
     if (!currentResult.data) throw new HttpError(404, 'وظیفه یافت نشد')
     if (!canManageTasks(auth) && currentResult.data.AssignedByUserId !== auth.userId) throw new HttpError(403, 'فقط نویسنده وظیفه مجاز به حذف آن است')
