@@ -19,6 +19,8 @@ interface LeaveBalance { accruedHours:number; usedHours:number; availableHours:n
 interface WorkflowConfig { submitter?:InternalUser; manager?:InternalUser; hrManager?:InternalUser; isConfigured:boolean; message?:string; users:InternalUser[] }
 
 type FormStatus = 'پیش‌نویس' | 'ارسال شده' | 'در بررسی مدیر' | 'برگشت برای اصلاح' | 'تأیید مدیر' | 'در بررسی منابع انسانی' | 'تأیید نهایی' | 'خاتمه یافته' | 'رد شده'
+const isHrLeave = (form: { formType: string; status: FormStatus }) =>
+  form.status === 'در بررسی منابع انسانی' && ['leave_daily', 'leave_hourly', 'leave_sick'].includes(form.formType)
 
 interface FormSubmission {
   id: string
@@ -523,9 +525,9 @@ export default function FormsPage() {
         <Button size="small" icon={<EyeOutlined/>} onClick={()=>openView(r)}>مشاهده کامل</Button>
         {r.isHrCopy&&!r.canAct&&<Tag color="gold">رونوشت HR؛ منتظر تأیید مدیر</Tag>}
         {r.canAct&&r.formType==='personnel'&&r.status==='در بررسی منابع انسانی'&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('complete')}}>خاتمه</Button>}
-        {r.canAct&&r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>تأیید</Button>}
-        {r.canAct&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<RollbackOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('return')}}>اصلاح</Button>}
-        {r.canAct&&r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" danger icon={<CloseOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('reject')}}>رد</Button>}
+        {r.canAct&&r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<CheckOutlined/>} style={{color:'#52c41a',borderColor:'#52c41a'}} onClick={()=>{setSelectedForm(r);setActionModal('approve')}}>{isHrLeave(r)?'ثبت نهایی':'تأیید'}</Button>}
+        {r.canAct&&!isHrLeave(r)&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" icon={<RollbackOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('return')}}>اصلاح</Button>}
+        {r.canAct&&!isHrLeave(r)&&r.formType!=='personnel'&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(r.status)&&<Button size="small" danger icon={<CloseOutlined/>} onClick={()=>{setSelectedForm(r);setActionModal('reject')}}>رد</Button>}
         {r.status==='خاتمه یافته'&&<Tag color="green">در کارتابل منابع انسانی</Tag>}
       </Space>
     }
@@ -648,9 +650,9 @@ export default function FormsPage() {
 
             {selectedForm.canAct&&approvalForms.some(x=>x.id===selectedForm.id)&&['در بررسی مدیر','در بررسی منابع انسانی'].includes(selectedForm.status) && (
               <Space style={{ marginBottom: 16 }}>
-                <Button icon={<CheckOutlined />} style={{ color:'#52c41a',borderColor:'#52c41a' }} onClick={() => setActionModal(selectedForm.formType==='personnel'?'complete':'approve')}>{selectedForm.formType==='personnel'?'خاتمه':'تأیید'}</Button>
-                <Button icon={<RollbackOutlined />} onClick={() => setActionModal('return')}>برگشت برای اصلاح</Button>
-                {selectedForm.formType!=='personnel'&&<Button danger icon={<CloseOutlined />} onClick={() => setActionModal('reject')}>رد فرم</Button>}
+                <Button icon={<CheckOutlined />} style={{ color:'#52c41a',borderColor:'#52c41a' }} onClick={() => setActionModal(selectedForm.formType==='personnel'?'complete':'approve')}>{isHrLeave(selectedForm)?'ثبت نهایی':selectedForm.formType==='personnel'?'خاتمه':'تأیید'}</Button>
+                {!isHrLeave(selectedForm)&&<Button icon={<RollbackOutlined />} onClick={() => setActionModal('return')}>برگشت برای اصلاح</Button>}
+                {!isHrLeave(selectedForm)&&selectedForm.formType!=='personnel'&&<Button danger icon={<CloseOutlined />} onClick={() => setActionModal('reject')}>رد فرم</Button>}
               </Space>
             )}
 

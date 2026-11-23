@@ -290,6 +290,7 @@ const validYearMonth = (value:unknown): number | null => {
 const normalizedPersonReference = (value:unknown) => String(value??'').replace(/[يى]/g,'ی').replace(/ك/g,'ک').replace(/[\s\u200c\u200f\u202a-\u202e]+/g,'').trim().toLowerCase()
 const formData = (value:unknown):Obj => { try { return typeof value==='string'?JSON.parse(value):((value??{}) as Obj) } catch { return {} } }
 const consumesLeaveBalance = (formType:unknown,data:Obj) => String(formType)==='leave_hourly'||(String(formType)==='leave_daily'&&String(data.leaveType??'استحقاقی')==='استحقاقی')
+const isLeaveForm = (type: unknown) => ['leave_daily', 'leave_hourly', 'leave_sick'].includes(String(type))
 function requestedLeaveHours(formType:string,data:Obj):number {
   if(formType==='leave_daily'){
     const from=jalaliDayNumber(data.fromDate),to=jalaliDayNumber(data.toDate)
@@ -341,7 +342,7 @@ async function workflow(auth: AuthContext) {
 }
 
 export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
-  const ym=jalaliYearMonth(),[found,user,personnel,pending,approved]=await Promise.all([
+  const ym=jalaliYearMonth(),[found,user,personnel,requests]=await Promise.all([
     // The original schema has a full unique index on UserId, so a soft-deleted
     // account cannot be replaced with a new row. Read it as well and revive it
     // below. Otherwise balance requests fail with a duplicate-key error and the
@@ -349,17 +350,20 @@ export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
     db.from('LeaveAccounts').select('*').eq('TenantId',auth.tenantId).eq('UserId',userId).maybeSingle(),
     db.from('Users').select('CreatedAt,EmploymentStartDate').eq('TenantId',auth.tenantId).eq('Id',userId).eq('IsDeleted',false).maybeSingle(),
     db.from('OrganizationalForms').select('DataJson,CreatedAt').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).eq('FormType','personnel').in('Status',['hr_pending','approved','completed']).order('CreatedAt',{ascending:false}).limit(10),
-    db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending']),
-    db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['approved','completed']),
-  ]);check(found.error);check(user.error);check(personnel.error);check(pending.error);check(approved.error)
+    db.from('OrganizationalForms').select('FormType,DataJson,RequestedHours,Status').eq('TenantId',auth.tenantId).eq('SubmitterUserId',userId).eq('IsDeleted',false).in('Status',['manager_pending','hr_pending','approved','completed']).in('FormType',['leave_daily','leave_hourly']),
+  ]);check(found.error);check(user.error);check(personnel.error);check(requests.error)
   const personnelStart = (personnel.data ?? [])
     .map((item:Obj) => validYearMonth(formData(item.DataJson).startDate))
     .find((value:number|null) => value !== null)
   const employmentStart = validYearMonth(user.data?.EmploymentStartDate)
   const startedYm=employmentStart ?? personnelStart ?? (user.data?.CreatedAt?jalaliYearMonth(new Date(user.data.CreatedAt)):ym)
   const entitledMonths=Math.max(0,monthIndex(ym)-monthIndex(startedYm)+1)
-  const actualReserved=(pending.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
-  const actualUsed=(approved.data??[]).filter((item:Obj)=>consumesLeaveBalance(item.FormType,formData(item.DataJson))).reduce((sum:number,item:Obj)=>sum+Number(item.RequestedHours??0),0)
+  let actualReserved = 0, actualUsed = 0
+  for (const item of requests.data ?? []) {
+    if (!consumesLeaveBalance(item.FormType, formData(item.DataJson))) continue
+    if (item.Status === 'manager_pending') actualReserved += Number(item.RequestedHours ?? 0)
+    else actualUsed += Number(item.RequestedHours ?? 0)
+  }
   let account=found.data
   if(!account){
     const created=await db.from('LeaveAccounts').insert({...base(auth),UserId:userId,AccruedThroughYearMonth:ym,AccruedHours:entitledMonths*20,UsedHours:actualUsed,ReservedHours:actualReserved,MonthlyAccrualHours:20,HoursPerDay:8}).select().single();check(created.error);account=created.data
@@ -371,7 +375,7 @@ export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
     const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,UsedHours:actualUsed,ReservedHours:actualReserved,AccruedThroughYearMonth:ym,MonthlyAccrualHours:monthly,HoursPerDay:Number(account.HoursPerDay??8),IsDeleted:false,DeletedAt:null,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data
   }
   const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
-  return {...account,availableHours:Math.max(0,accrued-used-reserved),days:Math.max(0,(accrued-used-reserved)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}
+  return {...account,availableHours:Math.max(0,accrued-used),days:Math.max(0,(accrued-used)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}
 }
 
 async function forms(request: Request, auth: AuthContext, path: string, url:URL): Promise<Response> {
@@ -415,7 +419,7 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     }
     const chargesBalance=consumesLeaveBalance(formType,input.data??{})
     let account:Obj|null=null
-    if(requestedHours>0&&chargesBalance){account=await leaveAccount(auth);if(requestedHours>account.availableHours)throw new HttpError(400,`مانده مرخصی کافی نیست. مانده قابل استفاده شما ${account.availableHours} ساعت است.`)}
+    if(requestedHours>0&&chargesBalance){account=await leaveAccount(auth);const requestable=Math.max(0,account.availableHours-account.reservedHours);if(requestedHours>requestable)throw new HttpError(400,`پس از در نظر گرفتن درخواست‌های در انتظار مدیر، ${requestable} ساعت برای درخواست جدید در دسترس است.`)}
     const row = { ...base(auth), FormType: input.formType, Title: input.title ?? input.formType, SubmitterUserId: auth.userId, SubmitterName: route.submitter.fullName, ManagerUserId: route.manager?.id??null, ManagerName:route.manager?.fullName??null, HrUserId: hrManager.id, HrName:hrManager.fullName, Status: isPersonnel?'hr_pending':'manager_pending', RequestedHours: requestedHours, DataJson: JSON.stringify(input.data ?? {}), ClientRequestId:clientRequestId, AttachmentData: formType==='leave_sick'?String(input.attachmentData):null, AttachmentName: formType==='leave_sick'?String(input.attachmentName??'attachment').slice(0,260):null, AttachmentContentType: formType==='leave_sick'?String(input.attachmentContentType??''):null }
     const result = await db.from('OrganizationalForms').insert(row).select().single()
     if(result.error?.code==='23505'){const duplicate=await db.from('OrganizationalForms').select('*').eq('TenantId',auth.tenantId).eq('SubmitterUserId',auth.userId).eq('ClientRequestId',clientRequestId).eq('IsDeleted',false).single();check(duplicate.error);return json(request,{...camelize(duplicate.data) as Obj,message:'این فرم قبلاً ثبت شده است.',duplicate:true})}
@@ -463,7 +467,8 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
       }
       if (requestedHours > 0 && consumesLeaveBalance(formType, input.data ?? {})) {
         const account = await leaveAccount(auth, form.SubmitterUserId)
-        if (requestedHours > account.availableHours) throw new HttpError(400, `مانده مرخصی کافی نیست. مانده قابل استفاده ${form.SubmitterName} ${account.availableHours} ساعت است.`)
+        const requestable = Math.max(0, account.availableHours - account.reservedHours)
+        if (requestedHours > requestable) throw new HttpError(400, `پس از در نظر گرفتن درخواست‌های در انتظار مدیر، ${requestable} ساعت برای درخواست جدید در دسترس است.`)
       }
     }
     const update: Obj = {
@@ -491,6 +496,8 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     // باید بتواند درخواست مرخصی خودش را پس از تأیید مدیر مستقیم نهایی کند.
     if (form.SubmitterUserId === auth.userId && !isHr) throw new HttpError(403, 'شما نمی‌توانید فرمی را که خودتان ثبت کرده‌اید در مرحله مدیر مستقیم تأیید یا رد کنید')
     if (!isManager && !isHr) throw new HttpError(403, 'این فرم در کارتابل شما نیست')
+    const leave = isLeaveForm(form.FormType)
+    if (leave && isHr && input.action !== 'approve') throw new HttpError(400, 'در منابع انسانی فقط ثبت نهایی مرخصی تأییدشده مجاز است')
     const personnel=form.FormType==='personnel'
     let status = form.Status
     if(personnel&&isHr&&input.action==='complete')status='completed'
@@ -498,16 +505,17 @@ async function forms(request: Request, auth: AuthContext, path: string, url:URL)
     else if(personnel)throw new HttpError(400,'برای فرم مشخصات پرسنلی فقط خاتمه یا برگشت برای اصلاح مجاز است')
     else if (input.action === 'approve') status = isManager ? 'hr_pending' : 'approved'; else if (input.action === 'return') status = 'returned'; else if (input.action === 'reject') status = 'rejected'; else throw new HttpError(400, 'عملیات نامعتبر است')
     const update: Obj = { Status: status, UpdatedAt: now() }
-    const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', action[1]).select().single(); check(result.error)
+    const result = await db.from('OrganizationalForms').update(update).eq('TenantId', auth.tenantId).eq('Id', action[1]).eq('Status', form.Status).eq('IsDeleted', false).select().maybeSingle(); check(result.error)
+    if (!result.data) throw new HttpError(409, 'وضعیت فرم تغییر کرده است. کارتابل را تازه‌سازی کنید')
     const actor=await db.from('Users').select('Username,FirstName,LastName').eq('TenantId',auth.tenantId).eq('Id',auth.userId).single();check(actor.error)
     const actionHistory=await db.from('FormWorkflowHistories').insert({...base(auth),FormId:form.Id,ActorUserId:auth.userId,ActorName:person(actor.data).fullName,Action:input.action,Note:input.note??null});check(actionHistory.error)
     const requested=Number(form.RequestedHours??0)
     if(requested>0&&consumesLeaveBalance(form.FormType,formData(form.DataJson)))await leaveAccount(auth,form.SubmitterUserId)
-    const actionTitle=status==='hr_pending'?'فرم برای تأیید منابع انسانی ارسال شد':status==='completed'?'فرم مشخصات پرسنلی شما خاتمه یافت':status==='approved'?'فرم شما تأیید شد':status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
+    const actionTitle=status==='hr_pending'?(leave?'مرخصی تأییدشده برای ثبت به منابع انسانی ارسال شد':'فرم برای تأیید منابع انسانی ارسال شد'):status==='completed'?'فرم مشخصات پرسنلی شما خاتمه یافت':status==='approved'?(leave?'مرخصی شما در منابع انسانی ثبت نهایی شد':'فرم شما تأیید شد'):status==='rejected'?'فرم شما رد شد':'فرم برای اصلاح بازگردانده شد'
     if(status==='hr_pending'){
       await Promise.all([
         createNotification(db,auth,{userId:form.HrUserId,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:'/forms/approvals',entityId:form.Id,entityType:'OrganizationalForm'}),
-        createNotification(db,auth,{userId:form.SubmitterUserId,title:'فرم شما توسط مدیر مستقیم تأیید شد',body:`${form.Title} برای تأیید نهایی به منابع انسانی ارسال شد.`,type:notificationType.form,actionUrl:'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'}),
+        createNotification(db,auth,{userId:form.SubmitterUserId,title:'فرم شما توسط مدیر مستقیم تأیید شد',body:`${form.Title} برای ${leave?'ثبت نهایی':'تأیید نهایی'} به منابع انسانی ارسال شد.`,type:notificationType.form,actionUrl:'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'}),
       ])
     }else await createNotification(db,auth,{userId:form.SubmitterUserId,title:actionTitle,body:form.Title,type:notificationType.form,actionUrl:'/forms/inbox',entityId:form.Id,entityType:'OrganizationalForm'})
     return json(request, { status: result.data.Status })
