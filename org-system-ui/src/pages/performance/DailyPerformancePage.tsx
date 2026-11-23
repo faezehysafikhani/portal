@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Statistic, Table, Tag, Timeline, TimePicker, message } from 'antd'
 import { CalendarOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -10,8 +10,7 @@ import { apiFetch } from '../../utils/api'
 
 const API = 'http://localhost:5043/api/v1/performance/daily'
 const labels = {
-  dashboard:'داشبورد عملکرد من', activity:'ثبت فعالیت روزانه', tasks:'وظایف من',
-  reports:'گزارش‌های روزانه من', history:'سوابق و بازخوردها', review:'کارتابل تأیید گزارش‌ها',
+  me:'عملکرد من', tasks:'وظایف من', reports:'گزارش‌های من', review:'کارتابل تأیید گزارش‌ها',
 }
 const reportStatus: Record<string,[string,string]> = {
   draft:['پیش‌نویس','default'], submitted:['در انتظار تأیید','blue'], approved:['تأییدشده','green'], returned:['نیازمند اصلاح','orange'],
@@ -44,7 +43,7 @@ interface Report {
   id:string; work_date:string; status:string; employee_name?:string; submitted_at?:string; can_review?:boolean
   performance_daily_activities?:{id:string;minutes:number}[]; activities?:Activity[]; history?:History[]
 }
-interface Task {Id:string; Title:string; Description?:string; AssignedByName?:string; CreatedAt:string; DueDate?:string; Priority:number; Status:number; Progress:number; ProjectId?:string}
+interface Task {Id:string; Title:string; Description?:string; AssignedByUserId?:string; AssignedByName?:string; CreatedAt:string; DueDate?:string; Priority:number; Status:number; Progress:number; ProjectId?:string}
 interface Options {tasks:Task[]; projects:{Id:string;Name:string}[]; today:string}
 interface ActivityFields {
   title:string; description:string; kind:string; status:string; timeMode:string; projectId?:string; taskId?:string
@@ -54,6 +53,11 @@ function monthDays(value: string) {
   const {jy,jm} = dateToJalali(localDate(value))
   const count = jm<=6?31:jm<=11||isLeapJalali(jy)?30:29
   return Array.from({length:count},(_,i)=>isoDate(jalaliToDate(`${jy}/${jm}/${i+1}`)))
+}
+function validDate(value: string | null): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const date = localDate(value)
+  return Number.isFinite(date.getTime()) && isoDate(date) === value
 }
 async function request<T>(path: string, method = 'GET', payload?: unknown): Promise<T> {
   const response = await apiFetch(API+path,{method,headers:payload?{'Content-Type':'application/json'}:undefined,body:payload?JSON.stringify(payload):undefined})
@@ -78,10 +82,20 @@ const statusTag = (status?: string) => {
 export default function DailyPerformancePage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const page = (location.pathname.split('/').pop() || 'dashboard') as keyof typeof labels
+  const page = (location.pathname.split('/').pop() || 'me') as keyof typeof labels
+  const isMine = page==='me'
   const isReview = page==='review'
-  const [selectedDate,setSelectedDate] = useState(tehranToday)
+  const needsOwnReports = isMine || page==='reports'
+  const [selectedDate,setSelectedDate] = useState(()=>{
+    const requested = new URLSearchParams(location.search).get('date')
+    return validDate(requested)?requested:tehranToday()
+  })
+  const [employeeId] = useState<string | undefined>(()=>{
+    try { return JSON.parse(localStorage.getItem('user') || '{}').id }
+    catch { return undefined }
+  })
   const [options,setOptions] = useState<Options>({tasks:[],projects:[],today:tehranToday()})
+  const [optionsReady,setOptionsReady] = useState(false)
   const [reports,setReports] = useState<Report[]>([])
   const [reviewQueue,setReviewQueue] = useState<Report[]>([])
   const [leave,setLeave] = useState<string[]>([])
@@ -91,6 +105,7 @@ export default function DailyPerformancePage() {
   const [detail,setDetail] = useState<Report>()
   const [detailLoading,setDetailLoading] = useState(false)
   const [dateDetail,setDateDetail] = useState<Report>()
+  const [activityLoading,setActivityLoading] = useState(false)
   const [itemDetail,setItemDetail] = useState<Activity>()
   const [editing,setEditing] = useState<{id:string;date:string;reportId?:string;activity?:Activity}>()
   const [files,setFiles] = useState<File[]>([])
@@ -99,7 +114,10 @@ export default function DailyPerformancePage() {
   const [decision,setDecision] = useState<'approve'|'return'>()
   const [note,setNote] = useState('')
   const [search,setSearch] = useState('')
-  const [filter,setFilter] = useState<string>()
+  const [kindFilter,setKindFilter] = useState<string>()
+  const [statusFilter,setStatusFilter] = useState<string>()
+  const [reportFilter,setReportFilter] = useState<string>()
+  const [monthOnly,setMonthOnly] = useState(false)
   const [form] = Form.useForm<ActivityFields>()
   const timeMode = Form.useWatch('timeMode',form)
   const intervals = Form.useWatch('intervals',form)
@@ -107,40 +125,47 @@ export default function DailyPerformancePage() {
   const reload = () => setRefresh(value=>value+1)
   const days = monthDays(selectedDate)
   const monthStart = days[0], monthEnd = days[days.length-1]
-  const todaysReport = reports.find(r=>r.work_date===options.today)
   const selectedReport = reports.find(r=>r.work_date===selectedDate)
   const activeItems = dateDetail?.id===selectedReport?.id ? dateDetail?.activities ?? [] : []
+  const selectedActivities = selectedReport?.performance_daily_activities ?? []
+  const assignedTasks = options.tasks.filter(task=>task.AssignedByUserId && task.AssignedByUserId!==employeeId)
+  const ownReports = reports.filter(r=>r.status!=='draft' && (!reportFilter || r.status===reportFilter)
+    && (!monthOnly || (r.work_date>=monthStart && r.work_date<=monthEnd)))
 
   useEffect(()=>{
     let alive = true
-    request<Options>('/options').then(data=>{if(alive)setOptions(data)}).catch(e=>{if(alive)setError(errorText(e))})
+    request<Options>('/options').then(data=>{if(alive){setOptions(data);setOptionsReady(true)}}).catch(e=>{if(alive)setError(errorText(e))})
     return ()=>{alive=false}
-  },[])
+  },[refresh])
   useEffect(()=>{
     let alive = true
     setLoading(true);setError('')
     if (isReview) {
       request<Report[]>('/reports?scope=review').then(data=>{if(alive)setReviewQueue(data)})
         .catch(e=>{if(alive)setError(errorText(e))}).finally(()=>{if(alive)setLoading(false)})
-    } else {
+    } else if (needsOwnReports) {
       Promise.all([request<Report[]>('/reports'),request<{leave:string[]}>(`/calendar?from=${monthStart}&to=${monthEnd}`)])
         .then(([items,calendar])=>{if(alive){setReports(items);setLeave(calendar.leave)}})
         .catch(e=>{if(alive)setError(errorText(e))}).finally(()=>{if(alive)setLoading(false)})
+    } else {
+      setLoading(false)
     }
     return ()=>{alive=false}
-  },[isReview,monthStart,monthEnd,refresh])
+  },[isReview,needsOwnReports,monthStart,monthEnd,refresh])
   const selectedId = selectedReport?.id
   useEffect(()=>{
     let alive = true
     setDateDetail(undefined)
-    if (selectedId && page==='activity') {
-      request<Report>(`/reports/${selectedId}`).then(data=>{if(alive)setDateDetail(data)}).catch(e=>{if(alive)setError(errorText(e))})
+    setActivityLoading(Boolean(selectedId && isMine))
+    if (selectedId && isMine) {
+      request<Report>(`/reports/${selectedId}`).then(data=>{if(alive)setDateDetail(data)})
+        .catch(e=>{if(alive)setError(errorText(e))}).finally(()=>{if(alive)setActivityLoading(false)})
     }
     return ()=>{alive=false}
-  },[selectedId,page,refresh])
+  },[selectedId,isMine,refresh])
 
-  const edit = (item?: Activity, task?: Task, report?: Report, forDate = selectedDate) => {
-    const source = item && (report ?? dateDetail)
+  const edit = useCallback((forDate: string, item?: Activity, task?: Task, report?: Report) => {
+    const source = item && report
     setEditing({id:item?.id ?? crypto.randomUUID(),date:source?.work_date || forDate,reportId:source?.id,activity:item})
     setFiles([]);setRemoved([])
     form.resetFields()
@@ -151,18 +176,28 @@ export default function DailyPerformancePage() {
       outcome:item?.outcome,notes:item?.notes,hours:Math.floor((item?.minutes ?? 0)/60),minutesPart:(item?.minutes ?? 0)%60,
       intervals:item?.performance_daily_intervals?.map(r=>({start:dayjs().startOf('day').add(r.start_minute,'minute'),end:dayjs().startOf('day').add(r.end_minute,'minute')})),
     })
-  }
-  const addFromNavigation = useRef(false)
+  },[form])
   useEffect(()=>{
-    if (page==='activity' && new URLSearchParams(location.search).get('new')==='1' && !addFromNavigation.current) {
-      addFromNavigation.current=true
-      edit(undefined,undefined,undefined,options.today)
-      navigate('/performance/activity',{replace:true})
+    if (!isMine || !location.search) return
+    const params = new URLSearchParams(location.search)
+    const requestedDate = params.get('date')
+    const taskId = params.get('task')
+    const forDate = validDate(requestedDate)?requestedDate:options.today
+    setSelectedDate(forDate)
+    if (taskId) {
+      if (!optionsReady) return
+      const task = options.tasks.find(item=>item.Id===taskId && item.AssignedByUserId && item.AssignedByUserId!==employeeId)
+      if (task) edit(forDate,undefined,task)
+      else message.warning('این وظیفه در فهرست وظایف واگذارشدهٔ شما نیست')
+    } else if (params.get('new')==='1') {
+      edit(forDate)
     }
-    if (page!=='activity') addFromNavigation.current=false
-  // The navigation flag is consumed once. The modal owns the current form values.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[page,location.search])
+    navigate('/performance/me',{replace:true})
+  },[edit,employeeId,isMine,location.search,navigate,options.tasks,options.today,optionsReady])
+  const goToWorkDate = (date: string) => {
+    setDetail(undefined)
+    navigate(`/performance/me?date=${encodeURIComponent(date)}`)
+  }
   async function save(values: ActivityFields) {
     if (!editing) return
     setBusy(true)
@@ -175,7 +210,6 @@ export default function DailyPerformancePage() {
       }
       await request(editing.reportId?`/reports/${editing.reportId}/activities`:'/activities',editing.reportId?'PUT':'POST',payload)
       message.success('فعالیت ذخیره شد')
-      if (editing.reportId && detail?.id===editing.reportId) setDetail(await request<Report>(`/reports/${editing.reportId}`))
       setSelectedDate(editing.date);setEditing(undefined);reload()
     } catch(e) { message.error(errorText(e)) }
     finally {setBusy(false)}
@@ -184,9 +218,8 @@ export default function DailyPerformancePage() {
     title:'ارسال گزارش روزانه',content:`گزارش ${formatJalaliDate(localDate(date))} برای بررسی مدیر ارسال شود؟`,
     okText:'ارسال گزارش',cancelText:'انصراف',onOk:async()=>{
       try {
-        const result = await request<{id:string}>('/submit','POST',{date})
+        await request<{id:string}>('/submit','POST',{date})
         message.success('گزارش برای مدیر ارسال شد');reload()
-        if (detail?.id===result.id) setDetail(await request<Report>(`/reports/${result.id}`))
       }
       catch(e){message.error(errorText(e));throw e}
     },
@@ -221,15 +254,18 @@ export default function DailyPerformancePage() {
     const d = localDate(date), j = dateToJalali(d)
     return getIranHoliday(j.jy,j.jm,j.jd) || (d.getDay()===5?'جمعه':undefined)
   }
-  const renderActivities = (items: Activity[], report?: Report, own = true) => (
-    <Table rowKey="id" dataSource={items} scroll={{x:760}} pagination={{pageSize:8,showSizeChanger:false}} locale={{emptyText:'فعالیتی ثبت نشده است'}} columns={[
+  const renderActivities = (items: Activity[], report?: Report, allowEdit = false) => (
+    <Table rowKey="id" dataSource={items} loading={allowEdit && (loading || activityLoading)}
+      scroll={{x:920}} pagination={{pageSize:8,showSizeChanger:false}} locale={{emptyText:'فعالیتی ثبت نشده است'}} columns={[
       {title:'فعالیت',dataIndex:'title',sorter:(a,b)=>a.title.localeCompare(b.title,'fa')},
       {title:'نوع',dataIndex:'kind',render:(value:string)=>kinds[value] ?? value},
+      {title:'تاریخ',render:()=>formatJalaliDate(localDate(report?.work_date ?? selectedDate))},
       {title:'وضعیت انجام',dataIndex:'status',render:(value:string)=><Tag>{activityStatus[value]}</Tag>},
-      {title:'زمان',dataIndex:'minutes',sorter:(a,b)=>a.minutes-b.minutes,render:duration},
-      {title:'پیوست',render:(_,item)=>fa(item.performance_daily_attachments.length)},
+      {title:'مدت‌زمان',dataIndex:'minutes',sorter:(a,b)=>a.minutes-b.minutes,render:duration},
+      {title:'پیوست‌ها',render:(_,item)=>item.performance_daily_attachments.length
+        ? <Button type="link" size="small" onClick={()=>setItemDetail(item)}>{fa(item.performance_daily_attachments.length)} فایل</Button> : '—'},
       {title:'عملیات',render:(_,item)=><Space><Button size="small" onClick={()=>setItemDetail(item)}>جزئیات</Button>
-        {own && editable(report?.status) && <Button size="small" onClick={()=>edit(item,undefined,report)}>ویرایش</Button>}</Space>},
+        {allowEdit && report && editable(report.status) && <Button size="small" onClick={()=>edit(report.work_date,item,undefined,report)}>ویرایش و ثبت زمان</Button>}</Space>},
     ]}/>
   )
   const reportsTable = (data: Report[]) => (
@@ -239,44 +275,53 @@ export default function DailyPerformancePage() {
       {title:'وضعیت گزارش',dataIndex:'status',render:statusTag},
       {title:'فعالیت‌ها',render:(_,item)=>fa(item.performance_daily_activities?.length ?? 0)},
       {title:'مجموع زمان',render:(_,item)=>duration(item.performance_daily_activities?.reduce((n,a)=>n+a.minutes,0) ?? 0)},
-      {title:'عملیات',render:(_,item)=><Button size="small" onClick={()=>void view(item)}>مشاهده گزارش</Button>},
+      {title:'عملیات',render:(_,item)=><Space wrap>
+        <Button size="small" onClick={()=>void view(item)}>{isReview?'مشاهده گزارش':'جزئیات و بازخورد'}</Button>
+        {!isReview && item.status==='returned' && <Button size="small" onClick={()=>goToWorkDate(item.work_date)}>اصلاح گزارش</Button>}
+      </Space>},
     ]}/>
   )
-  const reportActions = (date: string, current?: Report) => <Space wrap>
-    {editable(current?.status) && <Button icon={<PlusOutlined/>} onClick={()=>edit(undefined,undefined,undefined,date)}>ثبت فعالیت جدید</Button>}
-    {editable(current?.status) && <Button type="primary" disabled={!current?.performance_daily_activities?.length} onClick={()=>submit(date)}>
-      {date===options.today?'ارسال گزارش امروز':'ارسال گزارش روزانه'}
-    </Button>}
-  </Space>
+  const dayException = leave.includes(selectedDate)?'مرخصی':holiday(selectedDate)
+  const canLogSelectedDate = selectedDate<=options.today && editable(selectedReport?.status)
 
   return <Space direction="vertical" size="middle" style={{width:'100%'}} dir="rtl">
-    <Card title={<Space><CalendarOutlined/>{labels[page] ?? labels.dashboard}</Space>}>
+    <Card title={<Space><CalendarOutlined/>{labels[page] ?? labels.me}</Space>}>
       {error && <Alert type="error" showIcon message={error} style={{marginBottom:16}} action={<Button size="small" onClick={reload}>تلاش مجدد</Button>}/>}
-      {page==='dashboard' && <Space direction="vertical" size="middle" style={{width:'100%'}}>
-        {!loading && editable(todaysReport?.status) && !holiday(options.today) && !leave.includes(options.today) &&
-          <Alert type="warning" showIcon message={todaysReport?.status==='returned'?'گزارش امروز برای اصلاح برگشته است.':'گزارش امروز هنوز ارسال نشده است.'}/>}
+      {isMine && <Space direction="vertical" size="middle" style={{width:'100%'}}>
         <Row gutter={[16,16]}>
-          {[
-            ['فعالیت امروز',fa(todaysReport?.performance_daily_activities?.length ?? 0)],
-            ['زمان فعالیت امروز',duration(todaysReport?.performance_daily_activities?.reduce((n,a)=>n+a.minutes,0) ?? 0)],
-            ['وظایف در حال انجام',fa(options.tasks.filter(t=>[1,2].includes(t.Status)).length)],
-            ['وظایف تکمیل‌شده',fa(options.tasks.filter(t=>t.Status===3).length)],
-            ['وظایف معوق',fa(options.tasks.filter(t=>t.DueDate && t.DueDate.slice(0,10)<options.today && ![3,4].includes(t.Status)).length)],
-            ['گزارش‌های نیازمند اصلاح',fa(reports.filter(r=>r.status==='returned').length)],
-          ].map(([title,value])=><Col key={title} xs={12} md={8}><Card size="small"><Statistic title={title} value={value}/></Card></Col>)}
+          <Col xs={12} md={8}><Card size="small"><Statistic title="فعالیت‌های روز" loading={loading} value={fa(selectedActivities.length)}/></Card></Col>
+          <Col xs={12} md={8}><Card size="small"><Statistic title="مجموع زمان روز" loading={loading} value={duration(selectedActivities.reduce((n,a)=>n+a.minutes,0))}/></Card></Col>
+          <Col xs={24} md={8}><Card size="small"><Statistic title="وضعیت گزارش" loading={loading} valueRender={()=>statusTag(selectedReport?.status)}/></Card></Col>
         </Row>
-        <Space wrap>وضعیت گزارش امروز {statusTag(todaysReport?.status)}{reportActions(options.today,todaysReport)}</Space>
-      </Space>}
-      {page==='activity' && <Space direction="vertical" size="middle" style={{width:'100%'}}>
-        <Space wrap><PersianDatePicker value={shamsi(selectedDate)} onChange={d=>setSelectedDate(isoDate(jalaliToDate(d)))}/>
-          {statusTag(selectedReport?.status)}{reportActions(selectedDate,selectedReport)}</Space>
+        {!loading && selectedReport?.status==='returned' && <Alert type="warning" showIcon
+          message="گزارش این روز برای اصلاح برگشته است."
+          action={<Button size="small" onClick={()=>void view(selectedReport)}>مشاهده بازخورد</Button>}/>}
+        {!loading && !dayException && selectedDate<=options.today && (!selectedReport || selectedReport.status==='draft') &&
+          <Alert type="warning" showIcon message="گزارش این روز کاری هنوز ارسال نشده است."/>}
+        <Space wrap>
+          <PersianDatePicker value={shamsi(selectedDate)} onChange={d=>{if(d)setSelectedDate(isoDate(jalaliToDate(d)))}}/>
+          {dayException && <Tag>{dayException}</Tag>}
+          {selectedReport && <Button onClick={()=>void view(selectedReport)}>جزئیات گزارش</Button>}
+          {canLogSelectedDate && <>
+            <Button icon={<PlusOutlined/>} disabled={loading} onClick={()=>edit(selectedDate)}>ثبت فعالیت جدید</Button>
+            <Button type="primary" disabled={loading || !selectedActivities.length} onClick={()=>submit(selectedDate)}>ارسال گزارش روزانه</Button>
+          </>}
+        </Space>
         <Space wrap>
           <Input.Search placeholder="جست‌وجوی فعالیت" allowClear value={search} onChange={e=>setSearch(e.target.value)} style={{width:220}}/>
-          <Select placeholder="نوع فعالیت" allowClear value={filter} onChange={setFilter} options={optionsOf(kinds)} style={{width:170}}/>
+          <Select placeholder="نوع فعالیت" allowClear value={kindFilter} onChange={setKindFilter} options={optionsOf(kinds)} style={{width:170}}/>
+          <Select placeholder="وضعیت انجام" allowClear value={statusFilter} onChange={setStatusFilter} options={optionsOf(activityStatus)} style={{width:160}}/>
         </Space>
-        {renderActivities(activeItems.filter(a=>(!filter||a.kind===filter)&&`${a.title} ${a.description}`.includes(search.trim())),selectedReport)}
+        {renderActivities(activeItems.filter(a=>(!kindFilter||a.kind===kindFilter)&&(!statusFilter||a.status===statusFilter)
+          && `${a.title} ${a.description}`.toLocaleLowerCase('fa').includes(search.trim().toLocaleLowerCase('fa'))),selectedReport,true)}
+        <Space wrap size="middle">
+          <span>وظایف در حال انجام {fa(assignedTasks.filter(t=>[1,2].includes(t.Status)).length)}</span>
+          <span>تکمیل‌شده {fa(assignedTasks.filter(t=>t.Status===3).length)}</span>
+          <span>معوق {fa(assignedTasks.filter(t=>t.DueDate && t.DueDate.slice(0,10)<options.today && ![3,4].includes(t.Status)).length)}</span>
+          <span>گزارش‌های نیازمند اصلاح {fa(reports.filter(r=>r.status==='returned').length)}</span>
+        </Space>
       </Space>}
-      {page==='tasks' && <Table rowKey="Id" dataSource={options.tasks} scroll={{x:1050}} pagination={{pageSize:10}} locale={{emptyText:'وظیفه‌ای به شما واگذار نشده است'}}
+      {page==='tasks' && <Table rowKey="Id" dataSource={assignedTasks} loading={!optionsReady && !error} scroll={{x:1050}} pagination={{pageSize:10}} locale={{emptyText:'وظیفه‌ای به شما واگذار نشده است'}}
         expandable={{expandedRowRender:task=><p style={{whiteSpace:'pre-wrap'}}>{task.Description || 'شرحی ثبت نشده است'}</p>}} columns={[
           {title:'عنوان وظیفه',dataIndex:'Title'},{title:'واگذارکننده',dataIndex:'AssignedByName',render:(v:string)=>v || '—'},
           {title:'تاریخ واگذاری',dataIndex:'CreatedAt',render:(v:string)=>formatJalaliDate(new Date(v))},
@@ -284,10 +329,10 @@ export default function DailyPerformancePage() {
           {title:'اولویت',dataIndex:'Priority',render:(v:number)=>priority[v] ?? '—'},
           {title:'وضعیت',dataIndex:'Status',render:(v:number)=>taskStatus[v] ?? '—'},
           {title:'پیشرفت',dataIndex:'Progress',render:(v:number)=>`${fa(v ?? 0)}٪`},
-          {title:'عملیات',render:(_,task)=><Button size="small" onClick={()=>edit(undefined,task,undefined,options.today)}>ثبت فعالیت و زمان</Button>},
+          {title:'عملیات',render:(_,task)=><Button size="small" onClick={()=>navigate(`/performance/me?task=${encodeURIComponent(task.Id)}`)}>ثبت فعالیت</Button>},
         ]}/>}
       {page==='reports' && <Space direction="vertical" style={{width:'100%'}} size="middle">
-        <Space wrap>تقویم گزارش‌ها <PersianDatePicker value={shamsi(selectedDate)} onChange={d=>setSelectedDate(isoDate(jalaliToDate(d)))}/></Space>
+        <Space wrap>تقویم گزارش‌ها <PersianDatePicker value={shamsi(selectedDate)} onChange={d=>{if(d)setSelectedDate(isoDate(jalaliToDate(d)))}}/></Space>
         <Row gutter={[8,8]}>
           {days.map(date=>{
             const report=reports.find(r=>r.work_date===date)
@@ -295,7 +340,10 @@ export default function DailyPerformancePage() {
             const day=dateToJalali(localDate(date)).jd
             const missing=!loading && !label && date<=options.today && (!report || report.status==='draft')
             return <Col key={date} xs={12} sm={8} md={6} lg={4}>
-              <Button block style={{height:'auto',padding:'6px'}} onClick={()=>{if(report)void view(report);else setSelectedDate(date)}}>
+              <Button block style={{height:'auto',padding:'6px'}} disabled={!report && date>options.today} onClick={()=>{
+                if(report && report.status!=='draft')void view(report)
+                else goToWorkDate(date)
+              }}>
                 <div>{fa(day)}</div><Tag color={missing?'red':report?reportStatus[report.status]?.[1]:'default'}>
                   {report?(missing?'ارسال نشده':reportStatus[report.status]?.[0]):label || (missing?'بدون گزارش':'—')}
                 </Tag>
@@ -303,9 +351,14 @@ export default function DailyPerformancePage() {
             </Col>
           })}
         </Row>
-        {reportsTable(reports.filter(r=>r.work_date>=monthStart&&r.work_date<=monthEnd))}
+        <Space wrap>
+          <Select placeholder="وضعیت گزارش" allowClear value={reportFilter} onChange={setReportFilter} style={{width:170}}
+            options={Object.entries(reportStatus).filter(([key])=>key!=='draft').map(([value,[label]])=>({value,label}))}/>
+          <Select value={monthOnly?'month':'all'} onChange={value=>setMonthOnly(value==='month')} style={{width:140}}
+            options={[{value:'all',label:'همهٔ ماه‌ها'},{value:'month',label:'ماه انتخاب‌شده'}]}/>
+        </Space>
+        {reportsTable(ownReports)}
       </Space>}
-      {page==='history' && reportsTable(reports.filter(r=>r.status!=='draft'))}
       {isReview && reportsTable([...reviewQueue].sort((a,b)=>Number(b.status==='submitted')-Number(a.status==='submitted')))}
     </Card>
     <Modal title={editing?.activity?'ویرایش فعالیت':'ثبت فعالیت'} open={!!editing} onCancel={()=>{if(!busy)setEditing(undefined)}}
@@ -361,8 +414,9 @@ export default function DailyPerformancePage() {
       {detailLoading ? <Spin/> : detail && <Space direction="vertical" style={{width:'100%'}}>
         <Space wrap>{detail.employee_name && <strong>{detail.employee_name}</strong>}{formatJalaliDate(localDate(detail.work_date))}{statusTag(detail.status)}
           {detail.submitted_at && <span>ارسال {dateTime(detail.submitted_at)}</span>}</Space>
-        {renderActivities(detail.activities ?? [],detail,!isReview)}
-        {!isReview && editable(detail.status) && <Button type="primary" onClick={()=>submit(detail.work_date)}>ارسال گزارش روزانه</Button>}
+        {renderActivities(detail.activities ?? [],detail)}
+        {page==='reports' && detail.status==='returned' &&
+          <Button type="primary" onClick={()=>goToWorkDate(detail.work_date)}>اصلاح در عملکرد من</Button>}
         {isReview && detail.can_review && detail.status==='submitted' && <Space wrap>
           <Button type="primary" onClick={()=>{setDecision('approve');setNote('')}}>تأیید گزارش</Button>
           <Button onClick={()=>{setDecision('return');setNote('')}}>برگشت برای اصلاح</Button>

@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, type ComponentType, type ErrorInfo, type ReactNode } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 
 const lazyWithRecovery = <T extends { default: ComponentType }>(name: string, loader: () => Promise<T>) => lazy(async () => {
   const recoveryKey = `portal:lazy-recovery:${name}`
@@ -74,6 +74,11 @@ const ChangesPage = lazyWithRecovery('changes', () => import('./pages/ptms/Chang
 const PTMSDocumentsPage = lazyWithRecovery('ptms-documents', () => import('./pages/ptms/PTMSDocumentsPage'))
 const DailyPerformancePage = lazyWithRecovery('performance-daily', () => import('./pages/performance/DailyPerformancePage'))
 
+function PerformanceRedirect({ to }: { to: string }) {
+  const { search, hash, state } = useLocation()
+  return <Navigate to={{ pathname: to, search, hash }} state={state} replace />
+}
+
 function App() {
   const token = localStorage.getItem('token')
   const mustChangePassword = !!token && localStorage.getItem('force-password-change') === '1'
@@ -115,13 +120,14 @@ function App() {
           <Route path="/ptms/issues" element={<IssuesPage />} />
           <Route path="/ptms/changes" element={<ChangesPage />} />
           <Route path="/ptms/documents" element={<PTMSDocumentsPage />} />
-          <Route path="/performance/dashboard" element={<DailyPerformancePage />} />
-          <Route path="/performance/activity" element={<DailyPerformancePage />} />
+          <Route path="/performance/me" element={<DailyPerformancePage />} />
+          <Route path="/performance/dashboard" element={<PerformanceRedirect to="/performance/me" />} />
+          <Route path="/performance/activity" element={<PerformanceRedirect to="/performance/me" />} />
           <Route path="/performance/tasks" element={<DailyPerformancePage />} />
           <Route path="/performance/reports" element={<DailyPerformancePage />} />
-          <Route path="/performance/history" element={<DailyPerformancePage />} />
+          <Route path="/performance/history" element={<PerformanceRedirect to="/performance/reports" />} />
           <Route path="/performance/review" element={<DailyPerformancePage />} />
-          <Route path="/performance/*" element={<Navigate to="/performance/dashboard" replace />} />
+          <Route path="/performance/*" element={<Navigate to="/performance/me" replace />} />
           <Route path="/letters" element={<LettersPage />} />
           <Route path="/letters/new" element={<LettersPage />} />
           <Route path="/letters/registry" element={<LettersPage />} />

@@ -9,7 +9,7 @@ import {
   InboxOutlined, EditOutlined, BookOutlined,
   SwapOutlined,
   FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined, WarningOutlined, TrophyOutlined, CalendarOutlined,
-  FieldTimeOutlined, AuditOutlined,
+  AuditOutlined,
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
 import ReleaseNotesModal from '../components/ReleaseNotesModal'
@@ -68,11 +68,9 @@ export default function MainLayout() {
       ]
     }] : []),
     {key:'performance-group',icon:<TrophyOutlined/>,label:'ارزیابی عملکرد',children:[
-      {key:'/performance/dashboard',icon:<DashboardOutlined/>,label:'داشبورد عملکرد من'},
-      {key:'/performance/activity',icon:<FieldTimeOutlined/>,label:'ثبت فعالیت روزانه'},
+      {key:'/performance/me',icon:<DashboardOutlined/>,label:'عملکرد من'},
       {key:'/performance/tasks',icon:<UnorderedListOutlined/>,label:'وظایف من'},
-      {key:'/performance/reports',icon:<CalendarOutlined/>,label:'گزارش‌های روزانه من'},
-      {key:'/performance/history',icon:<BookOutlined/>,label:'سوابق و بازخوردها'},
+      {key:'/performance/reports',icon:<CalendarOutlined/>,label:'گزارش‌های من'},
       ...(isAdmin || canReviewPerformance ? [{key:'/performance/review',icon:<AuditOutlined/>,label:'کارتابل تأیید گزارش‌ها'}] : []),
     ]},
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
@@ -127,11 +125,9 @@ export default function MainLayout() {
       '/ptms/issues': 'مسائل و مشکلات',
       '/ptms/changes': 'درخواست تغییر',
       '/ptms/documents': 'مستندات پروژه',
-      '/performance/dashboard': 'داشبورد عملکرد من',
-      '/performance/activity': 'ثبت فعالیت روزانه',
+      '/performance/me': 'عملکرد من',
       '/performance/tasks': 'وظایف من',
-      '/performance/reports': 'گزارش‌های روزانه من',
-      '/performance/history': 'سوابق و بازخوردها',
+      '/performance/reports': 'گزارش‌های من',
       '/performance/review': 'کارتابل تأیید گزارش‌ها',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
