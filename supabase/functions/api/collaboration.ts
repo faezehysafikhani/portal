@@ -375,7 +375,8 @@ export async function leaveAccount(auth: AuthContext, userId=auth.userId) {
     const updated=await db.from('LeaveAccounts').update({AccruedHours:accrued,UsedHours:actualUsed,ReservedHours:actualReserved,AccruedThroughYearMonth:ym,MonthlyAccrualHours:monthly,HoursPerDay:Number(account.HoursPerDay??8),IsDeleted:false,DeletedAt:null,UpdatedAt:now()}).eq('TenantId',auth.tenantId).eq('Id',account.Id).select().single();check(updated.error);account=updated.data
   }
   const accrued=Number(account.AccruedHours??0),used=Number(account.UsedHours??0),reserved=Number(account.ReservedHours??0),hoursPerDay=Number(account.HoursPerDay??8)
-  return {...account,availableHours:Math.max(0,accrued-used),days:Math.max(0,(accrued-used)/hoursPerDay),monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}
+  const availableHours = Math.max(0, accrued - used + Number(account.BalanceAdjustmentHours ?? 0))
+  return {...account,availableHours,days:availableHours/hoursPerDay,monthlyAccrualHours:Number(account.MonthlyAccrualHours??20),reservedHours:reserved}
 }
 
 async function forms(request: Request, auth: AuthContext, path: string, url:URL): Promise<Response> {
