@@ -72,13 +72,7 @@ const FinancialPage = lazyWithRecovery('financial', () => import('./pages/ptms/F
 const IssuesPage = lazyWithRecovery('issues', () => import('./pages/ptms/IssuesPage'))
 const ChangesPage = lazyWithRecovery('changes', () => import('./pages/ptms/ChangesPage'))
 const PTMSDocumentsPage = lazyWithRecovery('ptms-documents', () => import('./pages/ptms/PTMSDocumentsPage'))
-const PerformanceDashboardPage = lazyWithRecovery('performance-dashboard', () => import('./pages/performance/PerformanceDashboardPage'))
-const TaskSheetPage = lazyWithRecovery('performance-tasks', () => import('./pages/performance/TaskSheetPage'))
-const WeeklyReportPage = lazyWithRecovery('performance-weekly', () => import('./pages/performance/WeeklyReportPage'))
-const MonthlyEvaluationPage = lazyWithRecovery('performance-evaluations', () => import('./pages/performance/MonthlyEvaluationPage'))
-const PerformanceSettingsPage = lazyWithRecovery('performance-settings', () => import('./pages/performance/PerformanceSettingsPage'))
-const QuarterlyReviewPage = lazyWithRecovery('performance-quarterly', () => import('./pages/performance/QuarterlyReviewPage'))
-const TimesheetPage = lazyWithRecovery('performance-timesheet', () => import('./pages/performance/TimesheetPage'))
+const DailyPerformancePage = lazyWithRecovery('performance-daily', () => import('./pages/performance/DailyPerformancePage'))
 
 function App() {
   const token = localStorage.getItem('token')
@@ -121,13 +115,13 @@ function App() {
           <Route path="/ptms/issues" element={<IssuesPage />} />
           <Route path="/ptms/changes" element={<ChangesPage />} />
           <Route path="/ptms/documents" element={<PTMSDocumentsPage />} />
-          <Route path="/performance/dashboard" element={<PerformanceDashboardPage />} />
-          <Route path="/performance/tasks" element={<TaskSheetPage />} />
-          <Route path="/performance/weekly" element={<WeeklyReportPage />} />
-          <Route path="/performance/evaluations" element={<MonthlyEvaluationPage />} />
-          <Route path="/performance/settings" element={<PerformanceSettingsPage />} />
-          <Route path="/performance/quarterly" element={<QuarterlyReviewPage />} />
-          <Route path="/performance/timesheet" element={<TimesheetPage />} />
+          <Route path="/performance/dashboard" element={<DailyPerformancePage />} />
+          <Route path="/performance/activity" element={<DailyPerformancePage />} />
+          <Route path="/performance/tasks" element={<DailyPerformancePage />} />
+          <Route path="/performance/reports" element={<DailyPerformancePage />} />
+          <Route path="/performance/history" element={<DailyPerformancePage />} />
+          <Route path="/performance/review" element={<DailyPerformancePage />} />
+          <Route path="/performance/*" element={<Navigate to="/performance/dashboard" replace />} />
           <Route path="/letters" element={<LettersPage />} />
           <Route path="/letters/new" element={<LettersPage />} />
           <Route path="/letters/registry" element={<LettersPage />} />

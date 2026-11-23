@@ -4,6 +4,7 @@ import { body, camelize, HttpError, json, uuid } from '../_shared/http.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 import { jalaliMonthRange } from '../_shared/jalali.ts'
 import { adjustmentCatalog, computeScoreCardTotals, matrixOutcome, rubric } from './performance-rubric.ts'
+import { handleDailyPerformance } from './performance-daily.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -841,6 +842,8 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
 
 export async function handlePerformance(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
   if (!path.startsWith('/performance')) return null
+  const daily = await handleDailyPerformance(request,auth,path,url)
+  if (daily) return daily
 
   if (path === '/performance/weekly' && request.method === 'GET') return await weeklyReport(request, auth, url)
   if (path === '/performance/evaluations' && request.method === 'GET') return await listEvaluations(request, auth, url)

@@ -13,11 +13,13 @@ import {
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
 import ReleaseNotesModal from '../components/ReleaseNotesModal'
+import { apiFetch } from '../utils/api'
 
 const { Header, Sider, Content } = Layout
 
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [canReviewPerformance, setCanReviewPerformance] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const [user,setUser]=useState<{ id?: string; username?: string; roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
@@ -25,6 +27,14 @@ export default function MainLayout() {
   useEffect(()=>{const name=sessionStorage.getItem('welcome-user');if(name){sessionStorage.removeItem('welcome-user');notification.success({message:`کاربر ${name}، خوش آمدید`,description:'ورود شما به سامانه با موفقیت انجام شد.',placement:'topLeft'})}},[])
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
+  useEffect(()=>{
+    if (!user.id || isAdmin) return
+    const controller = new AbortController()
+    apiFetch('http://localhost:5043/api/v1/performance/daily/access',{signal:controller.signal})
+      .then(async response=>{ if (response.ok && !controller.signal.aborted) setCanReviewPerformance(Boolean((await response.json()).canReview)) })
+      .catch(()=>{})
+    return ()=>controller.abort()
+  },[user.id,isAdmin])
   const allowed = (code: string) => isAdmin || serverPermissions.includes(code)
   const routeMenuGroup=location.pathname.startsWith('/ptms')?'tasks-group':location.pathname.startsWith('/performance')?'performance-group':location.pathname.startsWith('/letters')?'letters-group':location.pathname.startsWith('/forms')?'forms-group':null
   const [menuOpenState,setMenuOpenState]=useState<{ pathname: string; keys: string[] }>(()=>({ pathname: location.pathname, keys: routeMenuGroup?[routeMenuGroup]:[] }))
@@ -57,25 +67,14 @@ export default function MainLayout() {
         { key: '/ptms/documents', icon: <FileTextOutlined />, label: 'مستندات' },
       ]
     }] : []),
-    // هر صفحه‌ی این گروه یک مجوز مستقل هم دارد (performance.dashboard/weekly/
-    // evaluations/timesheet/quarterly)، مستقل از performance.view — تا بشود
-    // فقط یک صفحه را به یک نفر داد بدون باز کردن کل ماژول ارزیابی عملکرد.
-    // performance.view/performance.admin هر دو همچنان همه‌چیز را باز می‌کنند.
-    // Task Sheet یک استثناست: به‌جای این مجوزها، با tasks.view/tasks.create کار می‌کند.
-    ...(allowed('performance.view') || allowed('tasks.view') || allowed('performance.dashboard') || allowed('performance.weekly') || allowed('performance.evaluations') || allowed('performance.timesheet') || allowed('performance.quarterly') || allowed('performance.admin') ? [{
-      key: 'performance-group',
-      icon: <TrophyOutlined />,
-      label: 'ارزیابی عملکرد',
-      children: [
-        ...(allowed('performance.view') || allowed('performance.dashboard') ? [{ key: '/performance/dashboard', icon: <DashboardOutlined />, label: 'داشبورد' }] : []),
-        ...(allowed('performance.view') || allowed('tasks.view') ? [{ key: '/performance/tasks', icon: <UnorderedListOutlined />, label: 'Task Sheet من' }] : []),
-        ...(allowed('performance.view') || allowed('performance.weekly') ? [{ key: '/performance/weekly', icon: <CalendarOutlined />, label: 'گزارش هفتگی' }] : []),
-        ...(allowed('performance.view') || allowed('performance.evaluations') ? [{ key: '/performance/evaluations', icon: <CheckSquareOutlined />, label: 'ارزیابی ماهانه' }] : []),
-        ...(allowed('performance.view') || allowed('performance.timesheet') ? [{ key: '/performance/timesheet', icon: <FieldTimeOutlined />, label: 'تایم‌شیت روزانه' }] : []),
-        ...(allowed('performance.view') || allowed('performance.quarterly') ? [{ key: '/performance/quarterly', icon: <AuditOutlined />, label: 'ارزیابی فصلی HR' }] : []),
-        ...(allowed('performance.admin') ? [{ key: '/performance/settings', icon: <SettingOutlined />, label: 'معیارها و تنظیمات' }] : []),
-      ]
-    }] : []),
+    {key:'performance-group',icon:<TrophyOutlined/>,label:'ارزیابی عملکرد',children:[
+      {key:'/performance/dashboard',icon:<DashboardOutlined/>,label:'داشبورد عملکرد من'},
+      {key:'/performance/activity',icon:<FieldTimeOutlined/>,label:'ثبت فعالیت روزانه'},
+      {key:'/performance/tasks',icon:<UnorderedListOutlined/>,label:'وظایف من'},
+      {key:'/performance/reports',icon:<CalendarOutlined/>,label:'گزارش‌های روزانه من'},
+      {key:'/performance/history',icon:<BookOutlined/>,label:'سوابق و بازخوردها'},
+      ...(isAdmin || canReviewPerformance ? [{key:'/performance/review',icon:<AuditOutlined/>,label:'کارتابل تأیید گزارش‌ها'}] : []),
+    ]},
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
     ...(allowed('contacts.view') ? [{ key: '/contacts', icon: <ContactsOutlined />, label: 'مخاطبین' }] : []),
     ...(allowed('sms.view') ? [{ key: '/sms', icon: <MessageOutlined />, label: 'پیامک' }] : []),
@@ -128,13 +127,12 @@ export default function MainLayout() {
       '/ptms/issues': 'مسائل و مشکلات',
       '/ptms/changes': 'درخواست تغییر',
       '/ptms/documents': 'مستندات پروژه',
-      '/performance/dashboard': 'داشبورد ارزیابی عملکرد',
-      '/performance/tasks': 'Task Sheet من',
-      '/performance/weekly': 'گزارش هفتگی',
-      '/performance/evaluations': 'ارزیابی ماهانه',
-      '/performance/timesheet': 'تایم‌شیت روزانه',
-      '/performance/quarterly': 'ارزیابی فصلی HR',
-      '/performance/settings': 'معیارها و تنظیمات ارزیابی',
+      '/performance/dashboard': 'داشبورد عملکرد من',
+      '/performance/activity': 'ثبت فعالیت روزانه',
+      '/performance/tasks': 'وظایف من',
+      '/performance/reports': 'گزارش‌های روزانه من',
+      '/performance/history': 'سوابق و بازخوردها',
+      '/performance/review': 'کارتابل تأیید گزارش‌ها',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
   }
