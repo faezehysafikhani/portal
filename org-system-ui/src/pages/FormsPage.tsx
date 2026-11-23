@@ -210,7 +210,7 @@ export default function FormsPage() {
     if (type === 'leave_daily' && days && days * 8 > leaveBalance.availableHours) {
       notification.warning({
         message: '⚠️ مانده مرخصی کافی نیست',
-        description: `مانده مرخصی شما ${formatDuration(leaveBalance.availableHours)} است اما ${formatDuration(days * 8)} درخواست داده‌اید.`,
+        description: `مانده مرخصی شما ${formatDaysDuration(leaveBalance.availableHours)} است اما ${formatDuration(days * 8)} درخواست داده‌اید.`,
         duration: 5,
       })
       return false
@@ -218,7 +218,7 @@ export default function FormsPage() {
     if (type === 'leave_hourly' && hours && hours > leaveBalance.availableHours) {
       notification.warning({
         message: '⚠️ مانده مرخصی ساعتی کافی نیست',
-        description: `مانده مرخصی ساعتی شما ${formatDuration(leaveBalance.availableHours)} است اما ${formatDuration(hours)} درخواست داده‌اید.`,
+        description: `مانده مرخصی ساعتی شما ${formatDaysDuration(leaveBalance.availableHours)} است اما ${formatDuration(hours)} درخواست داده‌اید.`,
         duration: 5,
       })
       return false
@@ -315,7 +315,7 @@ export default function FormsPage() {
   // ── فرم مرخصی ساعتی ─────────────────────────────────
   const LeaveHourlyForm = () => (
     <div>
-      <Alert message={leaveBalanceLoaded===true?`مانده مرخصی ساعتی شما: ${formatDuration(leaveBalance.availableHours)}`:leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'مانده مرخصی در دسترس نیست؛ برای دریافت مجدد صفحه را تازه‌سازی کنید'} type={leaveBalanceLoaded!==true||leaveBalance.availableHours<8?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
+      <Alert message={leaveBalanceLoaded===true?`مانده مرخصی شما: ${formatDaysDuration(leaveBalance.availableHours)}`:leaveBalanceLoaded===null?'در حال دریافت مانده مرخصی...':'مانده مرخصی در دسترس نیست؛ برای دریافت مجدد صفحه را تازه‌سازی کنید'} type={leaveBalanceLoaded!==true||leaveBalance.availableHours<8?'warning':'info'} showIcon icon={<WarningOutlined />} style={{ marginBottom: 16 }} />
       <Row gutter={16}>
         <Col span={12}><Form.Item name="date" label="تاریخ" rules={[{ required: true }]}><PersianDatePicker /></Form.Item></Col>
         <Col span={6}><Form.Item name="fromTime" label="از ساعت" rules={[{ required: true }]}><TimePicker format="HH:mm" minuteStep={5} style={{width:'100%'}} placeholder="انتخاب ساعت" /></Form.Item></Col>

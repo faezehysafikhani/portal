@@ -19,12 +19,12 @@ const formatDuration=(value?:number|string)=>{
   if(rest===0)return `${hours.toLocaleString('fa-IR')} ساعت`
   return `${hours.toLocaleString('fa-IR')} ساعت و ${rest.toLocaleString('fa-IR')} دقیقه`
 }
-const formatDaysDuration=(hoursValue?:number|string,hoursPerDay=8)=>{
+const formatDaysDuration=(hoursValue?:number|string)=>{
   if(hoursValue===undefined||hoursValue===null||hoursValue==='')return '—'
   const hours=Number(hoursValue)
   if(!Number.isFinite(hours))return String(hoursValue)
   const totalMinutes=Math.round(hours*60)
-  const minutesPerDay=hoursPerDay*60
+  const minutesPerDay=8*60
   const days=Math.floor(totalMinutes/minutesPerDay)
   const rest=totalMinutes%minutesPerDay
   const restHours=Math.floor(rest/60),restMinutes=rest%60
@@ -102,7 +102,7 @@ export default function ReportsPage(){
   const formColumns=[{title:'عنوان',dataIndex:'title'},{title:'ثبت‌کننده',dataIndex:'submitterName'},{title:'مدیر مستقیم',dataIndex:'managerName'},{title:'منابع انسانی',dataIndex:'hrName'},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="magenta">{labelStatus(v)}</Tag>},{title:'مدت مرخصی',dataIndex:'requestedHours',render:formatDuration,renderText:formatDuration},{title:'تاریخ',dataIndex:'createdAt',render:faDate}]
   const leaveColumns=[{title:'نام و نام خانوادگی',dataIndex:'employeeName'},{title:'نوع مرخصی',dataIndex:'leaveKind'},{title:'روز شروع',dataIndex:'startDate'},{title:'روز پایان',dataIndex:'endDate'},{title:'تعداد روز',dataIndex:'dayCount',render:(v:number|string)=>v==='—'||v===undefined||v===null?'—':formatDaysDuration(Number(v)*8),renderText:(v:number|string)=>v==='—'||v===undefined||v===null?'—':formatDaysDuration(Number(v)*8)},{title:'تاریخ مرخصی ساعتی',dataIndex:'hourlyDate'},{title:'زمان خروج',dataIndex:'startTime'},{title:'زمان ورود',dataIndex:'endTime'},{title:'مجموع زمان',dataIndex:'totalHours',render:formatDuration,renderText:formatDuration},{title:'مدیر مستقیم',dataIndex:'managerName'}]
   const pendingColumns=[{title:'فرم',dataIndex:'title'},{title:'کارمند',dataIndex:'submitterName'},{title:'مرحله جاری',dataIndex:'currentStage'},{title:'تأییدکننده فعلی',dataIndex:'currentApprover'},{title:'مدت',dataIndex:'requestedHours',render:formatDuration,renderText:formatDuration},{title:'روزهای انتظار',dataIndex:'waitingDays'},{title:'تاریخ ثبت',dataIndex:'createdAt',render:faDate,renderText:(v:string)=>faDate(v)}]
-  const balanceColumns=[{title:'نام و نام خانوادگی',dataIndex:'employeeName'},{title:'سمت',dataIndex:'position',render:(v?:string)=>v||'—'},{title:'واحد',dataIndex:'department',render:(v?:string)=>v||'—'},{title:'تخصیص‌یافته',dataIndex:'accruedHours',render:formatDuration,renderText:formatDuration},{title:'مصرف‌شده',dataIndex:'usedHours',render:formatDuration,renderText:formatDuration},{title:'در انتظار تأیید',dataIndex:'reservedHours',render:formatDuration,renderText:formatDuration},{title:'مانده',dataIndex:'availableHours',render:formatDuration,renderText:formatDuration},{title:'مانده (روز)',dataIndex:'availableHours',render:formatDaysDuration,renderText:formatDaysDuration}]
+  const balanceColumns=[{title:'نام و نام خانوادگی',dataIndex:'employeeName'},{title:'سمت',dataIndex:'position',render:(v?:string)=>v||'—'},{title:'واحد',dataIndex:'department',render:(v?:string)=>v||'—'},{title:'تخصیص‌یافته',dataIndex:'accruedHours',render:formatDuration,renderText:formatDuration},{title:'مصرف‌شده',dataIndex:'usedHours',render:formatDuration,renderText:formatDuration},{title:'در انتظار تأیید',dataIndex:'reservedHours',render:formatDuration,renderText:formatDuration},{title:'مانده مرخصی',dataIndex:'availableHours',render:formatDaysDuration,renderText:formatDaysDuration}]
   const leaveKindLabel:Record<string,string>={leave_daily:'مرخصی روزانه',leave_hourly:'مرخصی ساعتی',leave_sick:'مرخصی استعلاجی'}
   const workflowColumns=[{title:'نوع',dataIndex:'formType',render:(v:string)=>leaveKindLabel[v]||v,renderText:(v:string)=>leaveKindLabel[v]||v},{title:'کارمند',dataIndex:'employeeName'},{title:'مدیر مستقیم',dataIndex:'managerName'},{title:'منابع انسانی',dataIndex:'hrName'},{title:'وضعیت',dataIndex:'status',render:(v:string)=><Tag color="magenta">{labelStatus(v)}</Tag>,renderText:(v:string)=>labelStatus(v)},{title:'مدت',dataIndex:'requestedHours',render:formatDuration,renderText:formatDuration},{title:'تاریخ ثبت',dataIndex:'createdAt',render:faDate,renderText:(v:string)=>faDate(v)}]
   const workflowExportRows=workflowRows.map(r=>({...r,history:(r.history||[]).map((h:any)=>`${h.action} توسط ${h.by} در ${faDate(h.createdAt)}${h.note?` (${h.note})`:''}`).join(' | ')}))
