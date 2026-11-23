@@ -3,7 +3,7 @@ import { body, camelize, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { jalaliDateString, jalaliDayNumber, jalaliYearMonth } from '../_shared/jalali.ts'
 import { createNotification, createNotifications, notificationType } from '../_shared/notifications.ts'
-import { sendTransactionalSms } from '../_shared/sms.ts'
+import { normalizePhone, sendTransactionalSms } from '../_shared/sms.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -51,22 +51,35 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     return people
   }
   const sendEventSms = async (event: Obj, participants: Obj[]): Promise<Obj> => {
+    try {
+      return await deliverEventSms(event, participants)
+    } catch {
+      return { requested: participants.length, sent: 0, failed: participants.length, errors: ['آماده‌سازی پیامک دعوت انجام نشد'] }
+    }
+  }
+  const deliverEventSms = async (event: Obj, participants: Obj[]): Promise<Obj> => {
     const setting = await db.from('SmsProviderSettings').select('MeetingTemplate').eq('TenantId', auth.tenantId).eq('IsDeleted', false).maybeSingle(); check(setting.error)
     const date = new Date(event.StartAt)
     const tehranDate = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
     const tehranTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
     const message = String(setting.data?.MeetingTemplate || 'دعوت جلسه: {title} - {date} {time}').replaceAll('{title}', String(event.Title)).replaceAll('{date}', tehranDate).replaceAll('{time}', tehranTime)
-    const phones: string[] = []
+    const phones = new Map<string, string>()
     for (const type of ['user', 'contact']) {
       const ids = participants.filter(p => p.personType === type).map(p => p.personId)
       if (!ids.length) continue
-      const found = await db.from(type === 'user' ? 'Users' : 'Contacts').select(type === 'user' ? 'PhoneNumber' : 'Mobile,Phone').eq('TenantId', auth.tenantId).in('Id', ids); check(found.error)
-      phones.push(...(found.data ?? []).map((p: Obj) => p.PhoneNumber || p.Mobile || p.Phone || ''))
+      const found = await db.from(type === 'user' ? 'Users' : 'Contacts').select(type === 'user' ? 'Id,PhoneNumber' : 'Id,Mobile,Phone').eq('TenantId', auth.tenantId).eq('IsDeleted', false).in('Id', ids); check(found.error)
+      for (const p of (found.data ?? []) as Obj[]) {
+        const phone = [p.PhoneNumber, p.Mobile, p.Phone].map(normalizePhone).find(value => /^09\d{9}$/.test(value))
+        if (phone) phones.set(`${type}:${p.Id}`, phone)
+      }
     }
     const results = []
-    for (const phone of [...new Set(phones.map(p => String(p).trim()))]) results.push(await sendTransactionalSms(auth, phone, message))
+    for (const phone of new Set(phones.values())) results.push(await sendTransactionalSms(auth, phone, message))
     const failed = results.filter(r => !r.success)
-    return { requested: results.length, sent: results.length - failed.length, failed: failed.length, errors: [...new Set(failed.map(r => r.error).filter(Boolean))] }
+    const missing = participants.filter(p => !phones.has(`${p.personType}:${p.personId}`))
+    const errors = [...new Set(failed.map(r => r.error).filter(Boolean))]
+    if (missing.length) errors.push(`شماره موبایل معتبر برای ${missing.map(p => p.displayName || 'یکی از افراد مرتبط').join('، ')} ثبت نشده است`)
+    return { requested: results.length + missing.length, sent: results.length - failed.length, failed: failed.length + missing.length, errors }
   }
   const compose = async (event: Obj): Promise<Obj> => {
     const [attendees, participants, letters, tasks] = await Promise.all([
@@ -118,7 +131,8 @@ async function calendar(request: Request, auth: AuthContext, path: string, url: 
     const event = { ...base(auth), Title: String(input.title).trim(), Description: input.description ?? null, StartAt: input.startAt, EndAt: input.endAt, IsAllDay: Boolean(input.isAllDay), TimeZone: input.timeZone ?? 'Asia/Tehran', EventType: input.eventType ?? 'meeting', Location: input.location ?? null, OnlineMeetingUrl: input.onlineMeetingUrl ?? null, Status: 'scheduled', OrganizerUserId: auth.userId, OrganizerType: 'user', OrganizerContactId: null, OrganizerDisplayName: input.organizerDisplayName ?? auth.username }
     const created = await db.from('CalendarEvents').insert(event).select().single(); check(created.error)
     await syncRelations(event.Id, input, true)
-    const sms = input.sendSms ? await sendEventSms(created.data, participants) : undefined
+    const shouldSendSms = input.sendSms === true || (input.sendSms === undefined && event.EventType === 'meeting')
+    const sms = shouldSendSms && participants.length ? await sendEventSms(created.data, participants) : undefined
     return json(request, { ...await compose(created.data), sms }, 201)
   }
   if (request.method === 'PUT' && match) {

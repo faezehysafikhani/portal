@@ -61,6 +61,7 @@ function currentPersian() { return currentJalali() }
 
 function EnhancedEventModal(props: any) {
   const { open,onCancel,onSave,saving,form,error,people,letters,tasks,persianDate,setPersianDate,relatedPeople,setRelatedPeople,relatedLetters,setRelatedLetters,relatedTasks,setRelatedTasks,editing }=props
+  const eventType = Form.useWatch('type', form) ?? 'meeting'
   return <Modal title={editing?'ویرایش رویداد':'رویداد جدید'} open={open} onCancel={onCancel} onOk={onSave} confirmLoading={saving} okText={editing?'ذخیره تغییرات':'ذخیره'} cancelText="بازگشت" width={800}>
     {error&&<Alert type="error" showIcon message={error} style={{marginBottom:12}}/>}
     <Form form={form} layout="vertical" initialValues={{type:'meeting'}}><Tabs items={[
@@ -73,7 +74,9 @@ function EnhancedEventModal(props: any) {
         <Col xs={24} md={12}><Form.Item name="location" label="مکان"><Input/></Form.Item></Col>
         <Col xs={24} md={12}><Form.Item name="organizer" label="برگزارکننده"><Select allowClear showSearch optionFilterProp="label" options={people.map((p:PersonOption)=>({value:p.key,label:p.name+' — '+p.detail}))}/></Form.Item></Col>
         <Col span={24}><Form.Item name="description" label="توضیحات"><Input.TextArea rows={3}/></Form.Item></Col>
-        <Col span={24}><Form.Item name="sendSms" valuePropName="checked"><Checkbox>برای افراد مرتبط پیامک دعوت جلسه ارسال شود</Checkbox></Form.Item></Col>
+        <Col span={24}>{!editing && eventType === 'meeting'
+          ? <Alert type="info" showIcon message="با ثبت جلسه، پیامک دعوت برای افراد مرتبط ارسال می‌شود." />
+          : <Form.Item name="sendSms" valuePropName="checked"><Checkbox>برای افراد مرتبط پیامک دعوت ارسال شود</Checkbox></Form.Item>}</Col>
       </Row>},
       {key:'people',label:'افراد مرتبط',children:<Select mode="multiple" showSearch optionFilterProp="label" style={{width:'100%'}} value={relatedPeople} onChange={setRelatedPeople} options={people.map((p:PersonOption)=>({value:p.key,label:p.name+' — '+p.detail}))}/>},
       {key:'agenda',label:'دستور جلسه',children:<EventAgendaTab/>},{key:'minutes',label:'صورتجلسه و اقدامات',children:<EventMinutesTab/>},
@@ -358,6 +361,11 @@ export default function DashboardPage() {
   const [calendarError,setCalendarError]=useState(''),[savingEvent,setSavingEvent]=useState(false)
   const [summary,setSummary]=useState<any>({newLetters:0,activeTasks:0,openTickets:0,todayEvents:0,onlineUsers:0,recentLetters:[],recentTasks:[]})
   const currentUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
+  const self: PersonOption | undefined = currentUser.id ? {
+    key: `user:${currentUser.id}`, type: 'user', id: currentUser.id,
+    name: currentUser.fullName || currentUser.username || 'کاربر فعلی', detail: 'خودم',
+  } : undefined
+  const eventPeople = self ? [self, ...peopleOptions.filter(person => person.key !== self.key)] : peopleOptions
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const allowed=(code:string)=>(Array.isArray(currentUser.roles)&&currentUser.roles.includes('Admin'))||grantedPermissions.includes(code)
 
@@ -375,9 +383,9 @@ export default function DashboardPage() {
   const isToday = (day: number) => day===today.day&&currentMonth===today.month&&currentYear===today.year
   const nextMonth=()=>{if(currentMonth===12){setCurrentMonth(1);setCurrentYear(year=>year+1)}else setCurrentMonth(month=>month+1)}
   const previousMonth=()=>{if(currentMonth===1){setCurrentMonth(12);setCurrentYear(year=>year-1)}else setCurrentMonth(month=>month-1)}
-  const openNewEvent=(date:string)=>{setEditingEvent(null);setSelectedDate(date);setPersianEventDate(date);setRelatedPeople([]);setRelatedLetters([]);setRelatedTasks([]);eventForm.resetFields();eventForm.setFieldsValue({type:'meeting'});setEventModal(true);void loadEventOptions()}
+  const openNewEvent=(date:string)=>{setEditingEvent(null);setSelectedDate(date);setPersianEventDate(date);setRelatedPeople([]);setRelatedLetters([]);setRelatedTasks([]);eventForm.resetFields();eventForm.setFieldsValue({type:'meeting',organizer:self?.key});setEventModal(true);void loadEventOptions()}
   const openEventDetails=(event:CalEvent)=>{setSelectedEvent(event);setDayEventsModal(false)}
-  const openEditEvent=(event:CalEvent)=>{setSelectedEvent(null);setDayEventsModal(false);setEditingEvent(event);setSelectedDate(event.date);setPersianEventDate(event.date);setRelatedPeople(event.participants.map(person=>`${person.personType}:${person.personId}`));setRelatedLetters(event.relatedLetterIds);setRelatedTasks(event.relatedTaskIds);eventForm.setFieldsValue({title:event.title,type:event.type,startTime:dayjs(event.startAt),endTime:dayjs(event.endAt),location:event.location,description:event.description});setEventModal(true);void loadEventOptions()}
+  const openEditEvent=(event:CalEvent)=>{setSelectedEvent(null);setDayEventsModal(false);setEditingEvent(event);setSelectedDate(event.date);setPersianEventDate(event.date);setRelatedPeople(event.participants.map(person=>`${person.personType}:${person.personId}`));setRelatedLetters(event.relatedLetterIds);setRelatedTasks(event.relatedTaskIds);eventForm.setFieldsValue({title:event.title,type:event.type,startTime:dayjs(event.startAt),endTime:dayjs(event.endAt),location:event.location,description:event.description,sendSms:false,organizer:event.organizerUserId?`user:${event.organizerUserId}`:undefined});setEventModal(true);void loadEventOptions()}
 
   const handleDayClick = (day: number) => {
     const date = `${currentYear}/${currentMonth}/${day}`
@@ -386,7 +394,7 @@ export default function DashboardPage() {
     else if (allowed('calendar.create')) openNewEvent(date)
   }
 
-  const handleSaveEvent=async()=>{const v=await eventForm.validateFields() as {title:string;type:string;startTime:Dayjs;endTime:Dayjs;location?:string;organizer?:string;description?:string;sendSms?:boolean};if(!persianEventDate){message.error('تاریخ شمسی را انتخاب کنید');return}const start=jalaliToDate(persianEventDate),end=jalaliToDate(persianEventDate);start.setHours(v.startTime.hour(),v.startTime.minute(),0,0);end.setHours(v.endTime.hour(),v.endTime.minute(),0,0);if(end<=start){message.error('ساعت پایان باید بعد از ساعت شروع باشد');return}const person=(k:string,r:string)=>{const p=peopleOptions.find(x=>x.key===k);return p?{personType:p.type,personId:p.id,displayName:p.name,role:r}:null};setSavingEvent(true);try{const res=await fetch(`${API}/calendar${editingEvent?`/${editingEvent.id}`:''}`,{method:editingEvent?'PUT':'POST',headers:authHeaders(),body:JSON.stringify({title:v.title,description:v.description,startAt:start.toISOString(),endAt:end.toISOString(),isAllDay:false,timeZone:'Asia/Tehran',eventType:v.type,location:v.location,onlineMeetingUrl:null,organizer:v.organizer?person(v.organizer,'organizer'):null,participants:relatedPeople.map(k=>person(k,'attendee')).filter(Boolean),relatedLetterIds:relatedLetters,relatedTaskIds:relatedTasks,sendSms:!!v.sendSms})});const result=await res.json().catch(()=>({}));if(!res.ok)throw new Error(result.message||(editingEvent?'ویرایش ناموفق بود':'ثبت ناموفق بود'));message.success(editingEvent?'رویداد ویرایش شد':'رویداد ثبت شد');if(v.sendSms&&result.sms){if(result.sms.failed)message.warning(`پیامک: ${result.sms.sent} ارسال شد، ${result.sms.failed} ناموفق بود. ${result.sms.errors?.join('، ')||''}`,8);else message.success(`${result.sms.sent} پیامک دعوت ارسال شد`)}setEventModal(false);setEditingEvent(null);setPersianEventDate('');await loadCalendar()}catch(e){message.error(e instanceof Error?e.message:'خطا')}finally{setSavingEvent(false)}}
+  const handleSaveEvent=async()=>{const v=await eventForm.validateFields() as {title:string;type:string;startTime:Dayjs;endTime:Dayjs;location?:string;organizer?:string;description?:string;sendSms?:boolean};if(!persianEventDate){message.error('تاریخ شمسی را انتخاب کنید');return}const start=jalaliToDate(persianEventDate),end=jalaliToDate(persianEventDate);start.setHours(v.startTime.hour(),v.startTime.minute(),0,0);end.setHours(v.endTime.hour(),v.endTime.minute(),0,0);if(end<=start){message.error('ساعت پایان باید بعد از ساعت شروع باشد');return}const person=(k:string,r:string)=>{const p=eventPeople.find(x=>x.key===k);if(p)return {personType:p.type,personId:p.id,displayName:p.name,role:r};const previous=editingEvent?.participants.find(x=>`${x.personType}:${x.personId}`===k);return previous?{...previous,role:r}:null};setSavingEvent(true);try{const res=await fetch(`${API}/calendar${editingEvent?`/${editingEvent.id}`:''}`,{method:editingEvent?'PUT':'POST',headers:authHeaders(),body:JSON.stringify({title:v.title,description:v.description,startAt:start.toISOString(),endAt:end.toISOString(),isAllDay:false,timeZone:'Asia/Tehran',eventType:v.type,location:v.location,onlineMeetingUrl:null,organizer:v.organizer?person(v.organizer,'organizer'):null,participants:relatedPeople.map(k=>person(k,'attendee')).filter(Boolean),relatedLetterIds:relatedLetters,relatedTaskIds:relatedTasks,sendSms:(!editingEvent&&v.type==='meeting')||v.sendSms===true})});const result=await res.json().catch(()=>({}));if(!res.ok)throw new Error(result.message||(editingEvent?'ویرایش ناموفق بود':'ثبت ناموفق بود'));message.success(editingEvent?'رویداد ویرایش شد':'رویداد ثبت شد');if(result.sms){if(result.sms.failed)message.warning(`پیامک: ${result.sms.sent} ارسال شد، ${result.sms.failed} ناموفق بود. ${result.sms.errors?.join('، ')||''}`,8);else if(result.sms.sent)message.success(`${result.sms.sent} پیامک دعوت ارسال شد`)}setEventModal(false);setEditingEvent(null);setPersianEventDate('');await loadCalendar()}catch(e){message.error(e instanceof Error?e.message:'خطا')}finally{setSavingEvent(false)}}
   const handleDeleteEvent=(event:CalEvent)=>Modal.confirm({title:'حذف رویداد',content:`رویداد «${event.title}» حذف شود؟`,okText:'حذف',cancelText:'انصراف',okButtonProps:{danger:true},onOk:async()=>{const response=await fetch(`${API}/calendar/${event.id}`,{method:'DELETE',headers:authHeaders()});if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.message||'حذف رویداد انجام نشد')}message.success('رویداد حذف شد');setSelectedEvent(null);setDayEventsModal(false);await loadCalendar()}})
 
   const notificationVisual=(type:string)=>({
@@ -412,7 +420,7 @@ export default function DashboardPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <EnhancedEventModal open={eventModal} onCancel={()=>{setEventModal(false);setEditingEvent(null)}} onSave={handleSaveEvent} saving={savingEvent} form={eventForm} error={calendarError} editing={editingEvent}
-        people={peopleOptions} letters={letterOptions} tasks={taskOptions} persianDate={persianEventDate} setPersianDate={setPersianEventDate} relatedPeople={relatedPeople} setRelatedPeople={setRelatedPeople}
+        people={eventPeople} letters={letterOptions} tasks={taskOptions} persianDate={persianEventDate} setPersianDate={setPersianEventDate} relatedPeople={relatedPeople} setRelatedPeople={setRelatedPeople}
         relatedLetters={relatedLetters} setRelatedLetters={setRelatedLetters} relatedTasks={relatedTasks} setRelatedTasks={setRelatedTasks}/>
 
       {/* تقویم + اعلان‌ها */}

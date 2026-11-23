@@ -5,9 +5,9 @@ type Obj = Record<string, any>
 const db = adminClient()
 const now = () => new Date().toISOString()
 const base = (auth: AuthContext): Obj => ({ Id: crypto.randomUUID(), TenantId: auth.tenantId, CreatedAt: now(), UpdatedAt: null, CreatedByUserId: auth.userId, IsDeleted: false, DeletedAt: null })
-const normalizePhone = (value: unknown): string => {
+export const normalizePhone = (value: unknown): string => {
   const fa='۰۱۲۳۴۵۶۷۸۹',ar='٠١٢٣٤٥٦٧٨٩'
-  return String(value??'').trim().replace(/[۰-۹٠-٩]/g,d=>String(fa.indexOf(d)>=0?fa.indexOf(d):ar.indexOf(d))).replace(/^\+98/,'0').replace(/^0098/,'0')
+  return String(value??'').replace(/[\s().-]/g,'').replace(/[۰-۹٠-٩]/g,d=>String(fa.indexOf(d)>=0?fa.indexOf(d):ar.indexOf(d))).replace(/^(?:\+98|0098|98)(?=9\d{9}$)/,'0').replace(/^(?=9\d{9}$)/,'0')
 }
 const isKavenegar = (provider: unknown, apiUrl: unknown): boolean => {
   if(String(provider??'').trim().replace(/[\s_-]/g,'').toLowerCase()==='kavenegar')return true
