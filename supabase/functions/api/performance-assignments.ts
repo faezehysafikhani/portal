@@ -2,6 +2,7 @@ import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { body, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { validatePerformanceFile } from './performance-daily.ts'
+import { canDownload, policyAt, scope } from './performance-policy.ts'
 
 type Row = Record<string, any>
 const db = adminClient()
@@ -136,6 +137,7 @@ async function listTasks(auth: AuthContext,own: boolean) {
 }
 async function detail(auth: AuthContext,id: string) {
   const {task,own,manage}=await get(auth,id)
+  const downloadable=own||canDownload(await scope(auth),task.AssignedToUserId)
   const [events,files,activities,project]=await Promise.all([
     db.from('TaskActivityLogs').select('Id,ActorUserId,Action,DetailsJson,CreatedAt').eq('TaskId',id).eq('TenantId',auth.tenantId)
       .eq('IsDeleted',false).like('Action','assignment_%').order('CreatedAt',{ascending:false}),
@@ -148,23 +150,27 @@ async function detail(auth: AuthContext,id: string) {
   const people=await names(auth,[task.AssignedToUserId,task.AssignedByUserId,...(events.data??[]).map(e=>e.ActorUserId)])
   const related=(activities.data??[]) as unknown as Row[]
   return {...task,own,manage,late:isLate(task),projectName:project.data?.Name,employeeName:people.get(task.AssignedToUserId),
-    managerName:people.get(task.AssignedByUserId),minutes:related.reduce((n,a)=>n+a.minutes,0),files:files.data,
-    activities:related.map(a=>({id:a.id,title:a.title,description:a.description,outcome:a.outcome,minutes:a.minutes,date:a.performance_daily_reports.work_date,files:a.performance_daily_attachments})),
+    managerName:people.get(task.AssignedByUserId),minutes:related.reduce((n,a)=>n+a.minutes,0),files:downloadable?files.data:[],
+    activities:related.map(a=>({id:a.id,title:a.title,description:a.description,outcome:a.outcome,minutes:a.minutes,date:a.performance_daily_reports.work_date,files:downloadable?a.performance_daily_attachments:[]})),
     events:(events.data??[]).map(e=>({id:e.Id,action:e.Action,date:e.CreatedAt,actor:people.get(e.ActorUserId),details:JSON.parse(e.DetailsJson??'{}')}))}
 }
 async function attachment(request:Request,auth:AuthContext,taskId:string,fileId:string, activityFile:boolean) {
-  const {task}=await get(auth,taskId)
+  const {task,own}=await get(auth,taskId)
+  if(!own&&!canDownload(await scope(auth),task.AssignedToUserId))throw new HttpError(404,'پیوست یافت نشد')
   let file:Row|null
   if (activityFile) {
-    const result=await db.from('performance_daily_attachments').select('name,content_base64,performance_daily_activities!inner(task_id,performance_daily_reports!inner(tenant_id,employee_id))')
+    const result=await db.from('performance_daily_attachments').select('name,content_base64,created_at,performance_daily_activities!inner(task_id,performance_daily_reports!inner(tenant_id,employee_id))')
       .eq('id',fileId).eq('performance_daily_activities.task_id',taskId).eq('performance_daily_activities.performance_daily_reports.tenant_id',auth.tenantId)
       .eq('performance_daily_activities.performance_daily_reports.employee_id',task.AssignedToUserId).maybeSingle()
     check(result.error);file=result.data as unknown as Row | null
   } else {
-    const result=await db.from('performance_task_files').select('name,content_base64').eq('id',fileId).eq('task_id',taskId).maybeSingle()
+    const result=await db.from('performance_task_files').select('name,content_base64,created_at').eq('id',fileId).eq('task_id',taskId).maybeSingle()
     check(result.error);file=result.data
   }
   if(!file)throw new HttpError(404,'پیوست یافت نشد')
+  const retention=(await policyAt(auth)).files.retentionDays
+  if(retention>0&&Date.parse(file.created_at)<Date.now()-retention*86400000)
+    throw new HttpError(410,'مدت دسترسی آنلاین به این پیوست به پایان رسیده است')
   return new Response(Uint8Array.from(atob(file.content_base64),c=>c.charCodeAt(0)),{headers:{
     ...corsHeaders(request),'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(file.name).replace(/'/g,'%27')}`,
     'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',
@@ -192,7 +198,14 @@ export async function handleTaskAssignments(request:Request,auth:AuthContext,pat
     const action=method==='POST'?'create':String(input.action??'')
     const id=method==='POST'?input.id:match?.[1]
     if(!isId(id)|| (method==='PATCH'&&![...employeeActions,...managerActions].includes(action)))throw new HttpError(400,'عملیات وظیفه معتبر نیست')
-    const result=await db.rpc('performance_task_mutate',{p_tenant:auth.tenantId,p_actor:auth.userId,p_admin:admin(auth),p_task:id,p_action:action,p_data:validated(action,input)})
+    const data=validated(action,input)
+    if(data.files?.length){
+      const rules=(await policyAt(auth)).files
+      if(data.files.length>rules.maxCount||data.files.some((f:Row)=>f.bytes>rules.maxBytes||!rules.mimes.includes(f.mime))
+        ||data.files.reduce((n:number,f:Row)=>n+f.bytes,0)>rules.totalBytes)
+        throw new HttpError(400,'تعداد، مجموع حجم یا فرمت پیوست مطابق تنظیمات سازمان نیست')
+    }
+    const result=await db.rpc('performance_task_mutate',{p_tenant:auth.tenantId,p_actor:auth.userId,p_admin:admin(auth),p_task:id,p_action:action,p_data:data})
     check(result.error)
     return json(request,{id:result.data},method==='POST'?201:200)
   }

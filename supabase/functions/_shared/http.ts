@@ -40,7 +40,7 @@ export function camelize(value: unknown): unknown {
 }
 
 export function pascalize(value: Record<string, unknown>, allowed?: readonly string[]): Record<string, unknown> {
-  const entries = Object.entries(value).map(([key, item]) => [
+  const entries = Object.entries(value).map(([key, item]): [string, unknown] => [
     key.length ? key[0].toUpperCase() + key.slice(1) : key,
     item,
   ])

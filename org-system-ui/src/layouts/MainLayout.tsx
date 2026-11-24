@@ -20,6 +20,7 @@ const { Header, Sider, Content } = Layout
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const [canReviewPerformance, setCanReviewPerformance] = useState(false)
+  const [canConfigurePerformance, setCanConfigurePerformance] = useState(false)
   const [canAssignPerformance, setCanAssignPerformance] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
@@ -29,12 +30,17 @@ export default function MainLayout() {
   const serverPermissions: string[] = JSON.parse(localStorage.getItem('permissions') || '[]')
   const isAdmin = Array.isArray(user.roles) && user.roles.includes('Admin')
   useEffect(()=>{
-    if (!user.id || isAdmin) return
+    if (!user.id) return
     const controller = new AbortController()
-    apiFetch('http://localhost:5043/api/v1/performance/daily/access',{signal:controller.signal})
-      .then(async response=>{ if (response.ok && !controller.signal.aborted) setCanReviewPerformance(Boolean((await response.json()).canReview)) })
+    apiFetch('http://localhost:5043/api/v1/performance/config/access',{signal:controller.signal})
+      .then(async response=>{
+        if(response.ok&&!controller.signal.aborted){
+          const access=await response.json()
+          setCanReviewPerformance(Boolean(access.review));setCanConfigurePerformance(Boolean(access.settings))
+        }
+      })
       .catch(()=>{})
-    apiFetch('http://localhost:5043/api/v1/performance/assignments/access',{signal:controller.signal})
+    if(!isAdmin)apiFetch('http://localhost:5043/api/v1/performance/assignments/access',{signal:controller.signal})
       .then(async response=>{ if (response.ok && !controller.signal.aborted) setCanAssignPerformance(Boolean((await response.json()).canManage)) })
       .catch(()=>{})
     return ()=>controller.abort()
@@ -76,7 +82,9 @@ export default function MainLayout() {
       {key:'/performance/tasks',icon:<UnorderedListOutlined/>,label:'وظایف من'},
       ...(isAdmin || canAssignPerformance ? [{key:'/performance/assignments',icon:<CheckSquareOutlined/>,label:'واگذاری و پیگیری وظایف'}] : []),
       {key:'/performance/reports',icon:<CalendarOutlined/>,label:'گزارش‌های من'},
-      ...(isAdmin || canReviewPerformance ? [{key:'/performance/review',icon:<AuditOutlined/>,label:'کارتابل تأیید گزارش‌ها'}] : []),
+      ...(canReviewPerformance ? [{key:'/performance/review',icon:<AuditOutlined/>,label:'کارتابل تأیید گزارش‌های روزانه'},
+        {key:'/performance/team',icon:<BarChartOutlined/>,label:'عملکرد کارکنان'}] : []),
+      ...(canConfigurePerformance ? [{key:'/performance/settings',icon:<SettingOutlined/>,label:'تنظیمات ارزیابی عملکرد'}] : []),
     ]},
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
     ...(allowed('contacts.view') ? [{ key: '/contacts', icon: <ContactsOutlined />, label: 'مخاطبین' }] : []),
@@ -134,7 +142,9 @@ export default function MainLayout() {
       '/performance/tasks': 'وظایف من',
       '/performance/assignments': 'واگذاری و پیگیری وظایف',
       '/performance/reports': 'گزارش‌های من',
-      '/performance/review': 'کارتابل تأیید گزارش‌ها',
+      '/performance/review': 'کارتابل تأیید گزارش‌های روزانه',
+      '/performance/team': 'عملکرد کارکنان',
+      '/performance/settings': 'تنظیمات ارزیابی عملکرد',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
   }

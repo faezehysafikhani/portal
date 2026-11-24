@@ -6,6 +6,8 @@ import { jalaliMonthRange } from '../_shared/jalali.ts'
 import { adjustmentCatalog, computeScoreCardTotals, matrixOutcome, rubric } from './performance-rubric.ts'
 import { handleDailyPerformance } from './performance-daily.ts'
 import { handleTaskAssignments } from './performance-assignments.ts'
+import { handlePerformancePolicy } from './performance-policy.ts'
+import { handlePerformanceInsights } from './performance-insights.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -843,6 +845,10 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
 
 export async function handlePerformance(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
   if (!path.startsWith('/performance')) return null
+  const configuration = await handlePerformancePolicy(request,auth,path,url)
+  if (configuration) return configuration
+  const insights = await handlePerformanceInsights(request,auth,path,url)
+  if (insights) return insights
   const assignments = await handleTaskAssignments(request,auth,path,url)
   if (assignments) return assignments
   const daily = await handleDailyPerformance(request,auth,path,url)
