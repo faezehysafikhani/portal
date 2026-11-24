@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { apiFetch } from '../../utils/api'
+import { EvaluationQueue, TeamEvaluationOverview } from './PeriodicEvaluationPage'
 import { dateToJalali, formatJalaliDate, jalaliToDate } from '../../utils/jalali'
 
 const root='http://localhost:5043/api/v1/performance/insights'
@@ -127,6 +128,14 @@ export function ReportsReviewPanel({open,refresh}:{open:(id:string,decision?:'ap
   </Space>
 }
 export default function PerformanceInsightsPage(){
+  const [periodic,setPeriodic]=useState(false)
+  useEffect(()=>{
+    const controller=new AbortController()
+    apiFetch('http://localhost:5043/api/v1/performance/config/access',{signal:controller.signal}).then(async response=>{
+      if(response.ok){const access=await response.json();if(!controller.signal.aborted)setPeriodic(Boolean(access.periodic))}
+    }).catch(()=>{})
+    return()=>controller.abort()
+  },[])
   const [range,setRange]=useState(defaultRange),[department,setDepartment]=useState<string>(),[position,setPosition]=useState<string>(),[project,setProject]=useState<string>()
   const [search,setSearch]=useState(''),[person,setPerson]=useState<Employee>()
   const [knownStaff,setKnownStaff]=useState<Employee[]>([]),[knownProjects,setKnownProjects]=useState<TeamData['projects']>([])
@@ -151,11 +160,11 @@ export default function PerformanceInsightsPage(){
         <Select allowClear placeholder="پروژه" style={{width:200}} value={project} onChange={setProject} options={[{label:'فعالیت غیرپروژه‌ای',value:'none'},...knownProjects.map(p=>({label:p.name,value:p.id}))]}/>
       </Space>
       {loading?<Card loading/>:<Tabs items={[
-        {key:'overview',label:'نمای کلی تیم',children:summary([
+        {key:'overview',label:'نمای کلی تیم',children:<Space direction="vertical" size="middle" style={{width:'100%'}}>{summary([
           ['کارکنان',rows.length],['زمان فعالیت',duration(sums('minutes'))],['وظایف فعال',sums('activeTasks')],
           ['وظایف تأییدشده',sums('finished')],['وظایف با تأخیر',sums('late')],['گزارش تأییدشده',sums('approved')],['در انتظار بررسی',sums('pending')],
           ['زمان تأییدشده',duration(sums('approvedMinutes'))],['زمان نیازمند اصلاح',duration(sums('returnedMinutes'))],['زمان پیش‌نویس',duration(sums('draftMinutes'))],
-        ])},
+        ])}{periodic&&<TeamEvaluationOverview/>}</Space>},
         {key:'people',label:'عملکرد فردی کارکنان',children:<>
           <Input.Search placeholder="نام کارمند" allowClear onChange={e=>setSearch(e.target.value)} value={search} style={{width:220,marginBottom:10}}/>
           <Table rowKey="id" dataSource={rows.filter(e=>matches(e.name,search))} scroll={{x:1450}} pagination={{pageSize:12}} columns={[
@@ -188,10 +197,11 @@ export default function PerformanceInsightsPage(){
           </Card>
           <TaskTable tasks={(data?.tasks??[]).filter(t=>t.late||t.returns||t.extensions)}/>
         </Space>},
+        ...(periodic?[{key:'evaluations',label:'ارزیابی‌ها و بازبینی‌ها',children:<EvaluationQueue embedded/>}]:[]),
       ]}/>}
     </Space>
   </Card>
-  {person&&<EmployeeProfile person={person} range={range} project={project} close={()=>setPerson(undefined)}/>}
+  {person&&<EmployeeProfile person={person} range={range} project={project} periodic={periodic} close={()=>setPerson(undefined)}/>}
   </div>
 }
 function aggregateTrends(days:Trend[],weekly:boolean):Trend[]{
@@ -217,7 +227,7 @@ function TaskTable({tasks,downloadFiles=false}:{tasks:Task[];downloadFiles?:bool
       onClick={()=>void download(`${root}/task-files/${f.id}`,f.name)}>{f.name}</Button>)}</Space>}]:[]),
   ]}/>
 }
-function EmployeeProfile({person,range,project,close}:{person:Employee;range:Range;project?:string;close:()=>void}){
+function EmployeeProfile({person,range,project,periodic,close}:{person:Employee;range:Range;project?:string;periodic:boolean;close:()=>void}){
   const navigate=useNavigate()
   const {data,loading,error}=useData<TeamData>('/person',range,{employee:person.id,project})
   const e=data?.employees[0]
@@ -243,6 +253,7 @@ function EmployeeProfile({person,range,project,close}:{person:Employee;range:Ran
           {title:'مستندات و تاریخچه',render:(_,r)=>r.id&&<Button type="link" onClick={()=>navigate(`/performance/review?report=${r.id}`)}>مشاهده گزارش</Button>},
         ]}/>},
         {key:'tasks',label:'وظایف و تحویل‌ها',children:<TaskTable tasks={data.tasks} downloadFiles={data.canDownload}/>},
+        ...(periodic?[{key:'evaluations',label:'سابقه ارزیابی و برنامه بهبود',children:<EvaluationQueue embedded employee={person.id}/>}]:[]),
       ]}/>
     </Space>}
   </Modal>

@@ -8,6 +8,7 @@ import { handleDailyPerformance } from './performance-daily.ts'
 import { handleTaskAssignments } from './performance-assignments.ts'
 import { handlePerformancePolicy } from './performance-policy.ts'
 import { handlePerformanceInsights } from './performance-insights.ts'
+import { handlePeriodicEvaluations } from './performance-periodic.ts'
 
 type Obj = Record<string, any>
 const db = adminClient()
@@ -386,7 +387,7 @@ async function listEvaluations(request: Request, auth: AuthContext, url: URL): P
   requireSection(auth, 'performance.evaluations')
   const targetUserId = url.searchParams.get('userId') || auth.userId
   if (!(await canViewUser(auth, targetUserId))) throw new HttpError(403, 'شما مجوز مشاهده ارزیابی این کاربر را ندارید')
-  let query = db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('UserId', targetUserId)
+  let query = db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('UserId', targetUserId)
   const status = url.searchParams.get('status')
   if (status) query = query.eq('Status', evaluationStatus.findIndex((s) => s.toLowerCase() === status.toLowerCase()))
   const result = await query.order('PeriodYear', { ascending: false }).order('PeriodMonth', { ascending: false })
@@ -396,7 +397,7 @@ async function listEvaluations(request: Request, auth: AuthContext, url: URL): P
 
 async function pendingReviewEvaluations(request: Request, auth: AuthContext): Promise<Response> {
   if (!canManage(auth)) throw new HttpError(403, 'شما مجوز بازبینی ارزیابی را ندارید')
-  let query = db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('Status', 1)
+  let query = db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('Status', 1)
   if (!isAdminScope(auth)) query = query.eq('ReviewerUserId', auth.userId)
   const result = await query.order('PeriodYear', { ascending: false }).order('PeriodMonth', { ascending: false })
   check(result.error)
@@ -407,7 +408,7 @@ async function pendingReviewEvaluations(request: Request, auth: AuthContext): Pr
 
 async function getEvaluation(request: Request, auth: AuthContext, id: string): Promise<Response> {
   requireSection(auth, 'performance.evaluations')
-  const result = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
+  const result = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(result.error)
   const row = result.data as Obj | null
   if (!row) throw new HttpError(404, 'ارزیابی یافت نشد')
@@ -418,7 +419,7 @@ async function getEvaluation(request: Request, auth: AuthContext, id: string): P
 
 async function getEvaluationLogs(request: Request, auth: AuthContext, id: string): Promise<Response> {
   requireSection(auth, 'performance.evaluations')
-  const evalResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
+  const evalResult = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(evalResult.error)
   const evaluation = evalResult.data as Obj | null
   if (!evaluation) throw new HttpError(404, 'ارزیابی یافت نشد')
@@ -446,7 +447,7 @@ async function computeOneEvaluation(auth: AuthContext, targetUserId: string, per
   const reviewerId = await findReviewerFor(db, auth.tenantId, targetUserId)
   if (!isAdminScope(auth) && auth.userId !== reviewerId) throw new HttpError(403, 'فقط ارزیاب این کارمند می‌تواند ارزیابی را محاسبه کند')
 
-  const existing = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId)
+  const existing = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId)
     .eq('UserId', targetUserId).eq('PeriodYear', periodYear).eq('PeriodMonth', periodMonth).eq('IsDeleted', false).maybeSingle()
   check(existing.error)
   if (existing.data && Number((existing.data as Obj).Status) === 2) throw new HttpError(400, 'این ارزیابی نهایی شده است؛ ابتدا آن را بازگشایی کنید')
@@ -517,7 +518,7 @@ async function computeOneEvaluation(auth: AuthContext, targetUserId: string, per
     Status: 1, ReviewerUserId: reviewerId, UpdatedAt: now(),
   }
   const savedResult = existing.data
-    ? await db.from('PerformanceEvaluations').update(values).eq('Id', (existing.data as Obj).Id).select().single()
+    ? await db.from('PerformanceEvaluations').update(values).is('EvaluationPeriodKey',null).eq('Id', (existing.data as Obj).Id).select().single()
     : await db.from('PerformanceEvaluations').insert({
       ...baseInsert(auth), UserId: targetUserId, PeriodYear: periodYear, PeriodMonth: periodMonth, ...values,
     }).select().single()
@@ -542,7 +543,7 @@ async function computeEvaluation(request: Request, auth: AuthContext): Promise<R
   const periodMonth = Number(input.periodMonth)
   if (!targetUserId || !periodYear || !periodMonth || periodMonth < 1 || periodMonth > 12) throw new HttpError(400, 'کاربر و دوره ماهانه معتبر الزامی است')
   if (!/^[0-9a-f-]{36}$/i.test(targetUserId)) throw new HttpError(400, 'شناسه کاربر نامعتبر است')
-  const wasExisting = await db.from('PerformanceEvaluations').select('Id').eq('TenantId', auth.tenantId)
+  const wasExisting = await db.from('PerformanceEvaluations').select('Id').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId)
     .eq('UserId', targetUserId).eq('PeriodYear', periodYear).eq('PeriodMonth', periodMonth).eq('IsDeleted', false).maybeSingle()
   const saved = await computeOneEvaluation(auth, targetUserId, periodYear, periodMonth, input.managerQualitativeScore)
   return json(request, evaluationDto(saved), wasExisting.data ? 200 : 201)
@@ -582,7 +583,7 @@ async function computeBulkEvaluations(request: Request, auth: AuthContext): Prom
 async function patchEvaluation(request: Request, auth: AuthContext, id: string): Promise<Response> {
   requireSection(auth, 'performance.evaluations')
   const input = await body<Obj>(request)
-  const currentResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
+  const currentResult = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(currentResult.error)
   const current = currentResult.data as Obj | null
   if (!current) throw new HttpError(404, 'ارزیابی یافت نشد')
@@ -618,7 +619,7 @@ async function patchEvaluation(request: Request, auth: AuthContext, id: string):
     throw new HttpError(400, 'هیچ تغییری مشخص نشده است')
   }
 
-  const result = await db.from('PerformanceEvaluations').update(update).eq('TenantId', auth.tenantId).eq('Id', id).select().maybeSingle()
+  const result = await db.from('PerformanceEvaluations').update(update).is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('Id', id).select().maybeSingle()
   check(result.error)
   if (!result.data) throw new HttpError(404, 'ارزیابی یافت نشد')
   await logEvaluation(auth, id, action, { changes: input })
@@ -639,7 +640,7 @@ async function createAppeal(request: Request, auth: AuthContext): Promise<Respon
   const evaluationId = String(input.evaluationId ?? '')
   const reason = String(input.reason ?? '').trim()
   if (!evaluationId || !reason) throw new HttpError(400, 'ارزیابی و دلیل اعتراض الزامی است')
-  const evalResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('Id', evaluationId).eq('IsDeleted', false).maybeSingle()
+  const evalResult = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('Id', evaluationId).eq('IsDeleted', false).maybeSingle()
   check(evalResult.error)
   const evaluation = evalResult.data as Obj | null
   if (!evaluation) throw new HttpError(404, 'ارزیابی یافت نشد')
@@ -667,18 +668,18 @@ async function resolveAppeal(request: Request, auth: AuthContext, id: string): P
   const status = String(input.status ?? '')
   const statusIndex = appealStatus.findIndex((s) => s.toLowerCase() === status.toLowerCase())
   if (statusIndex < 0) throw new HttpError(400, 'وضعیت اعتراض معتبر نیست')
-  const currentResult = await db.from('PerformanceAppeals').select('*').eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
+  const currentResult = await db.from('PerformanceAppeals').select('*').is('PeriodicExplanation',null).eq('TenantId', auth.tenantId).eq('Id', id).eq('IsDeleted', false).maybeSingle()
   check(currentResult.error)
   const current = currentResult.data as Obj | null
   if (!current) throw new HttpError(404, 'اعتراض یافت نشد')
   if (!isAdminScope(auth)) {
-    const evalResult = await db.from('PerformanceEvaluations').select('ReviewerUserId').eq('Id', current.EvaluationId).maybeSingle()
+    const evalResult = await db.from('PerformanceEvaluations').select('ReviewerUserId').is('EvaluationPeriodKey',null).eq('Id', current.EvaluationId).maybeSingle()
     check(evalResult.error)
     if (!evalResult.data || (evalResult.data as Obj).ReviewerUserId !== auth.userId) throw new HttpError(403, 'فقط ارزیاب مربوطه می‌تواند به این اعتراض رسیدگی کند')
   }
   const update: Obj = { Status: statusIndex, UpdatedAt: now(), ReviewerResponse: input.reviewerResponse ?? current.ReviewerResponse }
   if (statusIndex === 2) { update.ResolvedByUserId = auth.userId; update.ResolvedAt = now() }
-  const result = await db.from('PerformanceAppeals').update(update).eq('TenantId', auth.tenantId).eq('Id', id).select().single()
+  const result = await db.from('PerformanceAppeals').update(update).is('PeriodicExplanation',null).eq('TenantId', auth.tenantId).eq('Id', id).select().single()
   check(result.error)
   await logEvaluation(auth, String(current.EvaluationId), statusIndex === 2 ? 'AppealResolved' : 'AppealReviewed', { appealId: id, response: input.reviewerResponse })
   await createNotification(db, auth, {
@@ -772,7 +773,7 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
   const scope = url.searchParams.get('scope') || 'me'
 
   if (scope === 'me') {
-    const evalResult = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('UserId', auth.userId).eq('IsDeleted', false)
+    const evalResult = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('UserId', auth.userId).eq('IsDeleted', false)
       .order('PeriodYear', { ascending: false }).order('PeriodMonth', { ascending: false }).limit(12)
     check(evalResult.error)
     const rows = (evalResult.data ?? []).map(evaluationDto)
@@ -789,7 +790,7 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
     if (!employeeIds.length) return json(request, { scope, employees: [], bandDistribution: [], pendingApprovals: 0 })
     const names = await userDisplayNames(auth.tenantId, employeeIds)
     const latestPerUser = await Promise.all(employeeIds.map(async (id) => {
-      const r = await db.from('PerformanceEvaluations').select('*').eq('TenantId', auth.tenantId).eq('UserId', id).eq('IsDeleted', false)
+      const r = await db.from('PerformanceEvaluations').select('*').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('UserId', id).eq('IsDeleted', false)
         .order('PeriodYear', { ascending: false }).order('PeriodMonth', { ascending: false }).limit(1).maybeSingle()
       return { userId: id, userName: names.get(id) ?? '', evaluation: r.data ? evaluationDto(r.data) : null }
     }))
@@ -806,7 +807,7 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
 
   if (scope === 'company') {
     if (!isAdminScope(auth)) throw new HttpError(403, 'شما مجوز مشاهده داشبورد کل شرکت را ندارید')
-    const result = await db.from('PerformanceEvaluations').select('UserId,FinalScore,ScoreBand,PeriodYear,PeriodMonth').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
+    const result = await db.from('PerformanceEvaluations').select('UserId,FinalScore,ScoreBand,PeriodYear,PeriodMonth').is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     check(result.error)
     const rows = (result.data ?? []) as Obj[]
     const latestPerUser = new Map<string, Obj>()
@@ -819,7 +820,7 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
     const bandCounts = new Map<string, number>()
     for (const row of latest) if (row.ScoreBand) bandCounts.set(String(row.ScoreBand), (bandCounts.get(String(row.ScoreBand)) ?? 0) + 1)
     const avgScore = latest.length ? Math.round((latest.reduce((sum, r) => sum + Number(r.FinalScore ?? 0), 0) / latest.length) * 10) / 10 : null
-    const pendingResult = await db.from('PerformanceEvaluations').select('*', { count: 'exact', head: true }).eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('Status', 1)
+    const pendingResult = await db.from('PerformanceEvaluations').select('*', { count: 'exact', head: true }).is('EvaluationPeriodKey',null).eq('TenantId', auth.tenantId).eq('IsDeleted', false).eq('Status', 1)
     check(pendingResult.error)
     // Full employee roster (not just those with an evaluation yet), for the HR "بازبینی کل شرکت"
     // tab's employee picker/bulk-compute — same {userId, userName, evaluation} shape as scope=team.
@@ -845,6 +846,8 @@ async function dashboardRoute(request: Request, auth: AuthContext, url: URL): Pr
 
 export async function handlePerformance(request: Request, auth: AuthContext, path: string, url: URL): Promise<Response | null> {
   if (!path.startsWith('/performance')) return null
+  const periodic = await handlePeriodicEvaluations(request,auth,path,url)
+  if (periodic) return periodic
   const configuration = await handlePerformancePolicy(request,auth,path,url)
   if (configuration) return configuration
   const insights = await handlePerformanceInsights(request,auth,path,url)

@@ -404,7 +404,7 @@ export default function DashboardPage() {
   const notificationGroups = new Map<string,any>()
   rawNotifications.filter(n=>!n.isRead).forEach(n=>{
     const category=n.entityType==='LetterReferral'?'referral':String(n.type||'warning').toLowerCase()
-    const key=n.entityType==='PerformanceDailyReport'||/^\/performance\/(tasks|assignments)\?task=/.test(n.link || '')?`performance:${n.id}`:category
+    const key=['PerformanceDailyReport','PeriodicEvaluation'].includes(n.entityType)||/^\/performance\/(tasks|assignments)\?task=/.test(n.link || '')?`performance:${n.id}`:category
     const current=notificationGroups.get(key)
     if(current){current.ids.push(n.id);current.count+=1}
     else notificationGroups.set(key,{...n,category,ids:[n.id],count:1})

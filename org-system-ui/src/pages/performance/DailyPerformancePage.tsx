@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Statistic, Table, Tag, Timeline, TimePicker, message } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Statistic, Table, Tabs, Tag, Timeline, TimePicker, message } from 'antd'
 import { CalendarOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs, { type Dayjs } from 'dayjs'
@@ -8,6 +8,7 @@ import { dateToJalali, formatJalaliDate, isLeapJalali, jalaliToDate } from '../.
 import { apiFetch } from '../../utils/api'
 import TaskAssignmentsPanel from './TaskAssignmentsPanel'
 import { ReportsReviewPanel } from './PerformanceInsightsPage'
+import { EmployeeEvaluationPanel, PublishedEvaluationSummary } from './PeriodicEvaluationPage'
 
 const API = 'http://localhost:5043/api/v1/performance/daily'
 const labels = {
@@ -338,6 +339,7 @@ export default function DailyPerformancePage() {
 
   return <Space direction="vertical" size="middle" style={{width:'100%'}} dir="rtl">
     {page==='tasks' && <TaskAssignmentsPanel/>}
+    {isMine&&<PublishedEvaluationSummary/>}
     {(page!=='tasks' || legacyTasks.length>0 || error) &&
     <Card title={<Space><CalendarOutlined/>{labels[page] ?? labels.me}</Space>}>
       {error && <Alert type="error" showIcon message={error} style={{marginBottom:16}} action={<Button size="small" onClick={reload}>تلاش مجدد</Button>}/>}
@@ -387,7 +389,18 @@ export default function DailyPerformancePage() {
           {title:'پیشرفت',dataIndex:'Progress',render:(v:number)=>`${fa(v ?? 0)}٪`},
           {title:'عملیات',render:(_,task)=><Button size="small" onClick={()=>navigate(`/performance/me?task=${encodeURIComponent(task.Id)}`)}>ثبت فعالیت</Button>},
         ]}/>}
-      {page==='reports' && <Space direction="vertical" style={{width:'100%'}} size="middle">
+      {page==='reports' && <Tabs destroyOnHidden activeKey={(() => {
+        const params=new URLSearchParams(location.search)
+        if(params.get('tab')==='improvement')return 'improvement'
+        return params.has('evaluation')||params.get('tab')==='periodic'?'periodic':'daily'
+      })()} onChange={tab=>{
+        const params=new URLSearchParams(location.search)
+        params.delete('evaluation')
+        if(tab==='daily')params.delete('tab')
+        else params.set('tab',tab)
+        navigate({search:params.toString()},{replace:true})
+      }} items={[
+        {key:'daily',label:'گزارش‌های روزانه',children:<Space direction="vertical" style={{width:'100%'}} size="middle">
         <Space wrap>تقویم گزارش‌ها <PersianDatePicker value={shamsi(selectedDate)} onChange={d=>{if(d)setSelectedDate(isoDate(jalaliToDate(d)))}}/></Space>
         <Row gutter={[8,8]}>
           {days.map(date=>{
@@ -414,7 +427,10 @@ export default function DailyPerformancePage() {
             options={[{value:'all',label:'همهٔ ماه‌ها'},{value:'month',label:'ماه انتخاب‌شده'}]}/>
         </Space>
         {reportsTable(ownReports)}
-      </Space>}
+        </Space>},
+        {key:'periodic',label:'ارزیابی‌های من',children:<EmployeeEvaluationPanel/>},
+        {key:'improvement',label:'برنامه بهبود من',children:<EmployeeEvaluationPanel improvement/>},
+      ]}/>}
       {isReview && <ReportsReviewPanel open={(id,next)=>void openReport(id,next)} refresh={refresh}/>}
     </Card>}
     <Modal title={editing?.activity?'ویرایش فعالیت':'ثبت فعالیت'} open={!!editing} onCancel={()=>{if(!busy)setEditing(undefined)}}

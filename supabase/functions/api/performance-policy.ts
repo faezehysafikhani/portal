@@ -1,11 +1,13 @@
 import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { HttpError, body, json } from '../_shared/http.ts'
+import { evaluationGrants, readEvaluationRules, validateEvaluationRules, validatePeriodExtras, type Period } from './performance-evaluation-config.ts'
 
 type Row = Record<string, any>
 const db = adminClient()
 export const codes = {
   organization:'performance.reports.organization', approve:'performance.reports.approve', download:'performance.reports.download',
   settings:'performance.settings.manage', export:'performance.analytics.export', access:'performance.access.manage',
+  ...evaluationGrants,
 } as const
 const allowedCodes: string[] = Object.values(codes)
 const dayMs=86400000
@@ -47,21 +49,22 @@ const clock=(v:unknown)=>{
 }
 export const defaults = {
   enabled:true, required:true, deadline:'23:59', lateDays:0, allowRevision:false, allowPast:true,pastDays:0,
-  requireDescription:true, requireTime:true, allowManual:true, requireOutcome:false, allowEmpty:true,
+  requireDescription:true, requireTime:true, allowManual:true, requireOutcome:false, allowEmpty:true,dailyReminders:true,
   workingDays:[0,1,2,3,4,6],useOfficialHolidays:true,organizationHolidays:[] as string[],officialHolidays:[] as string[],
   exceptions:{} as Record<string,'off'|'work'>,workStart:'08:00',workEnd:'17:00',partialLeaveExempts:false,
   categories:[['project','فعالیت مرتبط با پروژه'],['internal','فعالیت اداری'],['finance','فعالیت مالی'],['technical','فعالیت فنی'],
     ['meeting','جلسه و هماهنگی'],['documentation','مستندسازی'],['control','بررسی و کنترل'],['support','پشتیبانی داخلی'],['recurring','فعالیت تکرارشونده'],['other','سایر فعالیت‌ها']]
     .map(([id,label])=>({id,label,active:true})),
   indicators:[] as {id:string;label:string;description:string;kind:string;unit:string;method:string;audienceKind:string;audience:string;weight:number;active:boolean;from:string}[],
-  periods:[] as {id:string;label:string;kind:string;from:string;to:string;status:string;finalization:string}[],
+  periods:[] as (Period&{finalizedAt?:string})[],
+  evaluation:readEvaluationRules(undefined),
   files:{maxBytes:1048576,maxCount:5,totalBytes:5242880,mimes:['application/pdf','image/png','image/jpeg','text/plain'],retentionDays:0},
 }
 export type Policy=typeof defaults
 export async function policyAt(auth:AuthContext,day=today()):Promise<Policy> {
   const result=await db.rpc('performance_policy_at',{p_tenant:auth.tenantId,p_day:day});check(result.error)
   const data=(result.data??{}) as Partial<Policy>
-  return {...defaults,...data,files:{...defaults.files,...data.files}}
+  return {...defaults,...data,files:{...defaults.files,...data.files},evaluation:readEvaluationRules(data.evaluation)}
 }
 export async function grantsFor(auth:AuthContext,employee=auth.userId):Promise<Set<string>> {
   const [permissions,links]=await Promise.all([
@@ -112,6 +115,8 @@ function validatePolicy(input:Row):Policy {
     if(typeof input[key]!=='boolean')throw new HttpError(400,'گزینه‌های روشن و خاموش معتبر نیستند')
     output[key]=input[key]
   }
+  if(input.dailyReminders!==undefined&&typeof input.dailyReminders!=='boolean')throw new HttpError(400,'تنظیم یادآوری گزارش روزانه معتبر نیست')
+  output.dailyReminders=input.dailyReminders??defaults.dailyReminders
   output.deadline=clock(input.deadline);output.workStart=clock(input.workStart);output.workEnd=clock(input.workEnd)
   if(output.workStart>=output.workEnd)throw new HttpError(400,'ساعت پایان کار باید بعد از شروع باشد')
   output.lateDays=integer(input.lateDays,0,365);output.pastDays=integer(input.pastDays,0,365)
@@ -138,7 +143,8 @@ function validatePolicy(input:Row):Policy {
     const v=object(raw), from=date(v.from),to=date(v.to)
     if(from>to||!['month','quarter','half','year','custom'].includes(v.kind)||!['draft','open','closed'].includes(v.status))
       throw new HttpError(400,'بازه یا وضعیت دوره معتبر نیست')
-    return {id:entityId(v.id),label:text(v.label,150,true),kind:v.kind,from,to,status:v.status,finalization:text(v.finalization,2000,true)}
+    return {id:entityId(v.id),label:text(v.label,150,true),kind:v.kind,from,to,status:v.status,finalization:text(v.finalization,2000,true),
+      ...validatePeriodExtras(v,from,to)}
   })
   for(const entries of [output.categories,output.indicators,output.periods])if(new Set(entries.map(v=>v.id)).size!==entries.length)
     throw new HttpError(400,'شناسه تکراری در تنظیمات وجود دارد')
@@ -159,7 +165,12 @@ export async function handlePerformancePolicy(request:Request,auth:AuthContext,p
   const sub=path.slice(prefix.length)
   const access=await scope(auth)
   if(sub==='/access'&&request.method==='GET')return json(request,{review:access.org||access.direct.size>0,
-    settings:access.grants.has(codes.settings)||access.grants.has(codes.access),configure:access.grants.has(codes.settings),grants:access.grants.has(codes.access),export:access.grants.has(codes.export)})
+    settings:[codes.settings,codes.access,codes.evalSettings,codes.evalTemplates,codes.evalIndicators].some(code=>access.grants.has(code)),
+    configure:access.grants.has(codes.settings),grants:access.grants.has(codes.access),export:access.grants.has(codes.export),
+    periodic:!!access.direct.size&&(access.grants.has(codes.evalView)||access.grants.has(codes.evalWrite))
+      ||[codes.evalOrg,codes.evalApprove,codes.evalPublish,codes.evalReopen,codes.evalAppeals].some(code=>access.grants.has(code)),
+    organization:access.grants.has(codes.evalOrg),periodPolicy:access.grants.has(codes.evalSettings),
+    templates:access.grants.has(codes.evalTemplates),indicators:access.grants.has(codes.evalIndicators)})
   if(sub==='/grants'&&access.grants.has(codes.access)){
     if(request.method==='GET'){
       const id=url.searchParams.get('user')
@@ -179,7 +190,8 @@ export async function handlePerformancePolicy(request:Request,auth:AuthContext,p
       check(result.error);return json(request,{saved:true})
     }
   }
-  if(sub!==''||!access.grants.has(codes.settings))throw new HttpError(403,'مجوز مدیریت تنظیمات لازم است')
+  if(sub!==''||![codes.settings,codes.evalSettings,codes.evalTemplates,codes.evalIndicators].some(code=>access.grants.has(code)))
+    throw new HttpError(403,'مجوز مدیریت تنظیمات لازم است')
   if(request.method==='GET'){
     const requested=url.searchParams.get('date')
     const version=url.searchParams.get('version')
@@ -188,7 +200,7 @@ export async function handlePerformancePolicy(request:Request,auth:AuthContext,p
       const found=await db.from('performance_policy_versions').select('policy,effective_date').eq('tenant_id',auth.tenantId).eq('id',version).maybeSingle()
       check(found.error)
       if(!found.data)throw new HttpError(404,'نسخه تنظیمات یافت نشد')
-      return json(request,{policy:found.data.policy,effectiveDate:found.data.effective_date,today:today()})
+      return json(request,{policy:{...defaults,...found.data.policy,evaluation:readEvaluationRules(found.data.policy.evaluation)},effectiveDate:found.data.effective_date,today:today()})
     }
     const versions=await db.from('performance_policy_versions').select('id,effective_date,created_at,created_by,Users(FirstName,LastName,Username)').eq('tenant_id',auth.tenantId).order('created_at',{ascending:false}).limit(100)
     check(versions.error)
@@ -198,9 +210,46 @@ export async function handlePerformancePolicy(request:Request,auth:AuthContext,p
   if(request.method==='POST'){
     const input=object(await body(request)),when=date(input.effectiveDate)
     if(when<today())throw new HttpError(400,'تاریخ اجرا باید امروز یا بعد از آن باشد')
-    const policy=validatePolicy(object(input.policy))
-    // A disabled historical category is preserved with its existing identifier.
     const previous=await policyAt(auth,when)
+    const raw=object(input.policy),policy=validatePolicy(raw)
+    if(raw.dailyReminders===undefined)policy.dailyReminders=previous.dailyReminders
+    policy.evaluation=raw.evaluation===undefined?previous.evaluation:validateEvaluationRules(raw.evaluation)
+    const normalized=(v:unknown):string=>JSON.stringify(v,(_,value)=>value&&typeof value==='object'&&!Array.isArray(value)?
+      Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]])):value)
+    const same=(a:unknown,b:unknown)=>normalized(a)===normalized(b)
+    const requireChange=(permission:string,a:unknown,b:unknown)=>{
+      if(!same(a,b)&&!access.grants.has(permission))throw new HttpError(403,'مجوز تغییر این قسمت از تنظیمات را ندارید')
+    }
+    const daily=(p:Policy)=>{const {evaluation,indicators,periods,...rest}=p;return rest}
+    const rules=(p:Policy)=>{const {templates,assignments,...rest}=p.evaluation;return rest}
+    const basePeriods=(p:Policy)=>p.periods.map(({finalizedAt,...period})=>({...period,templates:period.templates??[],changeReason:period.changeReason??''}))
+    requireChange(codes.settings,daily(policy),daily(previous))
+    requireChange(codes.evalIndicators,policy.indicators,previous.indicators)
+    requireChange(codes.evalTemplates,[policy.evaluation.templates,policy.evaluation.assignments],[previous.evaluation.templates,previous.evaluation.assignments])
+    requireChange(codes.evalSettings,[rules(policy),basePeriods(policy)],[rules(previous),basePeriods(previous)])
+    // Preserve period identity and keep a separately authorized, reasoned reopen.
+    for(const old of previous.periods){
+      const current=policy.periods.find(p=>p.id===old.id)
+      if(!current&&old.status!=='draft')throw new HttpError(409,'دوره‌ای که فعال یا بسته شده قابل حذف نیست')
+      if(!current)continue
+      if(old.status!=='draft'&&(old.from!==current.from||old.to!==current.to||old.kind!==current.kind))
+        throw new HttpError(409,'بازه و نوع دوره پس از فعال‌شدن ثابت است')
+      if(old.status==='closed'&&current.status!=='closed'&&(!access.grants.has(codes.evalReopen)||!current.changeReason||current.changeReason===old.changeReason))
+        throw new HttpError(403,'بازگشایی دوره به مجوز و دلیل جدید نیاز دارد')
+      if(old.status!=='draft'&&current.status==='draft')throw new HttpError(409,'این دوره به پیش‌نویس بازنمی‌گردد')
+      if(old.status==='open'&&current.status==='closed'){
+        if(when<=old.to)throw new HttpError(409,'بازهٔ دوره هنوز پایان نیافته است')
+        const unclosed=await db.from('PerformanceEvaluations').select('Id',{head:true,count:'exact'}).eq('TenantId',auth.tenantId)
+          .eq('EvaluationPeriodKey',old.id).eq('IsDeleted',false).neq('EvaluationState','closed')
+        check(unclosed.error)
+        if(unclosed.count)throw new HttpError(409,'ابتدا ارزیابی‌های باز این دوره را مختومه کنید')
+      }
+      current.finalizedAt=current.status==='closed'?(old.finalizedAt??new Date().toISOString()):undefined
+    }
+    for(const current of policy.periods){
+      if(current.status==='closed'&&!current.finalizedAt)current.finalizedAt=new Date().toISOString()
+      if(current.templates?.some(id=>!policy.evaluation.templates.some(t=>t.id===id)))throw new HttpError(400,'الگوی مجاز دوره معتبر نیست')
+    }
     for(const entry of previous.categories)if(!policy.categories.some(value=>value.id===entry.id))policy.categories.push({...entry,active:false})
     const result=await db.from('performance_policy_versions').insert({tenant_id:auth.tenantId,effective_date:when,policy,created_by:auth.userId})
     check(result.error);return json(request,{saved:true},201)

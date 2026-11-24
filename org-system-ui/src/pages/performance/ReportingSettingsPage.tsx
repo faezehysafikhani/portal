@@ -3,21 +3,26 @@ import { Alert, Button, Card, Checkbox, Input, InputNumber, Select, Space, Spin,
 import PersianDatePicker from '../../components/PersianDatePicker'
 import { apiFetch } from '../../utils/api'
 import { dateToJalali, formatJalaliDate, jalaliToDate } from '../../utils/jalali'
+import { EvaluationRulesEditor, TemplatesEditor, periodKinds } from './PeriodicSettingsEditor'
+import type { Period, Rules } from './periodic-model'
 
 const api='http://localhost:5043/api/v1/performance/config'
 const boolLabels={
   enabled:'ثبت گزارش روزانه فعال باشد',required:'ارسال گزارش در روز کاری الزامی باشد',allowRevision:'کارمند بتواند گزارش در انتظار بررسی را برای اصلاح باز کند',
   allowPast:'ثبت فعالیت برای روزهای گذشته مجاز باشد',requireDescription:'شرح فعالیت الزامی باشد',requireTime:'ثبت زمان الزامی باشد',
   allowManual:'ثبت مدت بدون ساعت شروع و پایان مجاز باشد',requireOutcome:'خروجی برای فعالیت تکمیل‌شده الزامی باشد',allowEmpty:'گزارش بدون فعالیت با ذکر دلیل مجاز باشد',
+  dailyReminders:'اعلان یادآوری گزارش روزانه ارسال شود',
 } as const
 type BoolKey=keyof typeof boolLabels
 interface Category {id:string;label:string;active:boolean}
 interface Indicator {id:string;label:string;description:string;kind:string;unit:string;method:string;audienceKind:string;audience:string;weight:number;active:boolean;from:string}
-interface Period {id:string;label:string;kind:string;from:string;to:string;status:string;finalization:string}
+interface SettingsAccess {configure:boolean;grants:boolean;periodPolicy:boolean;templates:boolean;indicators:boolean}
+const canEdit=(access:SettingsAccess)=>access.configure||access.periodPolicy||access.templates||access.indicators
 type Policy=Record<BoolKey,boolean>&{
   deadline:string;lateDays:number;pastDays:number;workStart:string;workEnd:string;workingDays:number[];useOfficialHolidays:boolean;partialLeaveExempts:boolean;
   organizationHolidays:string[];officialHolidays:string[];exceptions:Record<string,'work'|'off'>;
   categories:Category[];indicators:Indicator[];periods:Period[];
+  evaluation:Rules;
   files:{maxBytes:number;maxCount:number;totalBytes:number;mimes:string[];retentionDays:number};
 }
 interface Version {id:string;effective_date:string;created_at:string;author?:string}
@@ -25,6 +30,12 @@ const permissionLabels:Record<string,string>={
   'performance.reports.organization':'مشاهدهٔ گزارش کل سازمان','performance.reports.approve':'تأیید و برگشت گزارش کل سازمان',
   'performance.reports.download':'دانلود پیوست کل سازمان','performance.settings.manage':'مدیریت تنظیمات',
   'performance.analytics.export':'خروجی Excel','performance.access.manage':'مدیریت مجوزها',
+  'performance.eval.view':'مشاهده ارزیابی زیرمجموعه','performance.eval.write':'ثبت ارزیابی زیرمجموعه',
+  'performance.eval.approve':'نهایی‌سازی ارزیابی','performance.eval.publish':'انتشار و بستن نتیجه',
+  'performance.eval.reopen':'بازگشایی ارزیابی یا دوره','performance.eval.appeals':'رسیدگی به بازبینی',
+  'performance.eval.organization':'گزارش ارزیابی کل سازمان','performance.eval.templates':'مدیریت الگوهای شغلی',
+  'performance.eval.indicators':'مدیریت شاخص‌ها','performance.eval.settings':'مدیریت سیاست و دوره ارزیابی',
+  'performance.eval.adjust':'تعدیل امتیاز کمی','performance.eval.evidence':'دانلود مستندات ارزیابی سازمانی',
 }
 const mimes=[{label:'PDF',value:'application/pdf'},{label:'PNG',value:'image/png'},{label:'JPEG',value:'image/jpeg'},{label:'TXT',value:'text/plain'}]
 const days=[['شنبه',6],['یکشنبه',0],['دوشنبه',1],['سه‌شنبه',2],['چهارشنبه',3],['پنجشنبه',4],['جمعه',5]].map(([label,value])=>({label,value}))
@@ -93,16 +104,16 @@ function PermissionsEditor() {
   </Space>
 }
 export default function ReportingSettingsPage(){
-  const [access,setAccess]=useState<{configure:boolean;grants:boolean}>()
+  const [access,setAccess]=useState<SettingsAccess>()
   const [policy,setPolicy]=useState<Policy>(),[versions,setVersions]=useState<Version[]>([]),[effective,setEffective]=useState<string>(),[serverDay,setServerDay]=useState('')
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[exceptionDate,setExceptionDate]=useState<string>()
   const [exceptionKind,setExceptionKind]=useState<'work'|'off'>('off')
   useEffect(()=>{
     let active=true
-    get<{configure:boolean;grants:boolean}>('/access').then(async access=>{
+    get<SettingsAccess>('/access').then(async access=>{
       if(!active)return
       setAccess(access)
-      if(access.configure){
+      if(canEdit(access)){
         const data=await get<{policy:Policy;versions:Version[];today:string}>()
         if(active){setPolicy(data.policy);setVersions(data.versions);setServerDay(data.today);setEffective(data.today)}
       }
@@ -190,16 +201,23 @@ export default function ReportingSettingsPage(){
         </Space>
       </Card>)}
     </Space>},
+    {key:'rules',label:'سیاست امتیازدهی',children:<EvaluationRulesEditor value={policy.evaluation} onChange={value=>set('evaluation',value)}/>},
+    {key:'templates',label:'الگوهای شغلی',children:<TemplatesEditor value={policy.evaluation} catalog={policy.indicators} today={effective||serverDay} onChange={value=>set('evaluation',value)}/>},
     {key:'periods',label:'دوره‌های ارزیابی',children:<Space direction="vertical" size="middle" style={{width:'100%'}}>
-      <Button onClick={()=>set('periods',[...policy.periods,{id:entryId(),label:'',kind:'month',from:effective||serverDay,to:effective||serverDay,status:'draft',finalization:''}])}>افزودن دوره</Button>
+      <Button onClick={()=>set('periods',[...policy.periods,{id:entryId(),label:'',kind:policy.evaluation.defaultKind,from:effective||serverDay,to:effective||serverDay,status:'draft',finalization:'انتشار پس از بررسی طبق سیاست امتیازدهی'}])}>افزودن دوره</Button>
       {policy.periods.map(item=><Card key={item.id} size="small"><Space align="start" wrap>
         {field('عنوان دوره',<Input value={item.label} onChange={e=>editor('periods',item.id,{label:e.target.value})}/>)}
-        {field('نوع دوره',<Select value={item.kind} options={template([['month','ماهانه'],['quarter','فصلی'],['half','شش‌ماهه'],['year','سالانه'],['custom','دلخواه']])} onChange={kind=>editor('periods',item.id,{kind})}/>)}
+        {field('نوع دوره',<Select value={item.kind} options={periodKinds} onChange={kind=>editor('periods',item.id,{kind})}/>)}
         {field('از',<DateInput value={item.from} change={from=>editor('periods',item.id,{from})}/>)}
         {field('تا',<DateInput value={item.to} change={to=>editor('periods',item.id,{to})}/>)}
         {field('وضعیت',<Select value={item.status} options={template([['draft','پیش‌نویس'],['open','فعال'],['closed','بسته']])} onChange={status=>editor('periods',item.id,{status})}/>)}
         {field('سیاست نهایی شدن',<Input.TextArea value={item.finalization} onChange={e=>editor('periods',item.id,{finalization:e.target.value})}/>)}
-        <Button danger onClick={()=>set('periods',policy.periods.filter(p=>p.id!==item.id))}>حذف از این نسخه</Button>
+        {field('مهلت ثبت مدیر',<DateInput value={item.managerDue} change={managerDue=>editor('periods',item.id,{managerDue})}/>)}
+        {field('مهلت اعلام نظر کارمند',<DateInput value={item.employeeDue} change={employeeDue=>editor('periods',item.id,{employeeDue})}/>)}
+        {field('الگوهای مجاز دوره',<Select mode="multiple" value={item.templates??[]} style={{minWidth:170}} placeholder="همه الگوهای فعال"
+          onChange={templates=>editor('periods',item.id,{templates})} options={policy.evaluation.templates.map(t=>({value:t.id,label:t.label}))}/>)}
+        {field('دلیل بستن یا بازگشایی',<Input.TextArea value={item.changeReason} onChange={e=>editor('periods',item.id,{changeReason:e.target.value})}/>)}
+        {item.status==='draft'&&<Button danger onClick={()=>set('periods',policy.periods.filter(p=>p.id!==item.id))}>حذف از این نسخه</Button>}
       </Space></Card>)}
     </Space>},
     {key:'files',label:'فایل‌های پیوست',children:<Space direction="vertical" size="middle">
@@ -215,12 +233,18 @@ export default function ReportingSettingsPage(){
       {title:'ثبت در',dataIndex:'created_at',render:(v:string)=>new Date(v).toLocaleString('fa-IR',{timeZone:'Asia/Tehran'})},
       {title:'ثبت‌کننده',dataIndex:'author'},{title:'عملیات',render:(_,v)=><Button size="small" onClick={()=>void loadVersion(v.id)}>دیدن این نسخه</Button>},
     ]}/>},
-  ]:[]
+  ].filter(item=>{
+    if(item.key==='versions')return true
+    if(item.key==='indicators')return access?.indicators
+    if(item.key==='templates')return access?.templates
+    if(['periods','rules'].includes(item.key))return access?.periodPolicy
+    return access?.configure
+  }):[]
   return <div dir="rtl"><Card title="تنظیمات ارزیابی عملکرد">
     <Space direction="vertical" size="middle" style={{width:'100%'}}>
       {error&&<Alert type="error" showIcon message={error}/>}
       {!access&&!error&&<Spin/>}
-      {access&&!access.configure&&!access.grants&&<Alert type="warning" message="مجوز تنظیمات ارزیابی عملکرد را ندارید."/>}
+      {access&&!canEdit(access)&&!access.grants&&<Alert type="warning" message="مجوز تنظیمات ارزیابی عملکرد را ندارید."/>}
       {policy&&effective&&<Space wrap>
         <span>تاریخ اجرای نسخه</span><DateInput value={effective} change={setEffective}/>
         <Button onClick={()=>void loadDate(effective)} disabled={busy}>بارگذاری نسخهٔ این تاریخ</Button>

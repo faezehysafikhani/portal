@@ -83,11 +83,12 @@ async function reportData(auth:AuthContext,access:Scope,employees:Awaited<Return
   reports.sort((a,b)=>b.date.localeCompare(a.date)||String(a.employeeName).localeCompare(String(b.employeeName),'fa'))
   return {reports,days,activities:includeActivities?activities:[]}
 }
-async function loadTasks(auth:AuthContext,ids:string[],from:string,to:string,includeFiles:boolean){
+async function loadTasks(auth:AuthContext,ids:string[],from:string,to:string,includeFiles:boolean,includeHistoricalDeliveries=false){
   if(!ids.length)return []
   const rows=await all(o=>db.from('Tasks').select('Id,Title,DueDate,CreatedAt,Status,Progress,AssignedToUserId,AssignmentState,CompletionRequestedAt,CompletionApprovedAt,IsCompletionApproved')
     .eq('TenantId',auth.tenantId).eq('IsDeleted',false).in('AssignedToUserId',ids).order('Id').range(o,o+399))
-  const tasks=rows.filter(t=>inPeriod(t.DueDate,from,to)||inPeriod(t.CreatedAt,from,to)||inPeriod(t.CompletionApprovedAt,from,to)||inPeriod(t.CompletionRequestedAt,from,to))
+  const relevant=(t:Row)=>inPeriod(t.DueDate,from,to)||inPeriod(t.CreatedAt,from,to)||inPeriod(t.CompletionApprovedAt,from,to)||inPeriod(t.CompletionRequestedAt,from,to)
+  const tasks=includeHistoricalDeliveries?rows:rows.filter(relevant)
   const logs:Row[]=[],files:Row[]=[]
   for(let i=0;i<tasks.length;i+=100){
     const keys=tasks.slice(i,i+100).map(t=>t.Id)
@@ -100,10 +101,11 @@ async function loadTasks(auth:AuthContext,ids:string[],from:string,to:string,inc
     logs.push(...history);files.push(...attachments)
   }
   const hist=group(logs,l=>l.TaskId), attachments=group(files,f=>f.task_id)
-  return tasks.map(t=>{
+  return tasks.flatMap(t=>{
     const logs=hist.get(t.Id)??[]
     const submits=logs.filter(l=>['assignment_submit','CompletionRequested'].includes(l.Action))
     const first=submits[0]?.CreatedAt??t.CompletionRequestedAt
+    if(includeHistoricalDeliveries&&!relevant(t)&&!inPeriod(first,from,to))return []
     const edits=logs.filter(l=>['assignment_edit','assignment_extend_approve'].includes(l.Action))
     const deadlineChange=edits.filter(l=>stamp(l.CreatedAt)>stamp(first)).map(l=>{
       try{return JSON.parse(l.DetailsJson??'{}').before?.DueDate}catch{return null}
@@ -112,14 +114,14 @@ async function loadTasks(auth:AuthContext,ids:string[],from:string,to:string,inc
     const cancelled=t.AssignmentState==='cancelled'||t.Status===4
     const approved=t.AssignmentState==='approved'||t.IsCompletionApproved||(!t.AssignmentState&&t.Status===3)
     const late=!cancelled&&!!t.DueDate&&(first?stamp(first)>stamp(firstDeadline):!approved&&t.Status!==2&&Date.now()>stamp(t.DueDate))
-    return {id:t.Id,title:t.Title,employee:t.AssignedToUserId,due:t.DueDate,created:t.CreatedAt,progress:t.Progress,state:t.AssignmentState??['new','active','review','approved','cancelled'][t.Status],
+    return [{id:t.Id,title:t.Title,employee:t.AssignedToUserId,due:t.DueDate,created:t.CreatedAt,progress:t.Progress,state:t.AssignmentState??['new','active','review','approved','cancelled'][t.Status],
       first,firstDeadline,cancelled,approved,approvedAt:t.CompletionApprovedAt,late,
       returns:logs.filter(l=>['assignment_return','CompletionRejected'].includes(l.Action)).length,
       extensions:logs.filter(l=>l.Action==='assignment_extend_approve').length,
       feedback:includeFiles?logs.filter(l=>['assignment_return','CompletionRejected','assignment_submit'].includes(l.Action)).flatMap(l=>{
         try{const data=JSON.parse(l.DetailsJson??'{}');return data.note?[{action:l.Action,date:l.CreatedAt,note:data.note}]:[]}catch{return []}
       }):[],
-      outputs:(attachments.get(t.Id)??[]).filter(f=>submits.some(l=>l.Id===f.event_id))}
+      outputs:(attachments.get(t.Id)??[]).filter(f=>submits.some(l=>l.Id===f.event_id))}]
   })
 }
 export function summarize(employees:Row[],reports:Row[],days:Row[],activities:Row[],tasks:Row[],from:string,to:string){
@@ -146,6 +148,20 @@ export function summarize(employees:Row[],reports:Row[],days:Row[],activities:Ro
       completionRate:pct(due.filter(t=>t.approved&&inPeriod(t.approvedAt,from,to)).length,due.length),
       onTimeRate:pct(delivered.filter(t=>stamp(t.first)<=stamp(t.firstDeadline)).length,delivered.length)}
   })
+}
+export function periodMetrics(employee:Row,reports:Row[],days:Row[],activities:Row[],tasks:Row[],from:string,to:string){
+  const [stats]=summarize([employee],reports,days,activities,tasks,from,to)
+  const delivered=tasks.filter(t=>!t.cancelled&&t.firstDeadline&&inPeriod(t.first,from,to))
+  const waiting=tasks.reduce((n,t)=>n+(t.first&&(t.approvedAt||t.state==='review')?
+    Math.max(0,Math.round(((t.approvedAt?stamp(t.approvedAt):Date.now())-stamp(t.first))/60000)):0),0)
+  return {...stats,onTimeRate:pct(delivered.filter(t=>stamp(t.first)<=stamp(t.firstDeadline)).length,delivered.length),
+    projectCount:activities.filter(a=>!!a.projectId).length,nonProjectCount:activities.filter(a=>!a.projectId).length,waitingMinutes:waiting,
+    sources:activities.filter(a=>a.submitted&&a.outcome).slice(0,30).map(a=>({title:a.title,project:a.project,task:a.task,date:a.date,outcome:a.outcome}))}
+}
+export async function periodPerformance(auth:AuthContext,access:Scope,employee:string,from:string,to:string){
+  const people=await persons(auth,access,employee)
+  const [report,tasks]=await Promise.all([reportData(auth,access,people,from,to,true),loadTasks(auth,[employee],from,to,false,true)])
+  return periodMetrics(people[0],report.reports,report.days,report.activities,tasks,from,to)
 }
 const translateStatus:Record<string,string>={approved:'تأییدشده',submitted:'در انتظار بررسی',returned:'نیازمند اصلاح',missing:'ارسال‌نشده'}
 function xlsx(data:Row){

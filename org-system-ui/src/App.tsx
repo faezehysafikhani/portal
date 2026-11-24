@@ -75,6 +75,8 @@ const PTMSDocumentsPage = lazyWithRecovery('ptms-documents', () => import('./pag
 const DailyPerformancePage = lazyWithRecovery('performance-daily', () => import('./pages/performance/DailyPerformancePage'))
 const PerformanceInsightsPage = lazyWithRecovery('performance-insights', () => import('./pages/performance/PerformanceInsightsPage'))
 const ReportingSettingsPage = lazyWithRecovery('performance-settings', () => import('./pages/performance/ReportingSettingsPage'))
+const PeriodicEvaluationPage = lazyWithRecovery('performance-periodic', () => import('./pages/performance/PeriodicEvaluationPage'))
+const OrganizationEvaluationReportsPage = lazyWithRecovery('performance-organization', () => import('./pages/performance/PeriodicEvaluationPage').then(module=>({default:module.OrganizationEvaluationReportsPage})))
 const ManagerTaskAssignmentsPage = lazyWithRecovery('performance-assignments', () =>
   import('./pages/performance/TaskAssignmentsPanel').then(module => ({default:module.ManagerTaskAssignmentsPage})))
 
@@ -133,6 +135,8 @@ function App() {
           <Route path="/performance/history" element={<PerformanceRedirect to="/performance/reports" />} />
           <Route path="/performance/review" element={<DailyPerformancePage />} />
           <Route path="/performance/team" element={<PerformanceInsightsPage />} />
+          <Route path="/performance/evaluations" element={<PeriodicEvaluationPage />} />
+          <Route path="/performance/management-reports" element={<OrganizationEvaluationReportsPage />} />
           <Route path="/performance/settings" element={<ReportingSettingsPage />} />
           <Route path="/performance/*" element={<Navigate to="/performance/me" replace />} />
           <Route path="/letters" element={<LettersPage />} />

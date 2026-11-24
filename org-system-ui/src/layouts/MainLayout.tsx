@@ -22,6 +22,8 @@ export default function MainLayout() {
   const [canReviewPerformance, setCanReviewPerformance] = useState(false)
   const [canConfigurePerformance, setCanConfigurePerformance] = useState(false)
   const [canAssignPerformance, setCanAssignPerformance] = useState(false)
+  const [canEvaluatePerformance, setCanEvaluatePerformance] = useState(false)
+  const [canViewEvaluationReports, setCanViewEvaluationReports] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const [user,setUser]=useState<{ id?: string; username?: string; roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
@@ -37,6 +39,7 @@ export default function MainLayout() {
         if(response.ok&&!controller.signal.aborted){
           const access=await response.json()
           setCanReviewPerformance(Boolean(access.review));setCanConfigurePerformance(Boolean(access.settings))
+          setCanEvaluatePerformance(Boolean(access.periodic));setCanViewEvaluationReports(Boolean(access.organization))
         }
       })
       .catch(()=>{})
@@ -84,6 +87,8 @@ export default function MainLayout() {
       {key:'/performance/reports',icon:<CalendarOutlined/>,label:'گزارش‌های من'},
       ...(canReviewPerformance ? [{key:'/performance/review',icon:<AuditOutlined/>,label:'کارتابل تأیید گزارش‌های روزانه'},
         {key:'/performance/team',icon:<BarChartOutlined/>,label:'عملکرد کارکنان'}] : []),
+      ...(canEvaluatePerformance ? [{key:'/performance/evaluations',icon:<AuditOutlined/>,label:'ارزیابی دوره‌ای کارکنان'}] : []),
+      ...(canViewEvaluationReports ? [{key:'/performance/management-reports',icon:<FileTextOutlined/>,label:'گزارش‌های مدیریتی و سازمانی'}] : []),
       ...(canConfigurePerformance ? [{key:'/performance/settings',icon:<SettingOutlined/>,label:'تنظیمات ارزیابی عملکرد'}] : []),
     ]},
     ...(allowed('tickets.view') ? [{ key: '/tickets', icon: <CustomerServiceOutlined />, label: 'تیکت‌ها' }] : []),
@@ -144,6 +149,8 @@ export default function MainLayout() {
       '/performance/reports': 'گزارش‌های من',
       '/performance/review': 'کارتابل تأیید گزارش‌های روزانه',
       '/performance/team': 'عملکرد کارکنان',
+      '/performance/evaluations': 'ارزیابی دوره‌ای کارکنان',
+      '/performance/management-reports': 'گزارش‌های مدیریتی و سازمانی',
       '/performance/settings': 'تنظیمات ارزیابی عملکرد',
     }
     return titles[location.pathname] || 'سامانه سازمانی'
