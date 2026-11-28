@@ -58,7 +58,7 @@ function validated(action: string, input: Row): Row {
     if (startsAt>dueAt) throw new HttpError(400,'مهلت انجام باید بعد از تاریخ شروع باشد')
     Object.assign(data,{employeeId:input.employeeId,projectId:input.projectId || null,startsAt,dueAt,
       dueHasTime:input.dueHasTime===true,title:string(input.title,200,true),description:string(input.description,8000,true),
-      outcome:string(input.outcome,4000,true),notes:string(input.notes,4000),priority:integer(input.priority,3)})
+      outcome:string(input.outcome,4000),notes:string(input.notes,4000),priority:integer(input.priority,3)})
   }
   if (['progress','submit'].includes(action)) data.progress=integer(input.progress,100)
   if (action==='extend') Object.assign(data,{dueAt:moment(input.dueAt),dueHasTime:input.dueHasTime===true})
@@ -81,7 +81,7 @@ async function get(auth: AuthContext,id: string): Promise<{task:Row;manage:boole
   const task=result.data as unknown as Row | null
   if (!task) throw new HttpError(404,'وظیفه یافت نشد')
   const own=task.AssignedToUserId===auth.userId
-  const manage=admin(auth)||(task.AssignedByUserId===auth.userId&&(await team(auth)).some(member=>member.id===task.AssignedToUserId))
+  const manage=admin(auth)||(await team(auth)).some(member=>member.id===task.AssignedToUserId)
   if (!own && !manage) throw new HttpError(404,'وظیفه یافت نشد')
   return {task,manage,own}
 }
@@ -124,7 +124,7 @@ async function listTasks(auth: AuthContext,own: boolean) {
   for(let offset=0;;offset+=500) {
     let query=db.from('Tasks').select(taskFields).eq('TenantId',auth.tenantId).eq('IsDeleted',false).not('AssignmentState','is',null)
     if (own) query=query.eq('AssignedToUserId',auth.userId)
-    else if (!admin(auth)) query=query.eq('AssignedByUserId',auth.userId).in('AssignedToUserId',direct.map(member=>member.id))
+    else if (!admin(auth)) query=query.in('AssignedToUserId',direct.map(member=>member.id))
     const result=await query.order('CreatedAt',{ascending:false}).order('Id').range(offset,offset+499)
     check(result.error)
     const rows=(result.data??[]) as unknown as Row[]

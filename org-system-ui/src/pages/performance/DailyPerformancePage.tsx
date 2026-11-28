@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Statistic, Table, Tabs, Tag, Timeline, TimePicker, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Descriptions, Form, Input, InputNumber, Modal, Row, Select, Space, Spin, Statistic, Table, Tabs, Tag, Timeline, TimePicker, message } from 'antd'
 import { CalendarOutlined, DownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import dayjs, { type Dayjs } from 'dayjs'
@@ -149,6 +149,12 @@ export default function DailyPerformancePage() {
   const kinds={...baselineKinds,...Object.fromEntries((policy?.categories??[]).map(c=>[c.id,c.label]))}
   const categories=policy?.categories.filter(c=>c.active||c.id===editing?.activity?.kind).map(c=>({value:c.id,label:c.label}))??optionsOf(baselineKinds)
   const policyDate=editing?.date??selectedDate
+  useEffect(()=>{
+    if(!editing||editing.activity||!policy)return
+    const active=policy.categories.filter(c=>c.active)
+    if(active.some(c=>c.id===form.getFieldValue('kind')))return
+    form.setFieldValue('kind',active.find(c=>c.id==='internal')?.id??active[0]?.id)
+  },[editing,form,policy])
   useEffect(()=>{
     if(!editing||!policy||timeMode!=='manual'||policy.allowManual)return
     if(!editing.activity || editing.activity.minutes===0)form.setFieldValue('timeMode',policy.requireTime?'intervals':'none')
@@ -337,6 +343,9 @@ export default function DailyPerformancePage() {
   const canLogSelectedDate=policy?.enabled!==false&&selectedDate<=options.today&&editable(selectedReport?.status)
   const canAdd=canLogSelectedDate&&(pastDays===0||(policy?.allowPast!==false&&(!policy?.pastDays||pastDays<=policy.pastDays)))
 
+  const outputField=<Form.Item name="outcome" label="نتیجه یا خروجی کار" rules={[{required:policy?.requireOutcome&&activityState==='done',whitespace:policy?.requireOutcome&&activityState==='done'}]}>
+    <Input.TextArea maxLength={2000}/>
+  </Form.Item>
   return <Space direction="vertical" size="middle" style={{width:'100%'}} dir="rtl">
     {page==='tasks' && <TaskAssignmentsPanel/>}
     {isMine&&<PublishedEvaluationSummary/>}
@@ -442,16 +451,7 @@ export default function DailyPerformancePage() {
             <PersianDatePicker disabled={!!editing?.activity} value={editing?shamsi(editing.date):undefined}
               onChange={d=>setEditing(current=>current?{...current,date:isoDate(jalaliToDate(d))}:current)}/>
           </Form.Item></Col>
-          <Col xs={24} md={12}><Form.Item name="kind" label="نوع فعالیت" rules={[{required:true}]}><Select options={categories}/></Form.Item></Col>
-          <Col xs={24} md={12}><Form.Item name="status" label="وضعیت انجام" rules={[{required:true}]}><Select options={optionsOf(activityStatus)}/></Form.Item></Col>
           <Col xs={24}><Form.Item name="description" label="شرح فعالیت" rules={[{required:policy?.requireDescription!==false,whitespace:policy?.requireDescription!==false}]}><Input.TextArea rows={3} maxLength={4000}/></Form.Item></Col>
-          <Col xs={24} md={12}><Form.Item name="taskId" label="وظیفه مرتبط">
-            <Select showSearch optionFilterProp="label" allowClear options={options.tasks.map(t=>({value:t.Id,label:t.Title}))}
-              onChange={value=>form.setFieldValue('projectId',options.tasks.find(t=>t.Id===value)?.ProjectId ?? undefined)}/>
-          </Form.Item></Col>
-          <Col xs={24} md={12}><Form.Item name="projectId" label="پروژه مرتبط" extra={linkedTask?'پروژه از وظیفه خوانده می‌شود.':undefined}>
-            <Select showSearch optionFilterProp="label" allowClear disabled={!!linkedTask} options={options.projects.map(p=>({value:p.Id,label:p.Name}))}/>
-          </Form.Item></Col>
         </Row>
         <Form.Item name="timeMode" label="روش ثبت زمان"><Select options={[
           ...(policy?.allowManual===false?[]:[{value:'manual',label:'مدت به‌صورت دستی'}]),
@@ -471,8 +471,6 @@ export default function DailyPerformancePage() {
           <Form.Item name="hours" label="ساعت"><InputNumber min={0} max={24} precision={0}/></Form.Item>
           <Form.Item name="minutesPart" label="دقیقه"><InputNumber min={0} max={59} precision={0}/></Form.Item>
         </Space>}
-        <Form.Item name="outcome" label="نتیجه یا خروجی کار" rules={[{required:policy?.requireOutcome&&activityState==='done',whitespace:policy?.requireOutcome&&activityState==='done'}]}><Input.TextArea maxLength={2000}/></Form.Item>
-        <Form.Item name="notes" label="توضیحات تکمیلی"><Input.TextArea maxLength={2000}/></Form.Item>
         <Form.Item label="پیوست‌ها" extra={`حداکثر ${fa(policy?.files.maxCount??5)} فایل، هر فایل ${fa((policy?.files.maxBytes??1048576)/1024)} کیلوبایت`}>
           <input key={editing?.id} type="file" multiple disabled={policy?.files.maxCount===0} accept={policy?.files.mimes.join(',')??'.pdf,.jpg,.jpeg,.png,.txt'} onChange={e=>{
             const picked=Array.from(e.target.files ?? [])
@@ -486,6 +484,22 @@ export default function DailyPerformancePage() {
           {editing?.activity?.performance_daily_attachments.filter(f=>!removed.includes(f.id)).map(f=>
             <div key={f.id}><Button type="link" onClick={()=>void download(f)}>{f.name}</Button><Button size="small" danger onClick={()=>setRemoved(v=>[...v,f.id])}>حذف از فعالیت</Button></div>)}
         </Form.Item>
+        {policy?.requireOutcome&&activityState==='done'&&outputField}
+        <Collapse items={[{key:'advanced',label:'جزئیات تکمیلی',forceRender:true,children:<>
+          <Row gutter={12}>
+          <Col xs={24} md={12}><Form.Item name="kind" label="نوع فعالیت" rules={[{required:true}]}><Select options={categories}/></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="status" label="وضعیت انجام" rules={[{required:true}]}><Select options={optionsOf(activityStatus)}/></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="taskId" label="وظیفه مرتبط">
+            <Select showSearch optionFilterProp="label" allowClear options={options.tasks.map(t=>({value:t.Id,label:t.Title}))}
+              onChange={value=>form.setFieldValue('projectId',options.tasks.find(t=>t.Id===value)?.ProjectId ?? undefined)}/>
+          </Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="projectId" label="پروژه مرتبط" extra={linkedTask?'پروژه از وظیفه خوانده می‌شود.':undefined}>
+            <Select showSearch optionFilterProp="label" allowClear disabled={!!linkedTask} options={options.projects.map(p=>({value:p.Id,label:p.Name}))}/>
+          </Form.Item></Col>
+          </Row>
+          {policy?.requireOutcome&&activityState==='done'?null:outputField}
+          <Form.Item name="notes" label="توضیحات تکمیلی"><Input.TextArea maxLength={2000}/></Form.Item>
+        </>}]}/>
       </Form>
     </Modal>
     <Modal title="جزئیات گزارش روزانه" open={detailLoading||!!detail} onCancel={()=>setDetail(undefined)} footer={null} width={1050}>

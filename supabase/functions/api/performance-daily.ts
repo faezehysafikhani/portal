@@ -2,12 +2,12 @@ import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { body, HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { canDownload, canReview, codes, policyAt, reportingDays, scope, type Policy } from './performance-policy.ts'
+import { organizationPeople } from './organization.ts'
 
 type Row = Record<string, any>
 const db = adminClient()
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(v)
 const today = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tehran', dateStyle: 'short' }).format(new Date())
-const name = (user: Row) => `${user.FirstName ?? ''} ${user.LastName ?? ''}`.trim() || user.Username
 const list = (value: unknown): string[] => { try { const parsed = JSON.parse(String(value ?? '[]')); return Array.isArray(parsed) ? parsed : [] } catch { return [] } }
 const check = (error: { message: string } | null) => {
   if (error) { console.error(error.message); throw new HttpError(500,'خطا در دریافت یا ذخیره اطلاعات عملکرد') }
@@ -27,11 +27,6 @@ function text(value: unknown, limit: number, required = false) {
   const result = String(value ?? '').trim()
   if (result.length > limit || (required && !result)) throw new HttpError(400,'فیلدهای اجباری و طول متن را بررسی کنید')
   return result
-}
-async function people(auth: AuthContext): Promise<Row[]> {
-  const result = await db.from('Users').select('Id,Username,FirstName,LastName,DirectManager,Position').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('IsActive',true)
-  check(result.error)
-  return result.data ?? []
 }
 async function myTasks(auth: AuthContext, id?: string): Promise<Row[]> {
   let query = db.from('Tasks').select('Id,Title,Description,AssignedByUserId,AssignedToUserId,AssigneeUserIdsJson,ProjectId,ProjectIdsJson,CreatedAt,DueDate,Priority,Status,Progress,AssignmentState')
@@ -150,11 +145,11 @@ export async function handleDailyPerformance(request: Request, auth: AuthContext
     const [tasks,projects,users,policy] = await Promise.all([
       myTasks(auth),
       db.from('Projects').select('Id,Name').eq('TenantId',auth.tenantId).eq('IsDeleted',false).eq('Status',0).order('Name'),
-      people(auth),
+      organizationPeople(auth),
       policyAt(auth),
     ])
     check(projects.error)
-    const names = new Map(users.map(u => [u.Id,name(u)]))
+    const names = new Map(users.map(u => [u.id,u.full_name]))
     return json(request,{today:today(),projects:projects.data,policy:activityPolicy(policy),tasks:tasks.map(task=>({...task,AssignedByName:names.get(task.AssignedByUserId), ProjectId:task.ProjectId ?? list(task.ProjectIdsJson).find(uuid) ?? null}))})
   }
   if(route==='/policy'&&method==='GET')return json(request,activityPolicy(await policyAt(auth,date(url.searchParams.get('date')))))
@@ -172,8 +167,8 @@ export async function handleDailyPerformance(request: Request, auth: AuthContext
     if (to) query = query.lte('work_date',date(to))
     const result = await query.order('work_date',{ascending:false}).order('created_at',{ascending:false}).limit(250)
     check(result.error)
-    const users = review ? await people(auth) : []
-    const ids = new Map(users.map(u=>[u.Id,name(u)]))
+    const users = review ? await organizationPeople(auth) : []
+    const ids = new Map(users.map(u=>[u.id,u.full_name]))
     return json(request,(result.data??[]).map(row=>({...row,employee_name:ids.get(row.employee_id)})))
   }
   if (route==='/calendar' && method==='GET') {
@@ -202,12 +197,14 @@ export async function handleDailyPerformance(request: Request, auth: AuthContext
         db.from('performance_daily_history').select('*').eq('report_id',report.id).order('created_at'),
       ])
       check(items.error);check(history.error)
-      const names = new Map((await people(auth)).map(u=>[u.Id,name(u)]))
+      const people = new Map((await organizationPeople(auth)).map(u=>[u.id,u]))
+      const currentManager=people.get(people.get(report.employee_id)?.manager_id??'')
+      const reviewerName=report.status==='submitted'?(currentManager?.active?currentManager.full_name:undefined):people.get(report.reviewed_by)?.full_name
       const access=await scope(auth), policy=await policyAt(auth,report.work_date), own=report.employee_id===auth.userId
       const downloadable=own||canDownload(access,report.employee_id)
-      return json(request,{...report,employee_name:names.get(report.employee_id),reviewer_name:names.get(report.reviewed_by),activities:items.data,
+      return json(request,{...report,employee_name:people.get(report.employee_id)?.full_name,reviewer_name:reviewerName,activities:items.data,
         categories:policy.categories,can_download:downloadable,can_reopen:own&&policy.enabled&&policy.allowRevision&&report.status==='submitted',
-        history:(history.data??[]).map(row=>({...row,actor_name:names.get(row.created_by)})),can_review:!own&&canReview(access,report.employee_id)})
+        history:(history.data??[]).map(row=>({...row,actor_name:people.get(row.created_by)?.full_name})),can_review:!own&&canReview(access,report.employee_id)})
     }
     if (reportMatch[2]==='activities' && method==='PUT') {
       if (report.employee_id!==auth.userId) throw new HttpError(404,'گزارش یافت نشد')

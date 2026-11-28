@@ -2,8 +2,9 @@ import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { HttpError, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { jalaliDateString } from '../_shared/jalali.ts'
-import { canDownload, canReview, check, codes, localDay, name, policyAt, range, reportingDays, scope, today, uuid, type Scope } from './performance-policy.ts'
+import { canDownload, canReview, check, codes, localDay, policyAt, range, reportingDays, scope, today, uuid, type Scope } from './performance-policy.ts'
 import { workbook } from './performance-workbook.ts'
+import { organizationPeople } from './organization.ts'
 
 type Row=Record<string,any>
 const db=adminClient()
@@ -28,12 +29,12 @@ const group=(items:Row[],key:(a:Row)=>string)=>{
 }
 async function persons(auth:AuthContext,access:Scope,employee:string|null){
   if(employee&&(!uuid(employee)||(!access.org&&!access.direct.has(employee))))throw new HttpError(404,'کارمند یافت نشد')
-  let query=db.from('Users').select('Id,FirstName,LastName,Username,Department,Position,DirectManager,IsActive').eq('TenantId',auth.tenantId).eq('IsDeleted',false)
-  if(employee)query=query.eq('Id',employee)
-  else if(!access.org)query=query.in('Id',[...access.direct])
-  const result=await query.order('FirstName');check(result.error)
-  if(employee&&!result.data?.length)throw new HttpError(404,'کارمند یافت نشد')
-  return (result.data??[]).map(u=>({id:u.Id,name:name(u),position:u.Position,department:u.Department,manager:u.DirectManager,active:u.IsActive}))
+  const organization=await organizationPeople(auth)
+  const people=organization.filter(p=>employee?p.id===employee:access.org||access.direct.has(p.id))
+  if(employee&&!people.length)throw new HttpError(404,'کارمند یافت نشد')
+  const byId=new Map(organization.map(p=>[p.id,p]))
+  return people.map(p=>({id:p.id,name:p.full_name,position:p.position,department:p.department,
+    manager:byId.get(p.manager_id??'')?.full_name??null,active:p.active})).sort((a,b)=>a.name.localeCompare(b.name,'fa'))
 }
 function withReportTime(r:Row,current:number){
   const history=(r.performance_daily_history??[]) as Row[]

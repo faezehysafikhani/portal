@@ -3,7 +3,6 @@ import { Alert, AutoComplete, Card, Tabs, Form, Select, Switch, Tag, Space, Row,
 import { PlusOutlined, EditOutlined, SettingOutlined, BankOutlined, TeamOutlined, UploadOutlined, DeleteOutlined, CalendarOutlined, RobotOutlined, ApiOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { usePermissionStore } from '../store/permissionStore'
-import { useSettingsStore } from '../store/settingsStore'
 import RegistrySettingsPage from './RegistrySettingsPage'
 import OrgChartPage from './OrgChartPage'
 import CompanyPage from './CompanyPage'
@@ -40,7 +39,6 @@ export default function SettingsPage() {
   const location=useLocation()
   const navigate=useNavigate()
   const { companyMode, setCompanyMode } = usePermissionStore()
-  const { departments, addDepartment, removeDepartment } = useSettingsStore()
   const signedInUser=(()=>{try{return JSON.parse(localStorage.getItem('user')||'{}')}catch{return {}}})()
   const grantedPermissions:string[]=(()=>{try{return JSON.parse(localStorage.getItem('permissions')||'[]')}catch{return []}})()
   const isAdmin=Array.isArray(signedInUser.roles)&&signedInUser.roles.includes('Admin')
@@ -51,13 +49,10 @@ export default function SettingsPage() {
   const initialTab=resolveActiveTab()
   const [activeTab,setActiveTab]=useState(initialTab)
   useEffect(()=>{setActiveTab(resolveActiveTab())},[location.pathname,location.search])
-  const [positions,setPositions]=useState<{id:string;title:string;isSystem:boolean}[]>([])
   const [calendars, setCalendars] = useState<CalendarItem[]>(INITIAL_CALENDARS)
   const [calendarModal, setCalendarModal] = useState(false)
   const [editingCalendar, setEditingCalendar] = useState<CalendarItem | null>(null)
   const [calendarForm] = Form.useForm()
-  const [newDept, setNewDept] = useState('')
-  const [newPos, setNewPos] = useState('')
   const [smsForm]=Form.useForm(),[smsTestForm]=Form.useForm()
   const smsProvider=Form.useWatch('providerName',smsForm)||'Kavenegar'
   const [smsHasApiKey,setSmsHasApiKey]=useState(false)
@@ -115,10 +110,7 @@ export default function SettingsPage() {
     }
     setLetterTemplates(data)
   }
-  const loadPositions=async()=>{const r=await fetch(`${api}/positions`,{headers:headers()});if(r.ok)setPositions(await r.json());else message.error(`سمت‌ها دریافت نشدند — خطای ${r.status}`)}
-  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){const isKavenegar=String(x.apiUrl||'').includes('api.kavenegar.com')||String(x.providerName||'').toLowerCase()==='kavenegar';smsForm.setFieldsValue({...x,providerName:isKavenegar?'Kavenegar':x.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':x.apiUrl});setSmsHasApiKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/security-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x)securityForm.setFieldsValue(x)}).catch(()=>{});void loadPositions();void loadLetterTemplates()},[canViewSettings])
-  const createPosition=async()=>{const title=newPos.trim();if(!title)return;const r=await fetch(`${api}/positions`,{method:'POST',headers:headers(),body:JSON.stringify({title,parentId:null,color:'#1677ff'})});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'ثبت سمت ناموفق بود');return}setNewPos('');message.success('سمت در دیتابیس ذخیره شد');await loadPositions()}
-  const deletePosition=async(id:string)=>{const r=await fetch(`${api}/positions/${id}`,{method:'DELETE',headers:headers()});if(!r.ok){message.error((await r.json().catch(()=>({}))).message||'حذف سمت ناموفق بود');return}await loadPositions()}
+  useEffect(()=>{if(!canViewSettings)return;fetch(`${api}/sms-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){const isKavenegar=String(x.apiUrl||'').includes('api.kavenegar.com')||String(x.providerName||'').toLowerCase()==='kavenegar';smsForm.setFieldsValue({...x,providerName:isKavenegar?'Kavenegar':x.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':x.apiUrl});setSmsHasApiKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/ai-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x){aiForm.setFieldsValue(x);setAiHasKey(!!x.hasApiKey)}}).catch(()=>{});fetch(`${api}/security-settings`,{headers:headers()}).then(r=>r.ok?r.json():null).then(x=>{if(x)securityForm.setFieldsValue(x)}).catch(()=>{});void loadLetterTemplates()},[canViewSettings])
   const saveSms=async(showSuccess=true)=>{const v=await smsForm.validateFields();const isKavenegar=String(v.apiUrl||'').includes('api.kavenegar.com')||String(v.providerName||'').toLowerCase()==='kavenegar';const normalized={...v,providerName:isKavenegar?'Kavenegar':v.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':v.apiUrl};const r=await fetch(`${api}/sms-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(normalized)});const result=await r.json().catch(()=>({}));if(!r.ok){message.error(result.message||'خطا در ذخیره تنظیمات');return false}setSmsHasApiKey(previous=>previous||!!v.apiKey);smsForm.setFieldsValue({providerName:isKavenegar?'Kavenegar':v.providerName,apiUrl:isKavenegar?'https://api.kavenegar.com/v1/':v.apiUrl,apiKey:''});if(showSuccess)message.success(result.message||'تنظیمات پیامک ذخیره شد');return true}
   const testSms=async()=>{setSmsTesting(true);try{if(!await saveSms(false))return;const v=await smsTestForm.validateFields();const r=await fetch(`${api}/sms-settings/test`,{method:'POST',headers:headers(),body:JSON.stringify(v)});const result=await r.json().catch(()=>({}));r.ok?message.success(result.message||'پیامک آزمایشی ارسال شد'):message.error(result.message||'ارسال ناموفق')}finally{setSmsTesting(false)}}
   const saveAi=async()=>{const v=await aiForm.validateFields();const r=await fetch(`${api}/ai-settings`,{method:'PUT',headers:headers(),body:JSON.stringify(v)});const result=await r.json().catch(()=>({}));if(!r.ok){message.error(result.message||'ذخیره تنظیمات AI انجام نشد');return}setAiHasKey(previous=>previous||!!v.apiKey);aiForm.setFieldValue('apiKey','');message.success(result.message)}
@@ -248,46 +240,11 @@ export default function SettingsPage() {
           </Col>
 
           <Col xs={24} md={12}>
-            <Card title="دپارتمان‌ها">
-              <div style={{ marginBottom: 8 }}>
-                {departments.map(dept => (
-                  <Tag key={dept} closable onClose={() => removeDepartment(dept)} style={{ marginBottom: 8 }}>{dept}</Tag>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <Input
-                  size="small" placeholder="دپارتمان جدید" value={newDept}
-                  onChange={e => setNewDept(e.target.value)}
-                  onPressEnter={() => { if (newDept.trim()) { addDepartment(newDept.trim()); setNewDept('') } }}
-                  style={{ width: 150 }}
-                />
-                <Button size="small" icon={<PlusOutlined />}
-                  onClick={() => { if (newDept.trim()) { addDepartment(newDept.trim()); setNewDept('') } }}>
-                  افزودن
-                </Button>
-              </div>
-            </Card>
-          </Col>
-
-          <Col xs={24} md={12}>
-            <Card title="سمت‌های سازمانی">
-              <div style={{ marginBottom: 8 }}>
-                {positions.map(pos => (
-                  <Tag key={pos.id} closable={!pos.isSystem} onClose={() => void deletePosition(pos.id)} style={{ marginBottom: 8 }}>{pos.title}</Tag>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <Input
-                  size="small" placeholder="سمت جدید" value={newPos}
-                  onChange={e => setNewPos(e.target.value)}
-                  onPressEnter={() => void createPosition()}
-                  style={{ width: 150 }}
-                />
-                <Button size="small" icon={<PlusOutlined />}
-                  onClick={() => void createPosition()}>
-                  افزودن
-                </Button>
-              </div>
+            <Card title="واحدها و سمت‌های سازمانی">
+              <Space wrap>
+                <Button onClick={()=>navigate('/org-chart?org=departments')}>مدیریت واحدها</Button>
+                <Button onClick={()=>navigate('/org-chart?org=positions')}>مدیریت سمت‌ها</Button>
+              </Space>
             </Card>
           </Col>
 
@@ -466,7 +423,7 @@ export default function SettingsPage() {
   const usersInner = [
     { key: 'users-list', label: <span><TeamOutlined/> مدیریت کاربران</span>, children: <UsersPage/> },
     ...(isAdmin ? [{ key: 'login-audit', label: <span><HistoryOutlined/> تاریخچه ورود</span>, children: <LoginAuditPage/> }] : []),
-    ...(canViewSettings && byKey['6'] ? [byKey['6']] : []),
+    ...((canViewSettings||allowed('positions.view')||allowed('users.view')) && byKey['6'] ? [byKey['6']] : []),
   ]
 
   const visibleTabItems = [

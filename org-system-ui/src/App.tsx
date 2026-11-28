@@ -51,6 +51,7 @@ const SmsPage = lazyWithRecovery('sms', () => import('./pages/SmsPage'))
 const FormsPage = lazyWithRecovery('forms', () => import('./pages/FormsPage'))
 const ReportsPage = lazyWithRecovery('reports', () => import('./pages/ReportsPage'))
 const SettingsPage = lazyWithRecovery('settings', () => import('./pages/SettingsPage'))
+const OrgChartPage = lazyWithRecovery('org-chart', () => import('./pages/OrgChartPage'))
 const ContactsPage = lazyWithRecovery('contacts', () => import('./pages/ContactsPage'))
 const AiPage = lazyWithRecovery('ai', () => import('./pages/AiPage'))
 const ProjectsPage = lazyWithRecovery('projects', () => import('./pages/ProjectsPage'))
@@ -157,6 +158,7 @@ function App() {
           <Route path="/forms/approvals" element={<FormsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/org-chart" element={<OrgChartPage />} />
           <Route path="/settings/company" element={<SettingsPage />} />
           <Route path="/settings/users" element={<SettingsPage />} />
           <Route path="/company" element={<Navigate to="/settings/company" replace />} />

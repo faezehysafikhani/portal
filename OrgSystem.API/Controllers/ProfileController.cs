@@ -37,7 +37,7 @@ public class ProfileController(AppDbContext db):ControllerBase
         var mobile=Digits(request.PhoneNumber);if(mobile.Length>0&&(mobile.Length is<10 or>15||!mobile.All(char.IsDigit)))return BadRequest(new{message="موبایل باید فقط عدد باشد"});
         var fixedPhone=Digits(request.FixedPhone);if(fixedPhone.Length>0&&(fixedPhone.Length is<7 or>15||!fixedPhone.All(char.IsDigit)))return BadRequest(new{message="تلفن ثابت باید فقط عدد باشد"});
         var parts=fullName.Split(' ',StringSplitOptions.RemoveEmptyEntries);var user=await db.Users.FirstOrDefaultAsync(x=>x.Id==UserId);if(user==null)return NotFound();
-        user.FirstName=parts[0];user.LastName=string.Join(' ',parts.Skip(1));user.Email=request.Email?.Trim().ToLowerInvariant()??user.Email;user.PhoneNumber=mobile.Length>0?mobile:null;user.FixedPhone=fixedPhone.Length>0?fixedPhone:null;user.Department=request.Department?.Trim();user.Position=request.Position?.Trim();user.Address=request.Address?.Trim();await db.SaveChangesAsync();return Ok(Dto(user));
+        user.FirstName=parts[0];user.LastName=string.Join(' ',parts.Skip(1));user.Email=request.Email?.Trim().ToLowerInvariant()??user.Email;user.PhoneNumber=mobile.Length>0?mobile:null;user.FixedPhone=fixedPhone.Length>0?fixedPhone:null;user.Address=request.Address?.Trim();await db.SaveChangesAsync();return Ok(Dto(user));
     }
 
     [HttpPut("avatar")]

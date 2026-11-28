@@ -60,7 +60,7 @@ export default function ProfilePage() {
     const values = await personalForm.validateFields(); setLoading(true)
     const response = await apiFetch(`${API}/profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
       fullName: values.fullName, email: values.email, phoneNumber: values.mobile, fixedPhone: values.phone,
-      department: values.department, position: values.position, address: values.address
+      address: values.address
     }) })
     const data = await response.json().catch(() => ({})); setLoading(false)
     if (!response.ok) return message.error(data.message || 'ذخیره اطلاعات انجام نشد')
@@ -103,8 +103,8 @@ export default function ProfilePage() {
         <Col xs={24} md={12}><Form.Item name="email" label="ایمیل" rules={[{ type: 'email' }, safeRule]}><Input disabled={!editing} maxLength={150} /></Form.Item></Col>
         <Col xs={24} md={12}><Form.Item name="mobile" label="موبایل" rules={[{ pattern: /^\d{10,15}$/, message: 'موبایل باید فقط ۱۰ تا ۱۵ رقم باشد' }]}><Input disabled={!editing} maxLength={15} inputMode="numeric" onChange={e => personalForm.setFieldValue('mobile', digits(e.target.value))} /></Form.Item></Col>
         <Col xs={24} md={12}><Form.Item name="phone" label="تلفن ثابت" rules={[{ pattern: /^\d{7,15}$/, message: 'تلفن باید فقط ۷ تا ۱۵ رقم باشد' }]}><Input disabled={!editing} maxLength={15} inputMode="numeric" onChange={e => personalForm.setFieldValue('phone', digits(e.target.value))} /></Form.Item></Col>
-        <Col xs={24} md={12}><Form.Item name="department" label="واحد سازمانی" rules={[nameRule]}><Input disabled={!editing} maxLength={100} /></Form.Item></Col>
-        <Col xs={24} md={12}><Form.Item name="position" label="سمت" rules={[nameRule]}><Input disabled={!editing} maxLength={100} /></Form.Item></Col>
+        <Col xs={24} md={12}><Form.Item name="department" label="واحد سازمانی"><Input readOnly /></Form.Item></Col>
+        <Col xs={24} md={12}><Form.Item name="position" label="سمت"><Input readOnly /></Form.Item></Col>
         <Col span={24}><Form.Item name="address" label="آدرس" rules={[safeRule]}><Input.TextArea disabled={!editing} rows={3} maxLength={500} showCount /></Form.Item></Col>
       </Row>
       {!editing ? <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>ویرایش اطلاعات</Button> : <Space>

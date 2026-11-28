@@ -1,0 +1,143 @@
+.org-chart {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.org-chart-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-block-end: 10px;
+}
+
+.org-chart-viewport {
+  position: relative;
+  overflow: hidden;
+  max-width: 100%;
+  border: 1px solid #e7dce8;
+  border-radius: 16px;
+  background: radial-gradient(circle, #ddd3e1 1px, transparent 1.1px) #faf8fb;
+  background-size: 19px 19px;
+  cursor: grab;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.org-chart-viewport.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.org-chart-diagram {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+.org-chart-line {
+  position: absolute;
+  pointer-events: none;
+  background: #a396ac;
+}
+
+.org-chart-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid #e4dce7;
+  border-right: 3px solid #8b1a6b;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 3px 12px #38244612;
+  overflow: hidden;
+}
+
+.org-chart-node.is-selected {
+  border-color: #8b1a6b;
+  box-shadow: 0 0 0 2px #8b1a6b33, 0 6px 16px #3824461a;
+}
+
+.org-chart-node.is-inactive {
+  border-right-color: #9a94a2;
+  background: #f7f5f8;
+}
+
+.org-chart-node-body {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  font: inherit;
+  color: #21203b;
+  cursor: pointer;
+}
+
+.org-chart-node-body .ant-avatar {
+  flex: 0 0 auto;
+  background: #f1e5ef;
+  color: #7a195d;
+}
+
+.org-chart-node-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.org-chart-node-content strong,
+.org-chart-node-content > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.org-chart-node-content > span,
+.org-chart-node-content small {
+  font-size: 12px;
+  color: #5b5168;
+}
+
+.org-chart-toggle {
+  width: 100%;
+  padding: 3px 4px;
+  border: 0;
+  border-top: 1px solid #eee7f0;
+  background: #fcf8fc;
+  color: #731451;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.org-chart-node button:focus-visible {
+  outline: 2px solid #8b1a6b;
+  outline-offset: -3px;
+}
+
+.org-chart-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.org-chart-zoom {
+  position: absolute;
+  inset-inline-end: 12px;
+  bottom: 10px;
+  padding: 2px 8px;
+  border: 1px solid #e4dce7;
+  border-radius: 8px;
+  background: #fff;
+  color: #302440;
+  pointer-events: none;
+}

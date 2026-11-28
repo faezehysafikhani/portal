@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Col, Descriptions, Empty, Form, Input, InputNumber, Modal, Progress, Row, Select, Space, Spin, Statistic, Table, Tag, Timeline, TimePicker, message } from 'antd'
+import { Alert, Button, Card, Col, Collapse, Descriptions, Empty, Form, Input, InputNumber, Modal, Progress, Row, Select, Space, Spin, Statistic, Table, Tag, Timeline, TimePicker, message } from 'antd'
 import { DownloadOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs, { type Dayjs } from 'dayjs'
@@ -154,7 +154,7 @@ export default function TaskAssignmentsPanel({manager=false}:{manager?:boolean})
     setBusy(true)
     try {
       await call(editing.existing?`/${editing.id}`:'',editing.existing?'PATCH':'POST',{
-        id:editing.id,action:'edit',...values,startsAt:dateTime(values.start,undefined,true),dueAt:dateTime(values.due,values.dueTime),
+        id:editing.id,action:'edit',...values,startsAt:dateTime(values.start||today(),undefined,true),dueAt:dateTime(values.due,values.dueTime),
         dueHasTime:!!values.dueTime,files:await encodeFiles(files),
       })
       message.success(editing.existing?'تغییرات وظیفه ذخیره شد':'وظیفه واگذار شد')
@@ -259,6 +259,11 @@ export default function TaskAssignmentsPanel({manager=false}:{manager?:boolean})
             <Select showSearch optionFilterProp="label" disabled={!!editing?.existing}
               options={options.employees.map(e=>({value:e.id,label:[e.name,e.position].filter(Boolean).join(' — ')}))}/>
           </Form.Item></Col>
+          <Col xs={12} md={6}><Form.Item name="due" label="مهلت انجام" rules={[{required:true}]}><PersianDatePicker/></Form.Item></Col>
+          <Col xs={12} md={6}><Form.Item name="priority" label="اولویت" rules={[{required:true}]}><Select options={priorityOptions}/></Form.Item></Col>
+        </Row>
+        <Collapse items={[{key:'advanced',label:'جزئیات تکمیلی',forceRender:true,children:<>
+          <Row gutter={12}>
           <Col xs={24} md={12}><Form.Item name="projectId" label="پروژه مرتبط">
             <Select allowClear showSearch optionFilterProp="label" options={[
               ...options.projects.map(p=>({value:p.id,label:p.name})),
@@ -266,14 +271,13 @@ export default function TaskAssignmentsPanel({manager=false}:{manager?:boolean})
                 ?[{value:editing.existing.ProjectId,label:editing.existing.projectName||'پروژهٔ فعلی'}]:[]),
             ]}/>
           </Form.Item></Col>
-          <Col xs={12} md={6}><Form.Item name="start" label="تاریخ شروع" rules={[{required:true}]}><PersianDatePicker/></Form.Item></Col>
-          <Col xs={12} md={6}><Form.Item name="due" label="مهلت انجام" rules={[{required:true}]}><PersianDatePicker/></Form.Item></Col>
+          <Col xs={12} md={6}><Form.Item name="start" label="تاریخ شروع"><PersianDatePicker/></Form.Item></Col>
           <Col xs={12} md={6}><Form.Item name="dueTime" label="ساعت مهلت"><TimePicker format="HH:mm" style={{width:'100%'}}/></Form.Item></Col>
-          <Col xs={12} md={6}><Form.Item name="priority" label="اولویت" rules={[{required:true}]}><Select options={priorityOptions}/></Form.Item></Col>
-        </Row>
-        <Form.Item name="outcome" label="خروجی مورد انتظار" rules={[{required:true,whitespace:true}]}><Input.TextArea maxLength={4000}/></Form.Item>
+          </Row>
+        <Form.Item name="outcome" label="خروجی مورد انتظار"><Input.TextArea maxLength={4000}/></Form.Item>
         <Form.Item name="notes" label="توضیحات تکمیلی"><Input.TextArea maxLength={4000}/></Form.Item>
         {editing&&<FileInput key={editing.id} onChange={setFiles}/>}
+        </>}]}/>
       </Form>
     </Modal>
     <Modal title={detail?.Title||'جزئیات وظیفه'} open={!!taskId} onCancel={close} footer={null} width={1020}>

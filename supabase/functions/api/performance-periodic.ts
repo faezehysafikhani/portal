@@ -2,11 +2,12 @@ import { adminClient, AuthContext } from '../_shared/auth.ts'
 import { HttpError, body, json } from '../_shared/http.ts'
 import { corsHeaders } from '../_shared/cors.ts'
 import { jalaliDateString } from '../_shared/jalali.ts'
-import { check, codes, date, name, policyAt, scope, text, today, uuid, type Scope } from './performance-policy.ts'
+import { check, codes, date, policyAt, scope, text, today, uuid, type Scope } from './performance-policy.ts'
 import { pickTemplate, type Period, type Template } from './performance-evaluation-config.ts'
 import { periodPerformance } from './performance-insights.ts'
 import { validatePerformanceFile } from './performance-daily.ts'
 import { workbook } from './performance-workbook.ts'
+import { organizationPeople } from './organization.ts'
 
 type Row=Record<string,any>
 const db=adminClient(),dayMs=86400000
@@ -16,7 +17,6 @@ const object=(v:unknown):Row=>v&&typeof v==='object'&&!Array.isArray(v)?v as Row
 const key=(v:unknown):string=>typeof v==='string'&&/^[-a-z0-9_]{1,80}$/.test(v)?v:invalid('شناسه معتبر نیست')
 const numeric=(v:unknown,max=100)=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=max?v:invalid('امتیاز یا درصد باید بین صفر و ۱۰۰ باشد')
 const score=(v:unknown)=>Math.round(numeric(v)*100)/100
-const person=(r:Row)=>({id:r.Id,name:name(r),department:r.Department,position:r.Position,manager:r.DirectManager,active:!!r.IsActive})
 const baseSelection='Id,UserId,ReviewerUserId,FinalScore,EvaluationPeriodKey,EvaluationState,EvaluationVersion,EvaluationData,EvaluationPublication,EvaluationPublishedAt,EvaluationSeenAt,EvaluationEmployeeNote,FinalizedAt,UpdatedAt,CreatedAt'
 const directView=(access:Scope,id:string)=>access.direct.has(id)&&(access.grants.has(codes.evalView)||access.grants.has(codes.evalWrite))
 const managerWrite=(access:Scope,id:string)=>access.direct.has(id)&&access.grants.has(codes.evalWrite)
@@ -30,11 +30,11 @@ function managerCanRead(access:Scope,r:Row) {
 const hasQueue=(access:Scope)=>[codes.evalApprove,codes.evalPublish,codes.evalReopen,codes.evalAppeals,codes.evalOrg].some(c=>access.grants.has(c))
 async function people(auth:AuthContext,ids?:string[]){
   if(ids&&!ids.length)return []
-  let q=db.from('Users').select('Id,FirstName,LastName,Username,Department,Position,DirectManager,IsActive').eq('TenantId',auth.tenantId).eq('IsDeleted',false)
-  if(ids)q=q.in('Id',ids)
-  const answer=await q.order('FirstName')
-  check(answer.error)
-  return (answer.data??[]).map(person)
+  const organization=await organizationPeople(auth)
+  const activeManagers=new Set(organization.filter(p=>p.active).map(p=>p.id))
+  return organization.filter(p=>!ids||ids.includes(p.id)).map(p=>({id:p.id,name:p.full_name,
+    department:p.department??undefined,position:p.position??undefined,manager:p.manager_id&&activeManagers.has(p.manager_id)?p.manager_id:undefined,
+    active:p.active})).sort((a,b)=>a.name.localeCompare(b.name,'fa'))
 }
 async function list(auth:AuthContext,params:{mine?:boolean;period?:string;employee?:string}){
   const output:Row[]=[]

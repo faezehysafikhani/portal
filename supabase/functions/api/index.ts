@@ -12,6 +12,7 @@ import { handleReports } from './reports.ts'
 import { handlePerformance, findReviewerFor, notifyHrAdmins } from './performance.ts'
 import { handleProjects, projectExists } from './projects.ts'
 import { handleTimesheets } from './timesheets.ts'
+import { handleOrganization, organizationError, organizationPeople } from './organization.ts'
 import { createNotification, notificationType } from '../_shared/notifications.ts'
 
 type JsonObject = Record<string, unknown>
@@ -906,27 +907,16 @@ async function positions(request: Request, auth: AuthContext, path: string): Pro
     failOnDb(result.error)
     return json(request, asCamel(result.data))
   }
-  const rawInput = request.method === 'DELETE' ? {} : await body<JsonObject>(request)
-  const input = pascalize(rawInput, ['Title', 'Description', 'ParentId', 'Color', 'OrgId'])
-  if (request.method === 'POST' && !match) {
-    requirePermission(auth, 'positions.create')
-    const title = String(input.Title ?? '').trim()
-    if (!title) throw new HttpError(400, 'عنوان سمت الزامی است')
-    const result = await db.from('OrgPositions').insert({
-      ...baseInsert(auth), ...input, Title: title,
-      Color: String(input.Color ?? '#1677ff'), OrgId: String(input.OrgId ?? '1'), IsSystem: false,
-    }).select().single()
-    failOnDb(result.error); return json(request, asCamel(result.data), 201)
-  }
-  if (request.method === 'PUT' && match) {
-    requirePermission(auth, 'positions.edit')
-    const result = await db.from('OrgPositions').update({ ...input, UpdatedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1]).select().maybeSingle()
-    failOnDb(result.error); if (!result.data) throw new HttpError(404, 'سمت یافت نشد'); return json(request, asCamel(result.data))
-  }
-  if (request.method === 'DELETE' && match) {
-    requirePermission(auth, 'positions.delete')
-    const result = await db.from('OrgPositions').update({ IsDeleted: true, DeletedAt: now() }).eq('TenantId', auth.tenantId).eq('Id', match[1])
-    failOnDb(result.error); return new Response(null, { status: 204, headers: corsHeaders(request) })
+  const action=request.method==='POST'&&!match?'create':request.method==='PUT'&&match?'edit':request.method==='DELETE'&&match?'delete':null
+  if(action){
+    requirePermission(auth,'positions.'+action)
+    const raw=action==='delete'?{}:await body<JsonObject>(request)
+    if(raw.isActive!==undefined&&typeof raw.isActive!=='boolean')throw new HttpError(400,'وضعیت سمت معتبر نیست')
+    const patch=pascalize(raw,['Title','ParentId','Color','OrgId','IsActive'])
+    const result=await db.rpc('organization_save_position',{p_tenant:auth.tenantId,p_actor:auth.userId,p_id:match?.[1]??null,p_patch:patch,p_delete:action==='delete'})
+    organizationError(result.error)
+    if(action==='delete')return new Response(null,{status:204,headers:corsHeaders(request)})
+    return json(request,asCamel(result.data),action==='create'?201:200)
   }
   throw new HttpError(405, 'عملیات پشتیبانی نمی‌شود')
 }
@@ -987,7 +977,7 @@ async function profile(request: Request, auth: AuthContext, path: string): Promi
     const names = String(input.fullName ?? '').trim().split(/\s+/)
     if (names[0]) update.FirstName = names[0]
     if (names.length > 1) update.LastName = names.slice(1).join(' ')
-    Object.assign(update, pascalize(input, ['Email', 'PhoneNumber', 'FixedPhone', 'Department', 'Position', 'Address']))
+    Object.assign(update, pascalize(input, ['Email', 'PhoneNumber', 'FixedPhone', 'Address']))
   }
   const result = await db.from('Users').update(update).eq('TenantId', auth.tenantId).eq('Id', auth.userId).select().single()
   failOnDb(result.error); return json(request, path === '/profile/avatar' ? { avatarUrl: result.data.AvatarUrl } : profileDto(result.data))
@@ -1082,9 +1072,9 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     if (!current.data) throw new HttpError(404, 'کاربر یافت نشد')
     if (String(current.data.Username).toLowerCase() === 'admin') throw new HttpError(400, 'تغییر وضعیت حساب مدیر سیستمی مجاز نیست')
     const desiredStatus = typeof input.isActive === 'boolean' ? input.isActive : !Boolean(current.data.IsActive)
-    const result = await db.from('Users').update({ IsActive: desiredStatus, UpdatedAt: now() })
-      .eq('TenantId', auth.tenantId).eq('Id', toggleMatch[1]).eq('IsDeleted', false).select('Id,IsActive').maybeSingle()
-    failOnDb(result.error)
+    const result=await db.rpc('organization_update_user',{p_tenant:auth.tenantId,p_actor:auth.userId,p_user:toggleMatch[1],
+      p_patch:{IsActive:desiredStatus}}).select('Id,IsActive').maybeSingle()
+    organizationError(result.error)
     if (!result.data) throw new HttpError(404, 'کاربر یافت نشد')
     if (!result.data.IsActive) await revokeUserSessions(auth.tenantId, toggleMatch[1])
     return json(request, { message: result.data.IsActive ? 'کاربر فعال شد' : 'کاربر غیرفعال شد', isActive: Boolean(result.data.IsActive) })
@@ -1095,12 +1085,16 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     failOnDb(result.error)
     const links = await db.from('UserPermissions').select('UserId').eq('TenantId', auth.tenantId).eq('IsDeleted', false)
     failOnDb(links.error)
+    const organization = new Map((await organizationPeople(auth)).map(person=>[person.id,person]))
     const permissionCounts = new Map<string, number>()
     for (const link of links.data ?? []) {
       permissionCounts.set(link.UserId, (permissionCounts.get(link.UserId) ?? 0) + 1)
     }
     return json(request, (result.data ?? []).map((user) => ({
       ...profileDto(user),
+      directManager: user.DirectManager, hrManager: user.HrManager,
+      directManagerId: organization.get(user.Id)?.manager_id,
+      directManagerName: organization.get(organization.get(user.Id)?.manager_id??'')?.full_name,
       permissionCount: String(user.Username).toLowerCase() === 'admin' ? null : (permissionCounts.get(user.Id) ?? 0),
     })))
   }
@@ -1118,13 +1112,16 @@ async function users(request: Request, auth: AuthContext, path: string): Promise
     if (pwProblem) throw new HttpError(400, pwProblem)
     const row = { ...baseInsert(auth), ...pascalize(input, userFields), PasswordHash: await bcrypt.hash(String(input.password ?? ''), 12), PasswordChangedAt: now(), IsActive: true, FailedLoginCount: 0, IsTwoFactorEnabled: false }
     const result = await db.from('Users').insert(row).select().single()
+    if(result.error?.message.startsWith('org_'))organizationError(result.error)
     failOnDb(result.error, 'نام کاربری یا ایمیل تکراری است'); return json(request, profileDto(result.data), 201)
   }
   if (request.method === 'PUT' && userMatch) {
     requirePermission(auth, 'users.edit')
-    const update = { ...pascalize(await body<JsonObject>(request), userFields.filter((x) => x !== 'Username')), UpdatedAt: now() }
-    const result = await db.from('Users').update(update).eq('TenantId', auth.tenantId).eq('Id', userMatch[1]).select().maybeSingle()
-    failOnDb(result.error); if (!result.data) throw new HttpError(404, 'کاربر یافت نشد'); return json(request, profileDto(result.data))
+    const update = pascalize(await body<JsonObject>(request), userFields.filter(x=>x!=='Username'))
+    const result=await db.rpc('organization_update_user',{p_tenant:auth.tenantId,p_actor:auth.userId,p_user:userMatch[1],p_patch:update}).maybeSingle()
+    organizationError(result.error)
+    if(!result.data)throw new HttpError(404,'کاربر یافت نشد')
+    return json(request,profileDto(result.data as JsonObject))
   }
   if (request.method === 'DELETE' && userMatch) {
     requirePermission(auth, 'users.delete')
@@ -1326,6 +1323,8 @@ async function dispatch(request: Request): Promise<Response> {
   if (path.startsWith('/contacts')) return await contacts(request, auth, path, url)
   if (path === '/directory' && request.method === 'GET') return await directory(request, auth)
   if (path.startsWith('/tasks')) return await tasks(request, auth, path, url)
+  const organizationResponse=await handleOrganization(request,auth,path)
+  if(organizationResponse)return organizationResponse
   if (path.startsWith('/positions')) return await positions(request, auth, path)
   if (path.startsWith('/notifications')) return await notifications(request, auth, path)
   if (path.startsWith('/profile')) return await profile(request, auth, path)

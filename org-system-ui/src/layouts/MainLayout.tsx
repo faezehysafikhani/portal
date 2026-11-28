@@ -9,7 +9,7 @@ import {
   InboxOutlined, EditOutlined, BookOutlined,
   SwapOutlined,
   FileTextOutlined, SendOutlined, LeftOutlined, RightOutlined, WarningOutlined, TrophyOutlined, CalendarOutlined,
-  AuditOutlined,
+  AuditOutlined, ApartmentOutlined,
 } from '@ant-design/icons'
 import NotificationDropdown from '../components/NotificationDropdown'
 import ReleaseNotesModal from '../components/ReleaseNotesModal'
@@ -18,7 +18,9 @@ import { apiFetch } from '../utils/api'
 const { Header, Sider, Content } = Layout
 
 export default function MainLayout() {
-  const [collapsed, setCollapsed] = useState(false)
+  const [navCollapsed, setNavCollapsed] = useState(false)
+  const [chartNavExpanded,setChartNavExpanded]=useState(false)
+  const [narrow,setNarrow]=useState(()=>window.matchMedia('(max-width: 600px)').matches)
   const [canReviewPerformance, setCanReviewPerformance] = useState(false)
   const [canConfigurePerformance, setCanConfigurePerformance] = useState(false)
   const [canAssignPerformance, setCanAssignPerformance] = useState(false)
@@ -26,6 +28,14 @@ export default function MainLayout() {
   const [canViewEvaluationReports, setCanViewEvaluationReports] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
+  const narrowChart=narrow&&location.pathname==='/org-chart'
+  const collapsed=narrowChart?!chartNavExpanded:navCollapsed
+  useEffect(()=>{
+    const query=window.matchMedia('(max-width: 600px)')
+    const change=(e:MediaQueryListEvent)=>setNarrow(e.matches)
+    query.addEventListener('change',change)
+    return()=>query.removeEventListener('change',change)
+  },[])
   const [user,setUser]=useState<{ id?: string; username?: string; roles?: string[]; avatarUrl?: string; fullName?: string }>(()=>JSON.parse(localStorage.getItem('user') || '{}'))
   useEffect(()=>{const sync=()=>setUser(JSON.parse(localStorage.getItem('user')||'{}'));window.addEventListener('profile-updated',sync);return()=>window.removeEventListener('profile-updated',sync)},[])
   useEffect(()=>{const name=sessionStorage.getItem('welcome-user');if(name){sessionStorage.removeItem('welcome-user');notification.success({message:`کاربر ${name}، خوش آمدید`,description:'ورود شما به سامانه با موفقیت انجام شد.',placement:'topLeft'})}},[])
@@ -104,7 +114,7 @@ export default function MainLayout() {
     ...(allowed('reports.view') ? [{ key: '/reports', icon: <BarChartOutlined />, label: 'گزارشات' }] : []),
     ...(allowed('ai.view') ? [{ key: '/ai', icon: <RobotOutlined />, label: 'دستیار هوشمند' }] : []),
     ...(allowed('chat.view') ? [{ key: '/chat', icon: <MessageOutlined />, label: 'چت داخلی' }] : []),
-   // { key: '/org-chart', icon: <ApartmentOutlined />, label: 'چارت سازمانی' },
+    ...((allowed('positions.view')||allowed('users.view'))?[{key:'/org-chart',icon:<ApartmentOutlined/>,label:'چارت سازمانی'}]:[]),
     ...((allowed('settings.view')||allowed('company.view')||allowed('users.view')) ? [{ key: settingsLanding, icon: <SettingOutlined />, label: 'تنظیمات' }] : []),
   ]
 
@@ -130,6 +140,7 @@ export default function MainLayout() {
       '/chat': 'چت داخلی',
       '/users': 'مدیریت کاربران',
       '/settings': 'تنظیمات',
+      '/org-chart': 'چارت سازمانی',
       '/settings/company': 'تنظیمات — اطلاعات شرکت',
       '/settings/users': 'تنظیمات — مدیریت کاربران',
       '/profile': 'پروفایل کاربری',
@@ -171,7 +182,8 @@ export default function MainLayout() {
       <Sider
         collapsible
         collapsed={collapsed}
-        onCollapse={setCollapsed}
+        onCollapse={value=>narrowChart?setChartNavExpanded(!value):setNavCollapsed(value)}
+        collapsedWidth={narrowChart?58:80}
         trigger={<div style={{height:48,display:'flex',alignItems:'center',justifyContent:'center',gap:collapsed?0:14}}><img src="/portal-mark.jpg" alt="نشان پرتال" style={{width:collapsed?31:38,height:31,objectFit:'contain',borderRadius:6}}/>{collapsed?<LeftOutlined/>:<RightOutlined/>}</div>}
         style={{ background: '#001529', height: '100vh', overflow: 'hidden', position: 'relative' }}
         width={230}
@@ -201,7 +213,7 @@ export default function MainLayout() {
 
       <Layout style={{ height: '100vh', minWidth: 0, overflow: 'hidden' }}>
         <Header style={{
-          background: '#fff', padding: '0 24px',
+          background: '#fff', padding: narrowChart?'0 12px':'0 24px',
           height: 54, lineHeight: '54px',
           display: 'flex', alignItems: 'center',
           justifyContent: 'space-between',
@@ -223,7 +235,7 @@ export default function MainLayout() {
             }}>
               <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Avatar src={user.avatarUrl} icon={<UserOutlined />} style={{ background: '#1677ff' }} />
-                <span>{user.fullName || 'کاربر'}</span>
+                {!narrowChart&&<span>{user.fullName || 'کاربر'}</span>}
               </div>
             </Dropdown>
           </div>

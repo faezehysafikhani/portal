@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Table, Button, Tag, Modal, Form, Input, Select, Space, Avatar, Switch, Tabs, Row, Col, Upload, Collapse, Badge, Checkbox, Card, notification } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, LockOutlined, UploadOutlined, CheckOutlined } from '@ant-design/icons'
-import { useSettingsStore } from '../store/settingsStore'
+import { apiFetch } from '../utils/api'
+import type { Department, Position } from './org-chart-model'
 import { PERMISSION_GROUPS } from '../store/permissionsConfig'
 import PersianDatePicker from '../components/PersianDatePicker'
 
@@ -27,6 +28,8 @@ interface User {
   position?: string
   permissionCount?: number
   directManager?: string
+  directManagerId?: string | null
+  directManagerName?: string
   hrManager?: string
   customPermissions?: Record<string, string[]>
   roles?: { id: string; name: string }[]
@@ -38,8 +41,8 @@ export default function UsersPage() {
   const [roles,setRoles] = useState<any[]>([])
   const [availablePermissions,setAvailablePermissions] = useState<{id:string;code:string;name:string;module:string}[]>([])
   const [selectedPermissionIds,setSelectedPermissionIds] = useState<string[]>([])
-  const { departments } = useSettingsStore()
-  const [orgPositions,setOrgPositions] = useState<{id:string;title:string}[]>([])
+  const [departments,setDepartments] = useState<Department[]>([])
+  const [orgPositions,setOrgPositions] = useState<Position[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -60,14 +63,16 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     try {
       setLoading(true)
-      const [res,permissionRes,positionRes] = await Promise.all([fetch(`${API}/users`, { headers: authHeaders() }),isAdmin?fetch(`${API}/users/permissions`,{headers:authHeaders()}):Promise.resolve(null),fetch(`${API}/positions`,{headers:authHeaders()})])
+      const [res,permissionRes,positionRes,departmentRes] = await Promise.all([fetch(API+'/users', { headers: authHeaders() }),isAdmin?fetch(API+'/users/permissions',{headers:authHeaders()}):Promise.resolve(null),
+        fetch(API+'/positions',{headers:authHeaders()}),fetch(API+'/organization/departments',{headers:authHeaders()})])
       if (!res.ok) throw new Error()
       const data = await res.json()
       setUsers(data)
       if(permissionRes?.ok)setAvailablePermissions(await permissionRes.json())
       else if(isAdmin) notification.error({message:'لیست دسترسی‌ها دریافت نشد',description:`خطای ${permissionRes?.status ?? 'شبکه'} — یک‌بار خارج و دوباره وارد شوید`})
       if(positionRes.ok)setOrgPositions(await positionRes.json())
-      else notification.error({message:'لیست سمت‌های سازمانی دریافت نشد',description:`خطای ${positionRes.status}`})
+      else if(allowed('positions.view'))notification.error({message:'لیست سمت‌های سازمانی دریافت نشد',description:'خطای '+positionRes.status})
+      if(departmentRes.ok)setDepartments(await departmentRes.json())
     } catch {
       notification.error({ message: 'خطا در دریافت کاربران' })
     } finally {
@@ -91,7 +96,7 @@ export default function UsersPage() {
           birthDate: user.birthDate,
           department: user.department,
           position: user.position,
-          directManager: user.directManager,
+          directManager: user.directManagerId??undefined,
           hrManager: user.hrManager,
           signatureDataUrl:user.signatureDataUrl,
           signatureText:user.signatureText,
@@ -136,7 +141,7 @@ export default function UsersPage() {
       }
 
       if (editingUser) {
-        const res = await fetch(`${API}/users/${editingUser.id}`, {
+        const res = await apiFetch(API+'/users/'+editingUser.id, {
           method: 'PUT',
           headers: authHeaders(),
           body: JSON.stringify({
@@ -145,9 +150,9 @@ export default function UsersPage() {
             email: values.email,
             phoneNumber: values.mobile,
             birthDate: values.birthDate,
-            department: values.department,
-            position: values.position,
-            directManager: values.directManager,
+            department: values.department??null,
+            position: values.position??null,
+            ...(values.directManager||editingUser.directManagerId||!editingUser.directManager?{directManager:values.directManager??null}:{}),
             hrManager: values.hrManager,
             signatureDataUrl: values.signatureDataUrl,
             signatureText: values.signatureText,
@@ -169,7 +174,7 @@ export default function UsersPage() {
 
         notification.success({ message: 'کاربر با موفقیت ویرایش شد' })
       } else {
-        const res = await fetch(`${API}/users`, {
+        const res = await apiFetch(API+'/users', {
           method: 'POST',
           headers: authHeaders(),
           body: JSON.stringify({
@@ -207,7 +212,7 @@ export default function UsersPage() {
     if(statusChangingUserId)return
     setStatusChangingUserId(user.id)
     try {
-      const response = await fetch(`${API}/users/${user.id}/toggle-active`, {
+      const response = await apiFetch(API+'/users/'+user.id+'/toggle-active', {
         method: 'PATCH',
         headers: authHeaders(),
         body: JSON.stringify({isActive})
@@ -275,7 +280,7 @@ export default function UsersPage() {
     { title: 'ایمیل', dataIndex: 'email', key: 'email' },
     { title: 'دپارتمان', dataIndex: 'department', key: 'department' },
     { title: 'سمت', dataIndex: 'position', key: 'position' },
-    { title: 'مدیر مستقیم', dataIndex: 'directManager', key: 'directManager', render: (m: string) => m || <Tag color="default">ندارد</Tag> },
+    { title: 'مدیر مستقیم', key: 'directManager', render: (_:unknown,u:User) => u.directManagerName || (u.directManager?<Tag color="orange">نیازمند بررسی</Tag>:<Tag>ندارد</Tag>) },
     {
       title: 'دسترسی‌ها', key: 'permissions',
       render: (_: unknown, r: User) => {
@@ -387,26 +392,26 @@ export default function UsersPage() {
                     <Col xs={24} md={12}>
                       <Form.Item name="department" label="دپارتمان">
                         <Select placeholder="انتخاب دپارتمان" allowClear>
-                          {departments.map(d => <Select.Option key={d} value={d}>{d}</Select.Option>)}
+                          {departments.filter(d=>d.active||d.name===editingUser?.department).map(d => <Select.Option key={d.id} value={d.name}>{d.name}</Select.Option>)}
+                          {editingUser?.department&&!departments.some(d=>d.name===editingUser.department)&&<Select.Option value={editingUser.department}>{editingUser.department}</Select.Option>}
                         </Select>
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
                       <Form.Item name="position" label="سمت">
                         <Select placeholder="انتخاب سمت" allowClear>
-                          {orgPositions.map(p => (
+                          {orgPositions.filter(p=>p.isActive!==false||p.title===editingUser?.position).map(p => (
                             <Select.Option key={p.id} value={p.title}>{p.title}</Select.Option>
                           ))}
+                          {editingUser?.position&&!orgPositions.some(p=>p.title===editingUser.position)&&<Select.Option value={editingUser.position}>{editingUser.position}</Select.Option>}
                         </Select>
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
-                      <Form.Item name="directManager" label="مدیر مستقیم">
-                        <Select allowClear placeholder="انتخاب مدیر مستقیم">
-                          {users.map(u => (
-                            <Select.Option key={u.id} value={u.fullName}>{u.fullName}</Select.Option>
-                          ))}
-                        </Select>
+                      <Form.Item name="directManager" label="مدیر مستقیم" extra={editingUser?.directManager&&!editingUser.directManagerId?'ارجاع قبلی نیازمند بررسی است. با انتخاب مدیر جدید اصلاح می‌شود.':undefined}>
+                        <Select showSearch optionFilterProp="label" allowClear placeholder="انتخاب مدیر مستقیم"
+                          options={users.filter(u=>u.id!==editingUser?.id&&(u.isActive||u.id===editingUser?.directManagerId))
+                            .map(u=>({value:u.id,label:[u.fullName||u.username,u.position].filter(Boolean).join(' · ')}))}/>
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={12}>
